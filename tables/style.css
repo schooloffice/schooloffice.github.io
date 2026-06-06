@@ -59,7 +59,8 @@ body {
   padding: 0 .65rem;
   gap: .5rem;
   flex-shrink: 0;
-  z-index: 40;
+  position: relative;
+  z-index: var(--office-z-header);
 }
 
 .header-left,
@@ -189,7 +190,7 @@ body {
   padding: 0 .35rem;
   flex-shrink: 0;
   position: relative;
-  z-index: 35;
+  z-index: var(--office-z-panel);
 }
 
 .menu-item-wrap {
@@ -230,7 +231,7 @@ body {
   border-radius: .55rem;
   box-shadow: 0 8px 32px rgba(30, 41, 59, .14);
   padding: .3rem;
-  z-index: 200;
+  z-index: var(--office-z-popover);
   animation: menuPop .12s ease-out;
 }
 
@@ -300,8 +301,9 @@ body {
   gap: .15rem;
   padding: 4px .5rem;
   flex-shrink: 0;
-  overflow-x: auto;
-  overflow-y: visible;
+  position: relative;
+  z-index: var(--office-z-toolbar);
+  overflow: visible;
   scrollbar-width: none;
 }
 
@@ -430,7 +432,7 @@ body {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  z-index: 130;
+  z-index: var(--office-z-popover);
   width: 224px;
   padding: 10px;
   border-radius: .55rem;
@@ -507,20 +509,20 @@ body {
 .workspace {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   background: var(--bg);
-  padding: 1rem;
+  padding: 0;
   display: flex;
 }
 
 .sheet-shell {
-  width: min(100%, 1460px);
+  width: 100%;
   flex: 1;
   min-height: 320px;
-  margin: 0 auto;
+  margin: 0;
   background: var(--panel);
-  border-radius: .35rem;
-  box-shadow: var(--shadow);
+  border-radius: 0;
+  box-shadow: none;
   overflow: hidden;
   display: flex;
 }
@@ -799,7 +801,7 @@ th.col-header {
   justify-content: center;
   background: rgba(15, 23, 42, .45);
   backdrop-filter: blur(3px);
-  z-index: 300;
+  z-index: var(--office-z-modal);
 }
 
 .modal-overlay.active {
@@ -1012,8 +1014,7 @@ th.col-header {
     max-width: 160px;
   }
 
-  .menubar,
-  .toolbar {
+  .menubar {
     overflow-x: auto;
   }
 
@@ -1041,7 +1042,7 @@ th.col-header {
   border-radius: .55rem;
   box-shadow: 0 8px 32px rgba(30, 41, 59, .14);
   padding: .3rem;
-  z-index: 260;
+  z-index: var(--office-z-popover);
 }
 
 .header-context-menu .menu-item.danger {

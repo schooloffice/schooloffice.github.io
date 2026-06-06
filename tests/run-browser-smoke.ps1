@@ -19,6 +19,62 @@ function Get-ChromePath {
   throw 'Chrome is not installed in the expected location.'
 }
 
+function Join-ProcessArguments {
+  param([string[]]$ArgumentList)
+
+  return (($ArgumentList | ForEach-Object {
+    if ($_ -match '"') {
+      throw "Process argument contains an unsupported quote: $_"
+    }
+
+    if ($_ -match '\s') { return '"' + $_ + '"' }
+    return $_
+  }) -join ' ')
+}
+
+function Start-SafeProcess {
+  param(
+    [string]$FilePath,
+    [string[]]$ArgumentList,
+    [switch]$Wait,
+    [switch]$CaptureOutput
+  )
+
+  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = $FilePath
+  $startInfo.Arguments = Join-ProcessArguments $ArgumentList
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+
+  if ($CaptureOutput) {
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+  }
+
+  $process = [System.Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  [void]$process.Start()
+
+  if (-not $Wait) { return $process }
+
+  if ($CaptureOutput) {
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+  }
+
+  $process.WaitForExit()
+
+  if ($CaptureOutput) {
+    return [pscustomobject]@{
+      Process = $process
+      Stdout = $stdoutTask.Result
+      Stderr = $stderrTask.Result
+    }
+  }
+
+  return $process
+}
+
 function Wait-ForServer {
   param([int]$PortNumber)
 
@@ -41,38 +97,27 @@ function Invoke-SmokePage {
     [string]$Name
   )
 
-  $runId = [guid]::NewGuid().ToString()
-  $stdoutPath = Join-Path $PSScriptRoot ".browser-smoke.$runId.stdout.txt"
-  $stderrPath = Join-Path $PSScriptRoot ".browser-smoke.$runId.stderr.txt"
+  $result = Start-SafeProcess $chromePath @(
+    '--headless=new',
+    '--disable-gpu',
+    '--disable-crash-reporter',
+    '--no-first-run',
+    "--user-data-dir=$profilePath",
+    "--disk-cache-dir=$cachePath",
+    '--virtual-time-budget=8000',
+    '--dump-dom',
+    $Url
+  ) -Wait -CaptureOutput
 
-  try {
-    $chrome = Start-Process $chromePath -ArgumentList @(
-      '--headless=new',
-      '--disable-gpu',
-      '--disable-crash-reporter',
-      '--no-first-run',
-      "--user-data-dir=$profilePath",
-      "--disk-cache-dir=$cachePath",
-      '--virtual-time-budget=8000',
-      '--dump-dom',
-      $Url
-    ) -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-
-    $dom = Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue
-    $stderr = Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue
-
-    if ($chrome.ExitCode -ne 0) {
-      throw "$Name browser process failed with exit code $($chrome.ExitCode).`n$stderr"
-    }
-
-    if ($dom -notmatch $PassPattern) {
-      throw "$Name failed.`n$dom`n$stderr"
-    }
-
-    Write-Host "$Name passed."
-  } finally {
-    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+  if ($result.Process.ExitCode -ne 0) {
+    throw "$Name browser process failed with exit code $($result.Process.ExitCode).`n$($result.Stderr)"
   }
+
+  if ($result.Stdout -notmatch $PassPattern) {
+    throw "$Name failed.`n$($result.Stdout)`n$($result.Stderr)"
+  }
+
+  Write-Host "$Name passed."
 }
 
 $chromePath = Get-ChromePath
@@ -83,13 +128,13 @@ $cachePath = Join-Path $profilePath 'cache'
 try {
   New-Item -ItemType Directory -Path $profilePath, $cachePath -Force | Out-Null
 
-  $server = Start-Process powershell -ArgumentList @(
+  $server = Start-SafeProcess powershell @(
     '-NoProfile',
     '-ExecutionPolicy', 'Bypass',
     '-File', (Join-Path $PSScriptRoot 'serve-office.ps1'),
     '-Port', $Port,
     '-Root', $Root
-  ) -PassThru -WindowStyle Hidden
+  )
 
   Wait-ForServer -PortNumber $Port
 

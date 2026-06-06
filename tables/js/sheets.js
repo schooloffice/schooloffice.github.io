@@ -67,6 +67,15 @@ function deleteSheet(i) {
   if (sheets.length <= 1) { showInfoModal('Не можна видалити єдиний аркуш.'); return; }
   askConfirm(`Видалити аркуш «${sheets[i].name}»? Дані буде втрачено.`, () => {
     syncActiveSheetFromGlobals();
+    const deletedName = sheets[i].name;
+    for (let sheetIndex = 0; sheetIndex < sheets.length; sheetIndex++) {
+      if (sheetIndex === i) continue;
+      const data = sheets[sheetIndex].cellData;
+      for (const key of Object.keys(data)) {
+        const value = data[key];
+        if (String(value || '').startsWith('=')) data[key] = deleteSheetRefs(value, deletedName);
+      }
+    }
     sheets.splice(i, 1);
     if (activeSheet > i) activeSheet--;
     else if (activeSheet === i) activeSheet = Math.min(i, sheets.length - 1);

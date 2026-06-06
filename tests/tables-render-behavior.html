@@ -42,13 +42,22 @@
       const rows = doc.querySelectorAll('#bodyRows tr');
       const cells = doc.querySelectorAll('#bodyRows td[data-id]');
       const activeCell = doc.getElementById('activeCellRef')?.textContent?.trim();
+      const workspaceStyle = win.getComputedStyle(doc.querySelector('.workspace'));
+      const sheetShellStyle = win.getComputedStyle(doc.querySelector('.sheet-shell'));
+      const menuLayer = Number.parseInt(win.getComputedStyle(doc.querySelector('.menubar')).zIndex, 10);
+      const toolbarLayer = Number.parseInt(win.getComputedStyle(doc.querySelector('.toolbar')).zIndex, 10);
+      const gridHeaderLayer = Number.parseInt(win.getComputedStyle(doc.querySelector('.row-header')).zIndex, 10);
 
       const checks = [
         ['TablesApp boot exported', typeof win.TablesApp?.boot === 'function'],
         ['default columns rendered', headers.length >= 30],
         ['default rows rendered', rows.length >= 60],
         ['default cells rendered', cells.length >= 1800],
-        ['active cell visible', activeCell === 'A1']
+        ['active cell visible', activeCell === 'A1'],
+        ['workspace has no decorative inset', workspaceStyle.padding === '0px'],
+        ['sheet fills workspace without card styling', sheetShellStyle.margin === '0px' && sheetShellStyle.borderRadius === '0px' && sheetShellStyle.boxShadow === 'none'],
+        ['main menu layer stays above grid headers', menuLayer > gridHeaderLayer],
+        ['toolbar popovers layer stays above grid headers', toolbarLayer > gridHeaderLayer]
       ];
 
       // ---- Autofill drag wiring (end-to-end через реальний grid) ----
@@ -153,6 +162,13 @@
       win.TablesStructure.deleteRow(1);
       checks.push(['delete row yields #REF! in dependent formula', doc.getElementById('inp_K4')?.value === '#REF!']);
 
+      // Умовне форматування рухається разом зі структурою аркуша
+      win.TablesConditionalFormatting.clearCondRules();
+      setCell('L2', '1');
+      win.TablesConditionalFormatting.addRule({ range: [11, 2, 11, 2], op: 'lt', v1: 5, v2: null, fill: '#fee2e2' });
+      win.TablesStructure.insertRow(1);
+      checks.push(['conditional rule shifts with inserted row', doc.querySelector('td[data-id="L3"]')?.style.backgroundColor !== '']);
+
       // ---- Кілька аркушів (Хвиля 3.1) ----
       const SH = win.TablesSheets;
       const tabCount = () => doc.querySelectorAll('#sheetTabs .sheet-tab').length;
@@ -174,9 +190,48 @@
       SH.renameSheet(1, 'Журнал');
       checks.push(['sheet renamed', doc.querySelectorAll('#sheetTabs .sheet-tab')[1].textContent === 'Журнал']);
 
+      SH.switchToSheet(0);
+      setCell('B1', '=Журнал!A1');
+      SH.switchToSheet(1);
       SH.deleteSheet(1);
       doc.getElementById('confirmBtnYes').click();
       checks.push(['sheet deleted via confirm', tabCount() === 1]);
+      checks.push(['deleted sheet references become #REF!', inpVal('B1') === '#REF!']);
+
+      // ---- Безпечний workbook import ----
+      const WF = win.TablesWorkbookFile;
+      const validPayload = WF.validateWorkbookPayload({
+        type: 'art-tables-workbook',
+        version: 2,
+        name: 'Перевірка',
+        activeSheet: 0,
+        sheets: [{
+          name: 'Аркуш1',
+          rows: 60,
+          cols: 30,
+          cellData: { A1: '10' },
+          cellStyles: { A1: 'style-text-bold style-bg-yellow' },
+          colWidths: { 0: 90 },
+          condRules: [{ range: [0, 1, 0, 10], op: 'gt', v1: 5, v2: null, fill: '#fee2e2' }]
+        }]
+      });
+      checks.push(['workbook validator accepts valid v2', validPayload.sheets[0].cellData.A1 === '10']);
+      const validatorRejects = payload => {
+        try { WF.validateWorkbookPayload(payload); return false; } catch (_) { return true; }
+      };
+      checks.push(['workbook validator rejects future version', validatorRejects({ type: 'art-tables-workbook', version: 99, cellData: {} })]);
+      checks.push(['workbook validator rejects duplicate sheet names', validatorRejects({
+        sheets: [{ name: 'Один' }, { name: 'один' }]
+      })]);
+      checks.push(['workbook validator rejects out-of-range cell', validatorRejects({
+        sheets: [{ name: 'Аркуш1', rows: 10, cols: 10, cellData: { A11: 'x' } }]
+      })]);
+      checks.push(['workbook validator rejects unknown style', validatorRejects({
+        sheets: [{ name: 'Аркуш1', cellStyles: { A1: 'style-unknown' } }]
+      })]);
+      checks.push(['workbook validator rejects malformed cond rule', validatorRejects({
+        sheets: [{ name: 'Аркуш1', condRules: [{ op: 'gt', v1: 1, fill: '#fee2e2' }] }]
+      })]);
 
       const failures = checks.filter(([, ok]) => !ok).map(([name]) => name);
       result.className = failures.length ? 'fail' : 'pass';

@@ -10,6 +10,7 @@ function getWholeColSelectionRange() {
 }
 
 function finishStructureChange() {
+  rowFilter = null;
   rebuildGrid();
   recalculateAll();
   persistStateToStorage();
@@ -18,6 +19,17 @@ function finishStructureChange() {
   restoreUiState();
   setSaveBadge();
   saveToHistory();
+}
+
+function shiftConditionalRules(opts) {
+  condRules = condRules.flatMap(rule => {
+    if (!rule || !Array.isArray(rule.range) || rule.range.length !== 4) return [];
+    const [cMin, rMin, cMax, rMax] = rule.range;
+    const rows = structuralShiftInterval(rMin, rMax, opts.rowAt ?? null, opts.rowDelta ?? 0);
+    const cols = structuralShiftInterval(cMin, cMax, opts.colAt ?? null, opts.colDelta ?? 0);
+    if (rows.deleted || cols.deleted) return [];
+    return [Object.assign({}, rule, { range: [cols.a, rows.a, cols.b, rows.b] })];
+  });
 }
 
 // Оновлює міжаркушеві посилання на змінений (активний) аркуш в УСІХ інших аркушах.
@@ -66,6 +78,7 @@ function insertRow(atRow, count = 1) {
     if (String(v || '').startsWith('=')) newData[k] = shiftFormulaRefs(v, activeShiftOpts({ rowAt, rowDelta: amount }));
   }
   applyStructureToOtherSheets({ rowAt, rowDelta: amount });
+  shiftConditionalRules({ rowAt, rowDelta: amount });
 
   if (active.r >= rowAt) active.r += amount;
   if (selStart.r >= rowAt) selStart.r += amount;
@@ -116,6 +129,7 @@ function deleteRow(atRow, count = 1) {
     if (String(v || '').startsWith('=')) newData[k] = shiftFormulaRefs(v, activeShiftOpts({ rowAt: deleteFrom, rowDelta: -amount }));
   }
   applyStructureToOtherSheets({ rowAt: deleteFrom, rowDelta: -amount });
+  shiftConditionalRules({ rowAt: deleteFrom, rowDelta: -amount });
 
   active.r = clamp(active.r > deleteTo ? active.r - amount : active.r, 1, ROWS - amount);
   selStart.r = clamp(selStart.r > deleteTo ? selStart.r - amount : selStart.r, 1, ROWS - amount);
@@ -163,6 +177,7 @@ function insertColumn(atCol, count = 1) {
     if (String(v || '').startsWith('=')) newData[k] = shiftFormulaRefs(v, activeShiftOpts({ colAt, colDelta: amount }));
   }
   applyStructureToOtherSheets({ colAt, colDelta: amount });
+  shiftConditionalRules({ colAt, colDelta: amount });
 
   if (active.c >= colAt) active.c += amount;
   if (selStart.c >= colAt) selStart.c += amount;
@@ -223,6 +238,7 @@ function deleteColumn(atCol, count = 1) {
     if (String(v || '').startsWith('=')) newData[k] = shiftFormulaRefs(v, activeShiftOpts({ colAt: deleteFrom, colDelta: -amount }));
   }
   applyStructureToOtherSheets({ colAt: deleteFrom, colDelta: -amount });
+  shiftConditionalRules({ colAt: deleteFrom, colDelta: -amount });
 
   active.c = clamp(active.c > deleteTo ? active.c - amount : active.c, 0, COL_COUNT - amount - 1);
   selStart.c = clamp(selStart.c > deleteTo ? selStart.c - amount : selStart.c, 0, COL_COUNT - amount - 1);

@@ -102,8 +102,13 @@
         // Видалення рядків → #REF! для видалених клітинок
         assertEqual('delete row makes #REF!', shiftFormulaRefs('=A1+A5', { rowAt: 1, rowDelta: -1, local: true }), '=#REF!+A4'),
         assertEqual('delete inside range shrinks it', shiftFormulaRefs('=SUM(A1:A5)', { rowAt: 3, rowDelta: -1, local: true }), '=SUM(A1:A4)'),
+        assertEqual('delete first range row shrinks it', shiftFormulaRefs('=SUM(A1:A5)', { rowAt: 1, rowDelta: -1, local: true }), '=SUM(A1:A4)'),
+        assertEqual('delete last range row shrinks it', shiftFormulaRefs('=SUM(A1:A5)', { rowAt: 5, rowDelta: -1, local: true }), '=SUM(A1:A4)'),
+        assertEqual('delete first range column shrinks it', shiftFormulaRefs('=SUM(A1:E1)', { colAt: 0, colDelta: -1, local: true }), '=SUM(A1:D1)'),
         assertEqual('delete whole range → #REF!', shiftFormulaRefs('=SUM(A1:A3)', { rowAt: 1, rowDelta: -3, local: true }), '=SUM(#REF!)'),
         assertEqual('rename sheet refs', renameSheetRefs('=Аркуш2!A1+B1', 'Аркуш2', 'Журнал'), '=Журнал!A1+B1'),
+        assertEqual('delete sheet ref becomes #REF!', deleteSheetRefs('=Аркуш2!A1+B1', 'Аркуш2'), '=#REF!+B1'),
+        assertEqual('delete sheet range becomes #REF!', deleteSheetRefs('=SUM(Аркуш2!A1:A5)', 'Аркуш2'), '=SUM(#REF!)'),
         // F4 reference cycling: A1 → $A$1 → A$1 → $A1 → A1
         assertEqual('F4 rel→abs', TablesFormulaBar.computeReferenceCycle('=A1', 3).value, '=$A$1'),
         assertEqual('F4 abs→rowabs', TablesFormulaBar.computeReferenceCycle('=$A$1', 5).value, '=A$1'),
@@ -118,6 +123,8 @@
         assertEqual('offset preserves cross-sheet', offsetFormulaRefs('=Аркуш2!A1+B1', 1, 0), '=Аркуш2!A2+B2'),
         assertEqual('structure skips other-sheet ref', shiftFormulaRefs('=Аркуш2!A1+B1', { rowAt: 1, rowDelta: 1, sheet: 'Аркуш1', local: true }), '=Аркуш2!A1+B2'),
         assertEqual('structure shifts ref to modified sheet', shiftFormulaRefs('=Аркуш2!A1', { rowAt: 1, rowDelta: 1, sheet: 'Аркуш2', local: false }), '=Аркуш2!A2'),
+        assertEqual('structure shifts inherited range sheet', shiftFormulaRefs('=SUM(Аркуш2!A1:A5)', { rowAt: 1, rowDelta: 1, sheet: 'Аркуш2', local: false }), '=SUM(Аркуш2!A2:A6)'),
+        assertEqual('structure shrinks inherited range sheet', shiftFormulaRefs('=SUM(Аркуш2!A1:A5)', { rowAt: 1, rowDelta: -1, sheet: 'Аркуш2', local: false }), '=SUM(Аркуш2!A1:A4)'),
         // computeFillRaw: числові серії та повтор зразка
         assertEqual('fill series step 1', computeFillRaw(['1', '2'], 2).raw, '3'),
         assertEqual('fill series continues', computeFillRaw(['1', '2'], 4).raw, '5'),
