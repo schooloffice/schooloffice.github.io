@@ -205,12 +205,14 @@ function loadExample() {
 }
 
 function clearAll() {
-  cellData = {};
-  cellStyles = {};
-  colWidths = {};
+  sheets = [makeSheet('Аркуш1')];
+  activeSheet = 0;
+  rowFilter = null;
+  loadGlobalsFromSheet(0);
   persistStateToStorage();
   rebuildGrid();
   recalculateAll();
+  renderSheetTabs();
   setSaveBadge();
   saveToHistory();
 }

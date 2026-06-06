@@ -21,6 +21,12 @@ function tokenizeFormula(src) {
 
   const isDigit = ch => ch >= '0' && ch <= '9';
   const isLetter = ch => (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+  const isCyr = ch => ch >= 'Ѐ' && ch <= 'ӿ';
+  const isNameStart = ch => isLetter(ch) || isCyr(ch) || ch === '_';
+
+  const CROSS_SHEET_RE = /^([A-Za-z_Ѐ-ӿ][A-Za-z0-9_Ѐ-ӿ]*)!(\$?)([A-Za-z]+)(\$?)(\d+)/;
+  const QUOTED_SHEET_RE = /^'([^']+)'!(\$?)([A-Za-z]+)(\$?)(\d+)/;
+  const PLAIN_REF_RE = /^(\$?)([A-Za-z]+)(\$?)(\d+)/;
 
   while (i < n) {
     const ch = s[i];
@@ -48,9 +54,27 @@ function tokenizeFormula(src) {
       continue;
     }
 
-    // Посилання на клітинку (можливо з $) — букви, за якими йдуть цифри
-    if (ch === '$' || isLetter(ch)) {
-      const refMatch = /^(\$?)([A-Za-z]+)(\$?)(\d+)/.exec(s.slice(i));
+    // Міжаркушеве посилання з лапками: 'Назва аркуша'!A1
+    if (ch === "'") {
+      const q = QUOTED_SHEET_RE.exec(s.slice(i));
+      if (q) {
+        tokens.push({ type: 'ref', sheet: q[1], col: colToIndex(q[3]), row: parseInt(q[5], 10), colAbs: q[2] === '$', rowAbs: q[4] === '$' });
+        i += q[0].length;
+        continue;
+      }
+      throw new Error('Unexpected character: ' + ch);
+    }
+
+    // Посилання на клітинку (можливо з $ та префіксом аркуша Назва!A1)
+    if (ch === '$' || isNameStart(ch)) {
+      const cs = CROSS_SHEET_RE.exec(s.slice(i));
+      if (cs) {
+        tokens.push({ type: 'ref', sheet: cs[1], col: colToIndex(cs[3]), row: parseInt(cs[5], 10), colAbs: cs[2] === '$', rowAbs: cs[4] === '$' });
+        i += cs[0].length;
+        continue;
+      }
+
+      const refMatch = PLAIN_REF_RE.exec(s.slice(i));
       if (refMatch) {
         tokens.push({
           type: 'ref',
@@ -62,10 +86,10 @@ function tokenizeFormula(src) {
         i += refMatch[0].length;
         continue;
       }
-      if (!isLetter(ch)) throw new Error('Unexpected character: ' + ch);
+
       // Назва (функція або ідентифікатор)
       let j = i;
-      while (j < n && (isLetter(s[j]) || s[j] === '_')) j++;
+      while (j < n && (isLetter(s[j]) || isCyr(s[j]) || s[j] === '_' || isDigit(s[j]))) j++;
       tokens.push({ type: 'name', value: s.slice(i, j).toUpperCase() });
       i = j;
       continue;

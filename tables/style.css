@@ -691,6 +691,51 @@ th.col-header {
 .cond-del { border: none; background: none; color: #dc2626; cursor: pointer; padding: 4px; border-radius: 6px; }
 .cond-del:hover { background: #fee2e2; }
 
+/* Sheet tabs (аркуші) */
+.sheet-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #f1f5f9;
+  border-top: 1px solid #d6dce5;
+  overflow-x: auto;
+}
+.sheet-tab {
+  border: 1px solid #d6dce5;
+  background: #fff;
+  border-radius: 8px 8px 0 0;
+  padding: 5px 14px;
+  font: 700 13px/1 'Nunito Sans', sans-serif;
+  color: #475569;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sheet-tab:hover { background: var(--accent-soft-2); }
+.sheet-tab.active {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  border-color: var(--accent);
+}
+.sheet-tab-add {
+  border: 1px dashed #cbd5e1;
+  background: #fff;
+  border-radius: 8px;
+  width: 30px;
+  color: var(--accent-dark);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sheet-tab-add:hover { background: var(--accent-soft); }
+.sheet-tab-input {
+  border: 1px solid var(--accent);
+  border-radius: 8px 8px 0 0;
+  padding: 5px 10px;
+  font: 700 13px/1 'Nunito Sans', sans-serif;
+  width: 110px;
+}
+
 #grid td.error-cell .cell-input {
   color: #b91c1c;
 }

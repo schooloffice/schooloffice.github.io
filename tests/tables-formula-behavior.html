@@ -109,6 +109,8 @@
         assertEqual('offset shifts relative', offsetFormulaRefs('=A1+$B$2', 2, 1), '=B3+$B$2'),
         assertEqual('offset keeps absolute row', offsetFormulaRefs('=A$1', 2, 1), '=B$1'),
         assertEqual('offset clamps to bounds', offsetFormulaRefs('=A1', -5, -5), '=A1'),
+        assertEqual('offset preserves cross-sheet', offsetFormulaRefs('=Аркуш2!A1+B1', 1, 0), '=Аркуш2!A2+B2'),
+        assertEqual('shift skips cross-sheet ref', shiftFormulaRefs('=Аркуш2!A1+B1', { rowAt: 1, rowDelta: 1 }), '=Аркуш2!A1+B2'),
         // computeFillRaw: числові серії та повтор зразка
         assertEqual('fill series step 1', computeFillRaw(['1', '2'], 2).raw, '3'),
         assertEqual('fill series continues', computeFillRaw(['1', '2'], 4).raw, '5'),
@@ -170,6 +172,21 @@
       const dateTd = document.createElement('td');
       dateTd.classList.add('style-num-date');
       checks.push(assertEqual('date number format display', formatDisplayValue(ymdToSerial(2026, 6, 6), dateTd), '06.06.2026'));
+
+      // Wave 3.2: міжаркушеві посилання
+      cellData = { A1: '10', B1: '5' };
+      sheets = [
+        { name: 'Аркуш1', cellData: cellData, cellStyles: {}, colWidths: {}, condRules: [], rows: ROWS, cols: COL_COUNT },
+        { name: 'Аркуш2', cellData: { A1: '100', A2: '200', A3: '=A1+A2' }, cellStyles: {}, colWidths: {}, condRules: [], rows: ROWS, cols: COL_COUNT }
+      ];
+      activeSheet = 0;
+      checks.push(assertEqual('cross-sheet ref', evaluateFormula('Аркуш2!A1'), 100));
+      checks.push(assertEqual('cross-sheet range sum', evaluateFormula('SUM(Аркуш2!A1:A2)'), 300));
+      checks.push(assertEqual('cross-sheet formula cell', evaluateFormula('Аркуш2!A3'), 300));
+      checks.push(assertEqual('mix active and cross-sheet', evaluateFormula('A1+Аркуш2!A1'), 110));
+      checks.push(assertThrows('unknown sheet → #REF!', () => evaluateFormula('НемаТакого!A1'), '#REF!'));
+      sheets[1].name = 'Мій аркуш';
+      checks.push(assertEqual('quoted sheet name', evaluateFormula("'Мій аркуш'!A2"), 200));
 
       // Selection stats must ignore empty cells (Number('') === 0 regression)
       cellData = { A1: '10', A2: '20', A3: '30', B1: '-5', B3: '-2' };

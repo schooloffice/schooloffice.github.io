@@ -95,6 +95,7 @@ const CORE_ASSETS = [
   './tables/js/formula-bar.js',
   './tables/js/formula-parser.js',
   './tables/js/formula-references.js',
+  './tables/js/sheets.js',
   './tables/js/grid.js',
   './tables/js/model.js',
   './tables/js/runtime.js',

@@ -10,10 +10,67 @@ let ROWS = DEFAULT_ROWS;
 let COL_COUNT = DEFAULT_COL_COUNT;
 let COLS = buildCols(COL_COUNT);
 
+// Глобали = «активний аркуш». Усі аркуші зберігаються в sheets[].
 let cellData = {};
 let colWidths = {};
 let cellStyles = {};
 let condRules = []; // умовне форматування: [{ range:[cMin,rMin,cMax,rMax], op, v1, v2, fill }]
+
+let sheets = [];      // [{ name, cellData, cellStyles, colWidths, condRules, rows, cols }]
+let activeSheet = 0;
+
+function makeSheet(name) {
+  return {
+    name: name || 'Аркуш',
+    cellData: {},
+    cellStyles: {},
+    colWidths: {},
+    condRules: [],
+    rows: DEFAULT_ROWS,
+    cols: DEFAULT_COL_COUNT
+  };
+}
+
+function normalizeSheet(s) {
+  return {
+    name: String(s?.name || 'Аркуш'),
+    cellData: s?.cellData && typeof s.cellData === 'object' ? s.cellData : {},
+    cellStyles: s?.cellStyles && typeof s.cellStyles === 'object' ? s.cellStyles : {},
+    colWidths: s?.colWidths && typeof s.colWidths === 'object' ? s.colWidths : {},
+    condRules: Array.isArray(s?.condRules) ? s.condRules : [],
+    rows: Number(s?.rows) || DEFAULT_ROWS,
+    cols: Number(s?.cols) || DEFAULT_COL_COUNT
+  };
+}
+
+// Записати поточні глобали в активний аркуш (перед перемиканням/збереженням).
+function syncActiveSheetFromGlobals() {
+  const s = sheets[activeSheet];
+  if (!s) return;
+  s.cellData = cellData;
+  s.cellStyles = cellStyles;
+  s.colWidths = colWidths;
+  s.condRules = condRules;
+  s.rows = ROWS;
+  s.cols = COL_COUNT;
+}
+
+// Завантажити аркуш i в глобали (без перебудови сітки — це робить UI-шар).
+function loadGlobalsFromSheet(i) {
+  const s = sheets[i];
+  if (!s) return;
+  activeSheet = i;
+  cellData = s.cellData || {};
+  cellStyles = s.cellStyles || {};
+  colWidths = s.colWidths || {};
+  condRules = Array.isArray(s.condRules) ? s.condRules : [];
+  setGridSize(s.rows || DEFAULT_ROWS, s.cols || DEFAULT_COL_COUNT);
+}
+
+function findSheetByName(name) {
+  const n = String(name || '').trim().toLowerCase();
+  return sheets.find(s => String(s.name).trim().toLowerCase() === n) || null;
+}
 
 let calcDepth = 0;
 let history = [];

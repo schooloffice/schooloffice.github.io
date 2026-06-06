@@ -146,6 +146,31 @@
       FL.clearRowFilter();
       checks.push(['clear filter shows J1 again', trDisplay('J1') === '']);
 
+      // ---- Кілька аркушів (Хвиля 3.1) ----
+      const SH = win.TablesSheets;
+      const tabCount = () => doc.querySelectorAll('#sheetTabs .sheet-tab').length;
+      const inpVal = id => doc.getElementById('inp_' + id)?.value;
+
+      checks.push(['one sheet initially', tabCount() === 1]);
+      const sheet1A1 = inpVal('A1');
+
+      SH.addSheet();
+      checks.push(['second sheet added', tabCount() === 2]);
+      checks.push(['new sheet has empty A1', inpVal('A1') === '']);
+
+      setCell('A1', 'S2');
+      SH.switchToSheet(0);
+      checks.push(['sheet1 keeps its A1 after switch', inpVal('A1') === sheet1A1]);
+      SH.switchToSheet(1);
+      checks.push(['sheet2 retains its own A1', inpVal('A1') === 'S2']);
+
+      SH.renameSheet(1, 'Журнал');
+      checks.push(['sheet renamed', doc.querySelectorAll('#sheetTabs .sheet-tab')[1].textContent === 'Журнал']);
+
+      SH.deleteSheet(1);
+      doc.getElementById('confirmBtnYes').click();
+      checks.push(['sheet deleted via confirm', tabCount() === 1]);
+
       const failures = checks.filter(([, ok]) => !ok).map(([name]) => name);
       result.className = failures.length ? 'fail' : 'pass';
       result.textContent = checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} ${name}`).join('\n') +

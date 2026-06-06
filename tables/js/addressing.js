@@ -82,6 +82,12 @@ function refTokenToString(colIdx, rowNum, colAbs, rowAbs) {
   return (colAbs ? '$' : '') + indexToCol(c) + (rowAbs ? '$' : '') + r;
 }
 
+// Префікс аркуша для друку посилання (у лапках, якщо є нестандартні символи).
+function sheetRefPrefix(name) {
+  const s = String(name);
+  return (/^[A-Za-z_Ѐ-ӿ][A-Za-z0-9_Ѐ-ӿ]*$/.test(s) ? s : `'${s}'`) + '!';
+}
+
 // Зсуває посилання при ВСТАВЦІ/ВИДАЛЕННІ рядків чи колонок (поріг rowAt/colAt).
 // Працює через токенайзер (а не регексп), тому:
 //   - поважає абсолютні маркери $ (абсолютний вимір не зсувається);
@@ -103,6 +109,8 @@ function shiftFormulaRefs(formula, opts) {
   }
 
   return stringifyFormulaTokens(tokens, (t) => {
+    // Міжаркушеві посилання не зсуваються при зміні структури активного аркуша.
+    if (t.sheet) return sheetRefPrefix(t.sheet) + refTokenToString(t.col, t.row, t.colAbs, t.rowAbs);
     let cIdx = t.col;
     let rNum = t.row;
     if (!t.rowAbs && rowAt !== null && rNum >= rowAt) rNum += rowDelta;
@@ -130,7 +138,8 @@ function offsetFormulaRefs(formula, rowDelta, colDelta) {
   return stringifyFormulaTokens(tokens, (t) => {
     const cIdx = t.colAbs ? t.col : t.col + dCol;
     const rNum = t.rowAbs ? t.row : t.row + dRow;
-    return refTokenToString(cIdx, rNum, t.colAbs, t.rowAbs);
+    const refStr = refTokenToString(cIdx, rNum, t.colAbs, t.rowAbs);
+    return t.sheet ? sheetRefPrefix(t.sheet) + refStr : refStr;
   });
 }
 

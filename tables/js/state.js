@@ -129,22 +129,17 @@ function announce(msg) {
 
 // ---- History ----
 function snapshotState() {
+  syncActiveSheetFromGlobals();
   return {
-    rows: ROWS,
-    colCount: COL_COUNT,
-    cellData: JSON.stringify(cellData),
-    colWidths: JSON.stringify(colWidths),
-    cellStyles: JSON.stringify(cellStyles)
+    activeSheet,
+    sheets: JSON.stringify(sheets)
   };
 }
 
 function statesEqual(a, b) {
   return !!a && !!b &&
-    a.rows === b.rows &&
-    a.colCount === b.colCount &&
-    a.cellData === b.cellData &&
-    a.colWidths === b.colWidths &&
-    a.cellStyles === b.cellStyles;
+    a.activeSheet === b.activeSheet &&
+    a.sheets === b.sheets;
 }
 
 function saveToHistory() {
@@ -173,17 +168,21 @@ function saveToHistory() {
 function restoreState(state) {
   if (!state) return;
 
-  cellData = safeParseJSON(state.cellData, {});
-  colWidths = safeParseJSON(state.colWidths, {});
-  cellStyles = safeParseJSON(state.cellStyles, {});
+  const parsed = safeParseJSON(state.sheets, null);
+  if (Array.isArray(parsed) && parsed.length) {
+    sheets = parsed.map(normalizeSheet);
+  }
+  activeSheet = Math.max(0, Math.min(sheets.length - 1, state.activeSheet || 0));
+  rowFilter = null;
+  loadGlobalsFromSheet(activeSheet);
 
-  setGridSize(state.rows, state.colCount);
   rebuildGrid();
   recalculateAll();
   persistStateToStorage();
   initFileNameUi();
   initMenusAndToolbar();
   restoreUiState();
+  if (typeof renderSheetTabs === 'function') renderSheetTabs();
   setSaveBadge();
 }
 

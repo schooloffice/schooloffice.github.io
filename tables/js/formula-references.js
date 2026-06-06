@@ -1,12 +1,19 @@
 'use strict';
 
 // ---- Resolving cell / range values for the AST evaluator ----
+// Контекст даних: стек cellData-об'єктів для міжаркушевих посилань.
+let __evalDataStack = [];
+function pushEvalData(d) { __evalDataStack.push(d); }
+function popEvalData() { __evalDataStack.pop(); }
+function currentEvalData() { return __evalDataStack.length ? __evalDataStack[__evalDataStack.length - 1] : cellData; }
+
 // Повертає типізоване значення клітинки: number | string | null(порожня).
 function getCellValueByIndex(col, row) {
   if (col < 0 || col >= COL_COUNT || row < 1 || row > ROWS) return null;
 
+  const data = currentEvalData();
   const key = indexToCol(col) + row;
-  const raw = cellData[key];
+  const raw = data[key];
   if (raw === undefined || raw === null || String(raw) === '') return null;
 
   const s = String(raw);

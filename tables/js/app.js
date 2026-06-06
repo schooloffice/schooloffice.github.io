@@ -30,6 +30,7 @@ function initTablesEditor() {
 
   rebuildGrid();
   recalculateAll();
+  renderSheetTabs();
   persistStateToStorage();
   initFileNameUi();
   initMenusAndToolbar();

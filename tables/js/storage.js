@@ -8,7 +8,8 @@ const STORAGE_KEYS = {
   data: 'kom_data',
   widths: 'kom_widths',
   styles: 'kom_styles',
-  cond: 'kom_cond'
+  cond: 'kom_cond',
+  sheets: 'kom_sheets'
 };
 
 const STORAGE_WARN_BYTES = 3 * 1024 * 1024;
@@ -47,22 +48,26 @@ function safeParseJSON(value, fallback) {
 }
 
 function loadStateFromStorage() {
-  const meta = safeParseJSON(safeGetItem(STORAGE_KEYS.meta), null);
-  if (meta && (meta.rows || meta.cols)) {
-    setGridSize(meta.rows ?? ROWS, meta.cols ?? COL_COUNT);
+  const sv = safeParseJSON(safeGetItem(STORAGE_KEYS.sheets), null);
+  if (sv && Array.isArray(sv.sheets) && sv.sheets.length) {
+    sheets = sv.sheets.map(normalizeSheet);
+    const ai = Number(sv.activeSheet) || 0;
+    activeSheet = Math.max(0, Math.min(sheets.length - 1, ai));
+  } else {
+    // Старий однолистовий формат → міграція в один аркуш
+    const meta = safeParseJSON(safeGetItem(STORAGE_KEYS.meta), null);
+    sheets = [normalizeSheet({
+      name: 'Аркуш1',
+      cellData: safeParseJSON(safeGetItem(STORAGE_KEYS.data), null),
+      cellStyles: safeParseJSON(safeGetItem(STORAGE_KEYS.styles), null),
+      colWidths: safeParseJSON(safeGetItem(STORAGE_KEYS.widths), null),
+      condRules: safeParseJSON(safeGetItem(STORAGE_KEYS.cond), null),
+      rows: meta?.rows,
+      cols: meta?.cols
+    })];
+    activeSheet = 0;
   }
-
-  const d = safeParseJSON(safeGetItem(STORAGE_KEYS.data), null);
-  if (d) cellData = d;
-
-  const w = safeParseJSON(safeGetItem(STORAGE_KEYS.widths), null);
-  if (w) colWidths = w;
-
-  const s = safeParseJSON(safeGetItem(STORAGE_KEYS.styles), null);
-  if (s) cellStyles = s;
-
-  const cf = safeParseJSON(safeGetItem(STORAGE_KEYS.cond), null);
-  condRules = Array.isArray(cf) ? cf : [];
+  loadGlobalsFromSheet(activeSheet);
 }
 
 function estimateStorageSize(obj) {
@@ -70,25 +75,16 @@ function estimateStorageSize(obj) {
 }
 
 function persistStateToStorage() {
-  const payload = {
-    meta: { rows: ROWS, cols: COL_COUNT },
-    data: cellData,
-    widths: colWidths,
-    styles: cellStyles,
-    cond: condRules
-  };
-  const totalBytes = estimateStorageSize(payload);
+  syncActiveSheetFromGlobals();
+  const json = JSON.stringify({ sheets, activeSheet });
+  const totalBytes = json.length * 2;
 
   if (totalBytes > STORAGE_MAX_BYTES) {
     window.dispatchEvent(new CustomEvent('storage-overflow', { detail: { bytes: totalBytes } }));
     return;
   }
 
-  safeSetItem(STORAGE_KEYS.meta, JSON.stringify(payload.meta));
-  safeSetItem(STORAGE_KEYS.data, JSON.stringify(payload.data));
-  safeSetItem(STORAGE_KEYS.widths, JSON.stringify(payload.widths));
-  safeSetItem(STORAGE_KEYS.styles, JSON.stringify(payload.styles));
-  safeSetItem(STORAGE_KEYS.cond, JSON.stringify(payload.cond));
+  safeSetItem(STORAGE_KEYS.sheets, json);
 
   if (totalBytes > STORAGE_WARN_BYTES) {
     window.dispatchEvent(new CustomEvent('storage-warning', { detail: { bytes: totalBytes } }));

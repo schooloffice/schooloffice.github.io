@@ -1,15 +1,12 @@
 // ---- Workbook file I/O ----
 function exportWorkbook() {
+  syncActiveSheetFromGlobals();
   const payload = {
     type: 'art-tables-workbook',
-    version: 1,
+    version: 2,
     name: workbookName,
-    rows: ROWS,
-    cols: COL_COUNT,
-    cellData,
-    cellStyles,
-    colWidths,
-    condRules
+    activeSheet,
+    sheets
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
@@ -41,14 +38,29 @@ function importWorkbookText(text) {
 
     workbookName = normalizeFileName(payload.name || DEFAULT_WORKBOOK_NAME);
     updateFileNameUi();
-    setGridSize(payload.rows || DEFAULT_ROWS, payload.cols || DEFAULT_COL_COUNT);
-    cellData = payload.cellData && typeof payload.cellData === 'object' ? payload.cellData : {};
-    cellStyles = payload.cellStyles && typeof payload.cellStyles === 'object' ? payload.cellStyles : {};
-    colWidths = payload.colWidths && typeof payload.colWidths === 'object' ? payload.colWidths : {};
-    condRules = Array.isArray(payload.condRules) ? payload.condRules : [];
+
+    if (Array.isArray(payload.sheets) && payload.sheets.length) {
+      sheets = payload.sheets.map(normalizeSheet);
+      activeSheet = Math.max(0, Math.min(sheets.length - 1, Number(payload.activeSheet) || 0));
+    } else {
+      // Старий формат v1 (один аркуш)
+      sheets = [normalizeSheet({
+        name: 'Аркуш1',
+        cellData: payload.cellData,
+        cellStyles: payload.cellStyles,
+        colWidths: payload.colWidths,
+        condRules: payload.condRules,
+        rows: payload.rows,
+        cols: payload.cols
+      })];
+      activeSheet = 0;
+    }
+    rowFilter = null;
+    loadGlobalsFromSheet(activeSheet);
 
     rebuildGrid();
     recalculateAll();
+    renderSheetTabs();
     persistStateToStorage();
     persistUiState();
     setSaveBadge();
