@@ -55,6 +55,7 @@ function recalculateAll() {
   }
 
   applyConditionalFormatting();
+  if (typeof applyRowFilter === 'function') applyRowFilter();
 
   const fb = document.getElementById('formulaBar');
   if (fb && activeId) fb.value = cellData[activeId] || '';

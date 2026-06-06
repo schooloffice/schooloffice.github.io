@@ -32,9 +32,31 @@ function addSheet() {
 function renameSheet(i, newName) {
   const name = String(newName || '').trim();
   if (!name) { renderSheetTabs(); return; }
+  if (/[!':]/.test(name)) {
+    showInfoModal('Назва аркуша не може містити символи ! : або апостроф.');
+    renderSheetTabs();
+    return;
+  }
   const clash = sheets.some((s, idx) => idx !== i && String(s.name).trim().toLowerCase() === name.toLowerCase());
   if (clash) { showInfoModal('Аркуш із такою назвою вже існує.'); renderSheetTabs(); return; }
+
+  const oldName = sheets[i].name;
+  if (oldName === name) { renderSheetTabs(); return; }
+
+  syncActiveSheetFromGlobals();
   sheets[i].name = name;
+  // Переписати посилання oldName! → name! в усіх аркушах
+  for (const sh of sheets) {
+    const data = sh.cellData;
+    for (const k of Object.keys(data)) {
+      const v = data[k];
+      if (String(v || '').startsWith('=')) data[k] = renameSheetRefs(v, oldName, name);
+    }
+  }
+  loadGlobalsFromSheet(activeSheet);
+
+  rebuildGrid();
+  recalculateAll();
   renderSheetTabs();
   persistStateToStorage();
   setDirty(true);

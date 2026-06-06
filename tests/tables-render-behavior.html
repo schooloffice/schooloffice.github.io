@@ -132,7 +132,7 @@
       checks.push(['filter contains text', FL.filterMatches({ op: 'contains', v1: 'ан' }, 'Іванов') === true]);
       checks.push(['filter excludes empty', FL.filterMatches({ op: 'gt', v1: 0 }, '') === false]);
 
-      setCell('J1', '3'); setCell('J2', '8'); setCell('J3', '1');
+      setCell('J1', '3'); setCell('J2', '8'); setCell('J3', '1'); setCell('J4', '=4+5');
       fire(doc.querySelector('td[data-id="J1"]'), 'mousedown');
       fire(doc, 'mouseup');
       FL.openFilterModal();
@@ -143,8 +143,15 @@
       checks.push(['filter hides J1 (3<5)', trDisplay('J1') === 'none']);
       checks.push(['filter shows J2 (8>=5)', trDisplay('J2') === '']);
       checks.push(['filter hides J3 (1<5)', trDisplay('J3') === 'none']);
+      checks.push(['filter matches formula result J4 (=9)', trDisplay('J4') === '']);
       FL.clearRowFilter();
       checks.push(['clear filter shows J1 again', trDisplay('J1') === '']);
+
+      // Структурне видалення рядка → #REF! у залежній формулі (end-to-end)
+      setCell('K1', '7');
+      setCell('K5', '=K1');
+      win.TablesStructure.deleteRow(1);
+      checks.push(['delete row yields #REF! in dependent formula', doc.getElementById('inp_K4')?.value === '#REF!']);
 
       // ---- Кілька аркушів (Хвиля 3.1) ----
       const SH = win.TablesSheets;

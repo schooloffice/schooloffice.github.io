@@ -91,13 +91,19 @@
         assertEqual('SUMIF range', evaluateFormula('SUMIF(A1:A3,">=10")'), 60),
         assertEqual('AVERAGEIF range', evaluateFormula('AVERAGEIF(A1:A3,">=20")'), 25),
         // shiftFormulaRefs: тепер через токенайзер, поважає $ і рядки
-        assertEqual('shift relative refs', shiftFormulaRefs('=A1+B2', { rowAt: 1, rowDelta: 1 }), '=A2+B3'),
-        assertEqual('shift keeps absolute', shiftFormulaRefs('=$A$1+B2', { rowAt: 1, rowDelta: 1 }), '=$A$1+B3'),
-        assertEqual('shift mixed refs', shiftFormulaRefs('=A$1+$A1', { rowAt: 1, rowDelta: 1 }), '=A$1+$A2'),
-        assertEqual('shift columns', shiftFormulaRefs('=A1+B1', { colAt: 0, colDelta: 1 }), '=B1+C1'),
-        assertEqual('shift keeps absolute column', shiftFormulaRefs('=$A1+B1', { colAt: 0, colDelta: 1 }), '=$A1+C1'),
-        assertEqual('shift range', shiftFormulaRefs('=SUM(A1:A3)', { rowAt: 1, rowDelta: 1 }), '=SUM(A2:A4)'),
-        assertEqual('shift skips string literal', shiftFormulaRefs('=IF(A1="A1",1,0)', { rowAt: 1, rowDelta: 1 }), '=IF(A2="A1",1,0)'),
+        // Структурний зсув (вставка/видалення рядків): абсолютні теж зсуваються
+        assertEqual('shift relative refs', shiftFormulaRefs('=A1+B2', { rowAt: 1, rowDelta: 1, local: true }), '=A2+B3'),
+        assertEqual('shift adjusts absolute on insert', shiftFormulaRefs('=$A$1+B2', { rowAt: 1, rowDelta: 1, local: true }), '=$A$2+B3'),
+        assertEqual('shift mixed refs', shiftFormulaRefs('=A$1+$A1', { rowAt: 1, rowDelta: 1, local: true }), '=A$2+$A2'),
+        assertEqual('shift columns', shiftFormulaRefs('=A1+B1', { colAt: 0, colDelta: 1, local: true }), '=B1+C1'),
+        assertEqual('shift adjusts absolute column', shiftFormulaRefs('=$A1+B1', { colAt: 0, colDelta: 1, local: true }), '=$B1+C1'),
+        assertEqual('shift range', shiftFormulaRefs('=SUM(A1:A3)', { rowAt: 1, rowDelta: 1, local: true }), '=SUM(A2:A4)'),
+        assertEqual('shift skips string literal', shiftFormulaRefs('=IF(A1="A1",1,0)', { rowAt: 1, rowDelta: 1, local: true }), '=IF(A2="A1",1,0)'),
+        // Видалення рядків → #REF! для видалених клітинок
+        assertEqual('delete row makes #REF!', shiftFormulaRefs('=A1+A5', { rowAt: 1, rowDelta: -1, local: true }), '=#REF!+A4'),
+        assertEqual('delete inside range shrinks it', shiftFormulaRefs('=SUM(A1:A5)', { rowAt: 3, rowDelta: -1, local: true }), '=SUM(A1:A4)'),
+        assertEqual('delete whole range → #REF!', shiftFormulaRefs('=SUM(A1:A3)', { rowAt: 1, rowDelta: -3, local: true }), '=SUM(#REF!)'),
+        assertEqual('rename sheet refs', renameSheetRefs('=Аркуш2!A1+B1', 'Аркуш2', 'Журнал'), '=Журнал!A1+B1'),
         // F4 reference cycling: A1 → $A$1 → A$1 → $A1 → A1
         assertEqual('F4 rel→abs', TablesFormulaBar.computeReferenceCycle('=A1', 3).value, '=$A$1'),
         assertEqual('F4 abs→rowabs', TablesFormulaBar.computeReferenceCycle('=$A$1', 5).value, '=A$1'),
@@ -110,7 +116,8 @@
         assertEqual('offset keeps absolute row', offsetFormulaRefs('=A$1', 2, 1), '=B$1'),
         assertEqual('offset clamps to bounds', offsetFormulaRefs('=A1', -5, -5), '=A1'),
         assertEqual('offset preserves cross-sheet', offsetFormulaRefs('=Аркуш2!A1+B1', 1, 0), '=Аркуш2!A2+B2'),
-        assertEqual('shift skips cross-sheet ref', shiftFormulaRefs('=Аркуш2!A1+B1', { rowAt: 1, rowDelta: 1 }), '=Аркуш2!A1+B2'),
+        assertEqual('structure skips other-sheet ref', shiftFormulaRefs('=Аркуш2!A1+B1', { rowAt: 1, rowDelta: 1, sheet: 'Аркуш1', local: true }), '=Аркуш2!A1+B2'),
+        assertEqual('structure shifts ref to modified sheet', shiftFormulaRefs('=Аркуш2!A1', { rowAt: 1, rowDelta: 1, sheet: 'Аркуш2', local: false }), '=Аркуш2!A2'),
         // computeFillRaw: числові серії та повтор зразка
         assertEqual('fill series step 1', computeFillRaw(['1', '2'], 2).raw, '3'),
         assertEqual('fill series continues', computeFillRaw(['1', '2'], 4).raw, '5'),
@@ -177,14 +184,16 @@
       cellData = { A1: '10', B1: '5' };
       sheets = [
         { name: 'Аркуш1', cellData: cellData, cellStyles: {}, colWidths: {}, condRules: [], rows: ROWS, cols: COL_COUNT },
-        { name: 'Аркуш2', cellData: { A1: '100', A2: '200', A3: '=A1+A2' }, cellStyles: {}, colWidths: {}, condRules: [], rows: ROWS, cols: COL_COUNT }
+        { name: 'Аркуш2', cellData: { A1: '100', A2: '200', A3: '=A1+A2', A100: '42' }, cellStyles: {}, colWidths: {}, condRules: [], rows: 100, cols: COL_COUNT }
       ];
       activeSheet = 0;
       checks.push(assertEqual('cross-sheet ref', evaluateFormula('Аркуш2!A1'), 100));
       checks.push(assertEqual('cross-sheet range sum', evaluateFormula('SUM(Аркуш2!A1:A2)'), 300));
       checks.push(assertEqual('cross-sheet formula cell', evaluateFormula('Аркуш2!A3'), 300));
       checks.push(assertEqual('mix active and cross-sheet', evaluateFormula('A1+Аркуш2!A1'), 110));
+      checks.push(assertEqual('cross-sheet beyond active size', evaluateFormula('Аркуш2!A100'), 42));
       checks.push(assertThrows('unknown sheet → #REF!', () => evaluateFormula('НемаТакого!A1'), '#REF!'));
+      checks.push(assertThrows('#REF! literal evaluates', () => evaluateFormula('#REF!'), '#REF!'));
       sheets[1].name = 'Мій аркуш';
       checks.push(assertEqual('quoted sheet name', evaluateFormula("'Мій аркуш'!A2"), 200));
 

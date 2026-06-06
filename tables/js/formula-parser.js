@@ -27,11 +27,19 @@ function tokenizeFormula(src) {
   const CROSS_SHEET_RE = /^([A-Za-z_Ѐ-ӿ][A-Za-z0-9_Ѐ-ӿ]*)!(\$?)([A-Za-z]+)(\$?)(\d+)/;
   const QUOTED_SHEET_RE = /^'([^']+)'!(\$?)([A-Za-z]+)(\$?)(\d+)/;
   const PLAIN_REF_RE = /^(\$?)([A-Za-z]+)(\$?)(\d+)/;
+  const ERR_RE = /^#(DIV\/0!|REF!|NAME\?|VALUE!|NUM!|CIRC!)/;
 
   while (i < n) {
     const ch = s[i];
 
     if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') { i++; continue; }
+
+    // Літерал помилки (#REF!, #DIV/0! …) — з'являється після видалення клітинок
+    if (ch === '#') {
+      const em = ERR_RE.exec(s.slice(i));
+      if (em) { tokens.push({ type: 'err', value: em[0] }); i += em[0].length; continue; }
+      throw new Error('Unexpected character: #');
+    }
 
     // Рядковий літерал "..."
     if (ch === '"') {
@@ -174,6 +182,7 @@ function parseFormula(src) {
 
     if (t.type === 'num') { next(); return { type: 'num', value: t.value }; }
     if (t.type === 'str') { next(); return { type: 'str', value: t.value }; }
+    if (t.type === 'err') { next(); return { type: 'err', value: t.value }; }
 
     if (isOp('(')) {
       next();

@@ -67,6 +67,7 @@ function stringifyFormulaTokens(tokens, transformRef) {
       case 'eof': break;
       case 'num': out += (t.text != null ? t.text : String(t.value)); break;
       case 'str': out += '"' + t.value + '"'; break;
+      case 'err': out += t.value; break;
       case 'name': out += t.value; break;
       case 'op': out += t.value; break;
       case 'ref': out += transformRef(t); break;
@@ -88,10 +89,20 @@ function sheetRefPrefix(name) {
   return (/^[A-Za-z_Ѐ-ӿ][A-Za-z0-9_Ѐ-ӿ]*$/.test(s) ? s : `'${s}'`) + '!';
 }
 
-// Зсуває посилання при ВСТАВЦІ/ВИДАЛЕННІ рядків чи колонок (поріг rowAt/colAt).
-// Працює через токенайзер (а не регексп), тому:
-//   - поважає абсолютні маркери $ (абсолютний вимір не зсувається);
-//   - не чіпає посилання всередині рядкових літералів ("A1" лишається текстом).
+// Згортає діапазон у #REF!, якщо хоч один кінець став #REF!.
+const REF_SIDE = "(?:'[^']*'!|[A-Za-z0-9_\\u0400-\\u04FF]+!)?(?:\\$?[A-Za-z]+\\$?\\d+|#REF!)";
+const REF_RANGE_RE = new RegExp(REF_SIDE + '\\s*:\\s*' + REF_SIDE, 'g');
+
+// Чи стосується посилання аркуша, де змінюється структура?
+function refTargetsModifiedSheet(t, modSheetLower, local) {
+  return t.sheet ? (String(t.sheet).trim().toLowerCase() === modSheetLower) : local;
+}
+
+// Зсуває посилання при ВСТАВЦІ/ВИДАЛЕННІ рядків чи колонок.
+// Семантика Excel: при зміні структури абсолютні посилання ТЕЖ зсуваються
+// (маркери $ зберігаються); $ блокує зсув лише при копіюванні (offsetFormulaRefs).
+// Посилання на видалені клітинки стають #REF!. opts.sheet — назва зміненого
+// аркуша, opts.local — чи формула живе на ньому (для безпрефіксних посилань).
 function shiftFormulaRefs(formula, opts) {
   const raw = String(formula || '');
   if (!raw.startsWith('=')) return raw;
@@ -100,22 +111,68 @@ function shiftFormulaRefs(formula, opts) {
   const colAt = Number.isFinite(opts?.colAt) ? opts.colAt : null;
   const rowDelta = Number.isFinite(opts?.rowDelta) ? opts.rowDelta : 0;
   const colDelta = Number.isFinite(opts?.colDelta) ? opts.colDelta : 0;
+  const modSheet = opts?.sheet ? String(opts.sheet).trim().toLowerCase() : null;
+  const local = !!opts?.local;
 
   let tokens;
   try {
     tokens = tokenizeFormula(raw.slice(1));
   } catch (_) {
-    return raw; // не псуємо те, що не вдалося розібрати
+    return raw;
+  }
+
+  let broke = false;
+  let result = stringifyFormulaTokens(tokens, (t) => {
+    if (!refTargetsModifiedSheet(t, modSheet, local)) {
+      return (t.sheet ? sheetRefPrefix(t.sheet) : '') + refTokenToString(t.col, t.row, t.colAbs, t.rowAbs);
+    }
+
+    let cIdx = t.col;
+    let rNum = t.row;
+
+    if (rowAt !== null) {
+      if (rowDelta < 0) {
+        const delTo = rowAt - rowDelta - 1;
+        if (rNum >= rowAt && rNum <= delTo) { broke = true; return '#REF!'; }
+        if (rNum > delTo) rNum += rowDelta;
+      } else if (rNum >= rowAt) {
+        rNum += rowDelta;
+      }
+    }
+
+    if (colAt !== null) {
+      if (colDelta < 0) {
+        const delTo = colAt - colDelta - 1;
+        if (cIdx >= colAt && cIdx <= delTo) { broke = true; return '#REF!'; }
+        if (cIdx > delTo) cIdx += colDelta;
+      } else if (cIdx >= colAt) {
+        cIdx += colDelta;
+      }
+    }
+
+    return (t.sheet ? sheetRefPrefix(t.sheet) : '') + refTokenToString(cIdx, rNum, t.colAbs, t.rowAbs);
+  });
+
+  if (broke) result = result.replace(REF_RANGE_RE, m => (m.includes('#REF!') ? '#REF!' : m));
+  return result;
+}
+
+// Перейменовує префікс аркуша в посиланнях (oldName → newName).
+function renameSheetRefs(formula, oldName, newName) {
+  const raw = String(formula || '');
+  if (!raw.startsWith('=')) return raw;
+  const oldN = String(oldName).trim().toLowerCase();
+
+  let tokens;
+  try {
+    tokens = tokenizeFormula(raw.slice(1));
+  } catch (_) {
+    return raw;
   }
 
   return stringifyFormulaTokens(tokens, (t) => {
-    // Міжаркушеві посилання не зсуваються при зміні структури активного аркуша.
-    if (t.sheet) return sheetRefPrefix(t.sheet) + refTokenToString(t.col, t.row, t.colAbs, t.rowAbs);
-    let cIdx = t.col;
-    let rNum = t.row;
-    if (!t.rowAbs && rowAt !== null && rNum >= rowAt) rNum += rowDelta;
-    if (!t.colAbs && colAt !== null && cIdx >= colAt) cIdx += colDelta;
-    return refTokenToString(cIdx, rNum, t.colAbs, t.rowAbs);
+    const sheet = (t.sheet && String(t.sheet).trim().toLowerCase() === oldN) ? newName : t.sheet;
+    return (sheet ? sheetRefPrefix(sheet) : '') + refTokenToString(t.col, t.row, t.colAbs, t.rowAbs);
   });
 }
 
@@ -150,6 +207,7 @@ window.TablesAddressing = {
   indexToCol,
   isCellReference,
   offsetFormulaRefs,
+  renameSheetRefs,
   resolveRawCellValue,
   shiftFormulaRefs
 };

@@ -242,6 +242,14 @@ function initTablesEditor() {
     workbookInput.addEventListener('change', () => {
       const file = workbookInput.files?.[0];
       if (!file) return;
+
+      // Обмеження розміру файлу: 5 МБ
+      if (file.size > 5 * 1024 * 1024) {
+        showInfoModal('❌ Файл .arttab завеликий (максимум 5 МБ).');
+        workbookInput.value = '';
+        return;
+      }
+
       const reader = new FileReader();
       reader.onload = () => importWorkbookText(String(reader.result || ''));
       reader.readAsText(file);

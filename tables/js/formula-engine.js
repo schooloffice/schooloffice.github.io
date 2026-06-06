@@ -54,18 +54,19 @@ function compareValues(left, right, op) {
   }
 }
 
-// Дані аркуша для міжаркушевого посилання (активний аркуш → живі глобали).
-function resolveSheetData(name) {
+// Контекст аркуша для міжаркушевого посилання (активний → живі глобали + його межі).
+function resolveSheetContext(name) {
   const sh = findSheetByName(name);
   if (!sh) throw formulaError(FORMULA_ERRORS.REF);
-  return sh === sheets[activeSheet] ? cellData : sh.cellData;
+  if (sh === sheets[activeSheet]) return { data: cellData, rows: ROWS, cols: COL_COUNT };
+  return { data: sh.cellData, rows: sh.rows, cols: sh.cols };
 }
 
 function getCellValueForRef(node) {
   if (node.sheet) {
-    pushEvalData(resolveSheetData(node.sheet));
+    pushEvalContext(resolveSheetContext(node.sheet));
     try { return getCellValueByIndex(node.col, node.row); }
-    finally { popEvalData(); }
+    finally { popEvalContext(); }
   }
   return getCellValueByIndex(node.col, node.row);
 }
@@ -74,6 +75,7 @@ function evalScalar(node) {
   switch (node.type) {
     case 'num': return node.value;
     case 'str': return node.value;
+    case 'err': throw formulaError(node.value);
     case 'ref': return getCellValueForRef(node);
     case 'range': throw formulaError(FORMULA_ERRORS.VALUE); // діапазон не можна як скаляр
     case 'unary': {
@@ -107,12 +109,12 @@ function collectValues(argNodes) {
     if (node.type === 'range') {
       const sheetName = node.start.sheet;
       let pushed = false;
-      if (sheetName) { pushEvalData(resolveSheetData(sheetName)); pushed = true; }
+      if (sheetName) { pushEvalContext(resolveSheetContext(sheetName)); pushed = true; }
       try {
         const vals = rangeToValues(node.start.col, node.start.row, node.end.col, node.end.row);
         for (const v of vals) out.push(v);
       } finally {
-        if (pushed) popEvalData();
+        if (pushed) popEvalContext();
       }
     } else {
       out.push(evalScalar(node));

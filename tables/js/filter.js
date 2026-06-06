@@ -31,13 +31,25 @@ function filterMatches(spec, raw) {
   }
 }
 
+// Значення клітинки для фільтра (формула → обчислений результат).
+function filterCellValue(col, row) {
+  const raw = cellData[getCellId(col, row)];
+  if (raw === undefined || raw === null || String(raw).trim() === '') return '';
+  const s = String(raw);
+  if (s.startsWith('=')) {
+    try { calcDepth = 0; return evaluateFormula(s.substring(1)); }
+    catch (_) { return ''; }
+  }
+  return raw;
+}
+
 function applyRowFilter() {
   for (let r = 1; r <= ROWS; r++) {
     const cell = cellTd[r]?.[0];
     const tr = cell ? cell.closest('tr') : null;
     if (!tr) continue;
     if (!rowFilter) { tr.style.display = ''; continue; }
-    tr.style.display = filterMatches(rowFilter, cellData[getCellId(rowFilter.col, r)]) ? '' : 'none';
+    tr.style.display = filterMatches(rowFilter, filterCellValue(rowFilter.col, r)) ? '' : 'none';
   }
 }
 

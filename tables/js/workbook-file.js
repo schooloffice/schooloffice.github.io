@@ -33,6 +33,8 @@ function importWorkbookText(text) {
   try {
     const payload = JSON.parse(text);
     if (!payload || typeof payload !== 'object') throw new Error('Некоректний файл');
+    if (payload.type && payload.type !== 'art-tables-workbook') throw new Error('Це не файл ПЛЮС Таблиць');
+    if (Array.isArray(payload.sheets) && payload.sheets.length > 50) throw new Error('Забагато аркушів (максимум 50)');
 
     saveToHistory();
 

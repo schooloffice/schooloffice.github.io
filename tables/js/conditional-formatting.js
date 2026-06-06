@@ -58,6 +58,7 @@ function applyConditionalFormatting() {
   condStyledCells = [];
 
   for (const rule of condRules) {
+    if (!rule || !Array.isArray(rule.range) || rule.range.length < 4) continue;
     const [cMin, rMin, cMax, rMax] = rule.range;
     for (let r = rMin; r <= rMax; r++) {
       for (let c = cMin; c <= cMax; c++) {

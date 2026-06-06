@@ -1,17 +1,23 @@
 'use strict';
 
 // ---- Resolving cell / range values for the AST evaluator ----
-// Контекст даних: стек cellData-об'єктів для міжаркушевих посилань.
-let __evalDataStack = [];
-function pushEvalData(d) { __evalDataStack.push(d); }
-function popEvalData() { __evalDataStack.pop(); }
-function currentEvalData() { return __evalDataStack.length ? __evalDataStack[__evalDataStack.length - 1] : cellData; }
+// Контекст обчислення: стек { data, rows, cols } для міжаркушевих посилань
+// (кожен аркуш має власний розмір, тож межі беремо з контексту, а не з активного).
+let __evalCtxStack = [];
+function pushEvalContext(ctx) { __evalCtxStack.push(ctx); }
+function popEvalContext() { __evalCtxStack.pop(); }
+function currentEvalContext() {
+  return __evalCtxStack.length
+    ? __evalCtxStack[__evalCtxStack.length - 1]
+    : { data: cellData, rows: ROWS, cols: COL_COUNT };
+}
 
 // Повертає типізоване значення клітинки: number | string | null(порожня).
 function getCellValueByIndex(col, row) {
-  if (col < 0 || col >= COL_COUNT || row < 1 || row > ROWS) return null;
+  const ctx = currentEvalContext();
+  if (col < 0 || col >= ctx.cols || row < 1 || row > ctx.rows) return null;
 
-  const data = currentEvalData();
+  const data = ctx.data;
   const key = indexToCol(col) + row;
   const raw = data[key];
   if (raw === undefined || raw === null || String(raw) === '') return null;

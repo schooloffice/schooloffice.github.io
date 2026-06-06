@@ -20,6 +20,26 @@ function finishStructureChange() {
   saveToHistory();
 }
 
+// Оновлює міжаркушеві посилання на змінений (активний) аркуш в УСІХ інших аркушах.
+function applyStructureToOtherSheets(opts) {
+  const modName = sheets[activeSheet]?.name;
+  if (!modName) return;
+  for (let i = 0; i < sheets.length; i++) {
+    if (i === activeSheet) continue;
+    const data = sheets[i].cellData;
+    for (const k of Object.keys(data)) {
+      const v = data[k];
+      if (String(v || '').startsWith('=')) {
+        data[k] = shiftFormulaRefs(v, Object.assign({ sheet: modName, local: false }, opts));
+      }
+    }
+  }
+}
+
+function activeShiftOpts(opts) {
+  return Object.assign({ sheet: sheets[activeSheet]?.name, local: true }, opts);
+}
+
 function insertRow(atRow, count = 1) {
   const rowAt = clamp(atRow, 1, ROWS + 1);
   const amount = Math.max(1, Number(count) || 1);
@@ -43,8 +63,9 @@ function insertRow(atRow, count = 1) {
 
   for (const k of Object.keys(newData)) {
     const v = newData[k];
-    if (String(v || '').startsWith('=')) newData[k] = shiftFormulaRefs(v, { rowAt, rowDelta: amount });
+    if (String(v || '').startsWith('=')) newData[k] = shiftFormulaRefs(v, activeShiftOpts({ rowAt, rowDelta: amount }));
   }
+  applyStructureToOtherSheets({ rowAt, rowDelta: amount });
 
   if (active.r >= rowAt) active.r += amount;
   if (selStart.r >= rowAt) selStart.r += amount;
@@ -92,8 +113,9 @@ function deleteRow(atRow, count = 1) {
 
   for (const k of Object.keys(newData)) {
     const v = newData[k];
-    if (String(v || '').startsWith('=')) newData[k] = shiftFormulaRefs(v, { rowAt: deleteFrom, rowDelta: -amount });
+    if (String(v || '').startsWith('=')) newData[k] = shiftFormulaRefs(v, activeShiftOpts({ rowAt: deleteFrom, rowDelta: -amount }));
   }
+  applyStructureToOtherSheets({ rowAt: deleteFrom, rowDelta: -amount });
 
   active.r = clamp(active.r > deleteTo ? active.r - amount : active.r, 1, ROWS - amount);
   selStart.r = clamp(selStart.r > deleteTo ? selStart.r - amount : selStart.r, 1, ROWS - amount);
@@ -138,8 +160,9 @@ function insertColumn(atCol, count = 1) {
 
   for (const k of Object.keys(newData)) {
     const v = newData[k];
-    if (String(v || '').startsWith('=')) newData[k] = shiftFormulaRefs(v, { colAt, colDelta: amount });
+    if (String(v || '').startsWith('=')) newData[k] = shiftFormulaRefs(v, activeShiftOpts({ colAt, colDelta: amount }));
   }
+  applyStructureToOtherSheets({ colAt, colDelta: amount });
 
   if (active.c >= colAt) active.c += amount;
   if (selStart.c >= colAt) selStart.c += amount;
@@ -197,8 +220,9 @@ function deleteColumn(atCol, count = 1) {
 
   for (const k of Object.keys(newData)) {
     const v = newData[k];
-    if (String(v || '').startsWith('=')) newData[k] = shiftFormulaRefs(v, { colAt: deleteFrom, colDelta: -amount });
+    if (String(v || '').startsWith('=')) newData[k] = shiftFormulaRefs(v, activeShiftOpts({ colAt: deleteFrom, colDelta: -amount }));
   }
+  applyStructureToOtherSheets({ colAt: deleteFrom, colDelta: -amount });
 
   active.c = clamp(active.c > deleteTo ? active.c - amount : active.c, 0, COL_COUNT - amount - 1);
   selStart.c = clamp(selStart.c > deleteTo ? selStart.c - amount : selStart.c, 0, COL_COUNT - amount - 1);

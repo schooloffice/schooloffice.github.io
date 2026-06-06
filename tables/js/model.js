@@ -38,8 +38,8 @@ function normalizeSheet(s) {
     cellStyles: s?.cellStyles && typeof s.cellStyles === 'object' ? s.cellStyles : {},
     colWidths: s?.colWidths && typeof s.colWidths === 'object' ? s.colWidths : {},
     condRules: Array.isArray(s?.condRules) ? s.condRules : [],
-    rows: Number(s?.rows) || DEFAULT_ROWS,
-    cols: Number(s?.cols) || DEFAULT_COL_COUNT
+    rows: Math.max(1, Math.min(500, Number(s?.rows) || DEFAULT_ROWS)),
+    cols: Math.max(1, Math.min(200, Number(s?.cols) || DEFAULT_COL_COUNT))
   };
 }
 
