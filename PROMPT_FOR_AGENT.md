@@ -1,22 +1,37 @@
-# PROMPT_FOR_AGENT.md
+# Контекст і правила для агента
 
-Статус: довідковий регламент.
+Перед змінами прочитай:
 
-Коли агент або розробник змінює редактори Офіс ПЛЮС, він має працювати від поточних джерел правди:
+1. `PROJECT_DIRECTION.md` — продуктова мета, незмінні рішення, матриця редакторів, ризики й дорожня карта.
+2. `README.md` — карта репозиторію та команди перевірки.
+3. `ARCHITECTURE.md` — межі shared і service layers.
+4. `UI_INTEGRATION_GUIDE.md` — технічний контракт shared shell.
+5. Локальні `UI_STANDARD.md` та `UI_MIGRATION_TO_STANDARD.md` редактора, який змінюється.
 
-1. `UI_INTEGRATION_GUIDE.md`
-2. `README.md`
-3. `OFFICE_UI_STANDARD.md`
-4. `COMPONENT_CHECKLIST.md`
-5. Спеціалізовані стандарти: `MODAL_STANDARD.md`, `DROPDOWN_STANDARD.md`, `KEYBOARD_SHORTCUTS.md`, `WORKSPACE_ACCESSIBILITY.md`, `CONTEXTUAL_UI_STANDARD.md`
+## Продуктові правила
 
-Практичні правила:
+- Це локальний офлайн-пакет редакторів для шкільної інформатики.
+- Не додавати вправи, акаунти, cloud storage або collaboration.
+- Не переписувати пакет на великий сторонній SDK без окремого пілота й рішення.
+- Зберігати власний UI і shared shell.
+- Розвивати редактори через типові учнівські сценарії, надійність і сумісність файлів.
 
-- Перед змінами перевірити наявний патерн у редакторі.
-- Для стандартних команд використовувати `OfficeShell.registerCommands` / `OfficeShell.runCommand` або сумісно `OfficeUI.registerCommands` / `OfficeUI.runCommand`.
-- Для відкриття file input використовувати `OfficeShell.openFilePicker` або `OfficeUI.openFilePicker`.
-- Для modal state використовувати або делегувати в `OfficeUI.openModal` / `OfficeUI.closeModal`.
-- Не додавати браузерні тести без потреби; спершу додавати статичний contract check.
-- Після змін запускати `tests/run-tests.ps1` і `git diff --check`.
+## Технічні правила
 
-Якщо цей файл суперечить `UI_INTEGRATION_GUIDE.md`, актуальним є `UI_INTEGRATION_GUIDE.md`.
+- Стандартні команди проводити через `OfficeShell.registerCommands` / `OfficeShell.runCommand`.
+- File picker проводити через `OfficeShell.openFilePicker`.
+- Не вставляти недовірені project/file дані через `innerHTML` без валідації та escaping.
+- Для імпорту додавати schema validation, ліміти й негативні тести.
+- Нову залежність додавати лише після перевірки ліцензії, офлайн-роботи, bundle size і плану підтримки.
+- Новий runtime-файл додавати до `sw.js` і тестового контракту.
+- Не робити механічне дроблення модулів без чіткої доменної межі.
+
+## Обов'язкова перевірка
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-browser-smoke.ps1
+git diff --check
+```
+
+Якщо стратегія або архітектурні правила суперечать одне одному, спочатку онови активне джерело правди або попроси продуктове рішення.
