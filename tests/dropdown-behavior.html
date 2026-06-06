@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office PLUS Dropdown Behavior</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .fixture { position: absolute; left: -9999px; top: 0; width: 1px; height: 1px; overflow: hidden; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+  <script src="../office-ui.js"></script>
+</head>
+<body>
+  <h1>Office PLUS Dropdown Behavior</h1>
+  <pre id="result">Running...</pre>
+  <div id="fixtures" class="fixture"></div>
+  <script>
+    const services = ['text', 'tables', 'paint', 'slides', 'flowcharts', 'vector'];
+    const result = document.getElementById('result');
+    const fixtures = document.getElementById('fixtures');
+
+    function settle() {
+      return new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    async function checkService(service) {
+      const response = await fetch(`../${service}/index.html`);
+      const html = await response.text();
+      const parsed = new DOMParser().parseFromString(html, 'text/html');
+      const menubar = parsed.querySelector('.office-menubar');
+      const host = document.createElement('section');
+      host.dataset.service = service;
+      if (menubar) host.appendChild(menubar.cloneNode(true));
+      fixtures.appendChild(host);
+
+      window.OfficeUI.init();
+
+      const title = host.querySelector('.menu-title');
+      const menuName = title && title.dataset.menu;
+      const menu = menuName && host.querySelector(`.menu-dropdown[data-menu="${menuName}"]`);
+      const checks = [
+        ['menu title exists', !!title],
+        ['menu dropdown exists', !!menu],
+        ['OfficeUI loaded', !!window.OfficeUI]
+      ];
+
+      if (title && menu) {
+        title.focus();
+        title.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'ArrowDown',
+          bubbles: true,
+          cancelable: true
+        }));
+        await settle();
+        checks.push(['ArrowDown opens menu', menu.classList.contains('open')]);
+        checks.push(['aria-expanded true after open', title.getAttribute('aria-expanded') === 'true']);
+
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true
+        }));
+        await settle();
+        checks.push(['Escape closes menu', !menu.classList.contains('open')]);
+        checks.push(['aria-expanded false after Escape', title.getAttribute('aria-expanded') === 'false']);
+        checks.push(['Escape restores focus', document.activeElement === title]);
+
+        title.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'ArrowDown',
+          bubbles: true,
+          cancelable: true
+        }));
+        await settle();
+        document.body.dispatchEvent(new PointerEvent('pointerdown', {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 1
+        }));
+        await settle();
+        checks.push(['outside click closes menu', !menu.classList.contains('open')]);
+      }
+
+      host.remove();
+      return { service, checks };
+    }
+
+    async function run() {
+      const rows = [];
+      for (const service of services) {
+        rows.push(await checkService(service));
+      }
+      return rows;
+    }
+
+    run().then(rows => {
+      const failures = [];
+      const lines = [];
+      for (const row of rows) {
+        lines.push(row.service);
+        for (const [name, ok] of row.checks) {
+          lines.push(`  ${ok ? 'PASS' : 'FAIL'} ${name}`);
+          if (!ok) failures.push(`${row.service}: ${name}`);
+        }
+      }
+      result.className = failures.length ? 'fail' : 'pass';
+      result.textContent = lines.join('\n') + `\n\n${failures.length ? 'FAILED' : 'PASSED'}`;
+      document.body.dataset.dropdown = failures.length ? 'failed' : 'passed';
+    }).catch(error => {
+      result.className = 'fail';
+      result.textContent = String(error && error.stack || error);
+      document.body.dataset.dropdown = 'failed';
+    });
+  </script>
+</body>
+</html>

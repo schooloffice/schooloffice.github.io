@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paint Behavior</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    iframe { width: 960px; height: 540px; border: 1px solid #d6dce5; border-radius: 8px; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Paint Behavior</h1>
+  <pre id="result">Running...</pre>
+  <iframe id="paintFrame" src="../paint/index.html"></iframe>
+
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('paintFrame');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function waitFor(predicate, label, timeout = 7000) {
+      const start = performance.now();
+      while (performance.now() - start < timeout) {
+        if (predicate()) return;
+        await wait(100);
+      }
+      throw new Error(label);
+    }
+
+    function check(name, ok) {
+      if (!ok) throw new Error(name);
+      return `PASS ${name}`;
+    }
+
+    async function run() {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('paint iframe load timed out')), 7000);
+        frame.addEventListener('load', () => {
+          clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
+
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      await waitFor(() => typeof win.PaintApp?.boot === 'function', 'PaintApp boot exported');
+      await waitFor(() => win.ArtMalyunky?.canvasApi?.canvas?.width > 0, 'paint canvas initialized');
+
+      const canvas = doc.querySelector('#drawingCanvas');
+      const { state, canvasApi } = win.ArtMalyunky;
+      state.currentTool = 'shapes';
+      state.currentShape = 'rect';
+      canvasApi.createPendingShape(20, 20, 120, 90);
+      const created = canvasApi.commitPendingObject();
+      canvasApi.renderObjects();
+      await waitFor(() => doc.querySelectorAll('.art-object').length === 1, 'paint object rendered');
+      doc.querySelector('.art-object').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await waitFor(() => doc.querySelector('.art-object.selected'), 'paint object selected');
+      const beforeX = created.x;
+      canvasApi.updateObject(created.id, { x: beforeX + 12 });
+
+      const checks = [
+        check('PaintApp boot exported', typeof win.PaintApp?.boot === 'function'),
+        check('document module exported', typeof win.ArtMalyunky?.paintDocument?.createPaintDocument === 'function'),
+        check('object interaction module exported', typeof win.ArtMalyunky?.objectInteractions?.createPaintObjectInteractions === 'function'),
+        check('canvas api initialized', !!win.ArtMalyunky?.canvasApi?.canvas),
+        check('drawing canvas has dimensions', canvas.width > 0 && canvas.height > 0),
+        check('object rendered', doc.querySelectorAll('.art-object').length === 1),
+        check('object selected', state.selectedObjectId === created.id),
+        check('object update works', canvasApi.getObjectById(created.id).x === beforeX + 12),
+        check('standard commands exported', ['new', 'open', 'save', 'undo', 'redo'].every(command => !!doc.querySelector(`[data-office-command="${command}"]`))),
+        check('toolbar status rendered', !!doc.querySelector('#statusTool') && !!doc.querySelector('#statusCanvas'))
+      ];
+
+      result.className = 'pass';
+      result.textContent = checks.join('\n') + '\n\nPASSED';
+      document.body.dataset.paintBehavior = 'passed';
+    }
+
+    run().catch(error => {
+      result.className = 'fail';
+      result.textContent = String(error && error.stack || error);
+      document.body.dataset.paintBehavior = 'failed';
+    });
+  </script>
+</body>
+</html>

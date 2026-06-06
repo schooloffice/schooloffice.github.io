@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office PLUS Flowcharts Behavior Smoke</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    iframe { width: 1px; height: 1px; border: 0; position: absolute; left: -9999px; top: 0; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Office PLUS Flowcharts Behavior Smoke</h1>
+  <pre id="result">Running...</pre>
+
+  <script>
+    const result = document.getElementById('result');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function loadFrame() {
+      return new Promise((resolve, reject) => {
+        const frame = document.createElement('iframe');
+        frame.src = '../flowcharts/index.html';
+        frame.addEventListener('load', () => resolve(frame), { once: true });
+        frame.addEventListener('error', () => reject(new Error('flowcharts frame failed to load')), { once: true });
+        document.body.appendChild(frame);
+      });
+    }
+
+    function addCheck(checks, name, ok, detail = '') {
+      checks.push({ name, ok: !!ok, detail });
+    }
+
+    async function runEditorChecks(win, doc) {
+      const checks = [];
+      const requiredNamespaces = [
+        'FlowchartsAutosave',
+        'FlowchartsModals',
+        'FlowchartsEditorUtils',
+        'FlowchartsStatus',
+        'FlowchartsColors',
+        'FlowchartsConnectionSelection',
+        'FlowchartsShapeSelection',
+        'FlowchartsShapeDeletion',
+        'FlowchartsShapeText',
+        'FlowchartsShapeInteractions',
+        'FlowchartsShapeFactory',
+        'FlowchartsViewport',
+        'FlowchartsKeyboardShortcuts',
+        'FlowchartsHistory',
+        'FlowchartsMenuActions',
+        'FlowchartsFlowActions',
+        'FlowchartsTitle',
+        'FlowchartsShapeGeometry',
+        'FlowchartsShapePlacement',
+        'FlowchartsHandles',
+        'FlowchartsRouting',
+        'FlowchartsConnectionsDom',
+        'FlowchartsApp'
+      ];
+
+      requiredNamespaces.forEach(name => {
+        addCheck(checks, `namespace ${name}`, !!win[name]);
+      });
+
+      await wait(500);
+      const initialShapeCount = doc.querySelectorAll('.shape').length;
+      doc.querySelector('.shape-button[data-shape="process"]')?.click();
+      doc.querySelector('.shape-button[data-shape="decision"]')?.click();
+      await wait(500);
+
+      const shapes = [...doc.querySelectorAll('.shape')];
+      addCheck(checks, 'shape buttons create shapes', shapes.length >= initialShapeCount + 2, `count=${shapes.length}`);
+      addCheck(checks, 'created process shape', !!doc.querySelector('.shape.process'));
+      addCheck(checks, 'created decision shape', !!doc.querySelector('.shape.decision'));
+      addCheck(checks, 'handle groups created', doc.querySelectorAll('#connectors-layer g[data-shape-id]').length >= 2);
+
+      return checks;
+    }
+
+    function runModuleChecks(win, doc) {
+      const checks = [];
+      const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.id = 'flowcharts-smoke-svg';
+      doc.body.appendChild(svg);
+
+      const from = doc.createElement('div');
+      from.id = 'smoke-from';
+      from.className = 'shape process';
+      Object.assign(from.style, {
+        position: 'absolute',
+        left: '40px',
+        top: '40px',
+        width: '120px',
+        height: '70px'
+      });
+
+      const to = doc.createElement('div');
+      to.id = 'smoke-to';
+      to.className = 'shape decision';
+      Object.assign(to.style, {
+        position: 'absolute',
+        left: '260px',
+        top: '160px',
+        width: '110px',
+        height: '80px'
+      });
+      doc.body.appendChild(from);
+      doc.body.appendChild(to);
+
+      const state = {
+        shapes: [
+          { id: from.id, type: 'process' },
+          { id: to.id, type: 'decision' }
+        ],
+        connections: [],
+        selectedConnId: null,
+        connDrag: null
+      };
+
+      const shapeGeometry = win.FlowchartsShapeGeometry?.createShapeGeometry?.({ state });
+      addCheck(checks, 'shape geometry factory', !!shapeGeometry);
+      addCheck(checks, 'shape geometry hit-test', shapeGeometry?.findShapeAt?.(270, 170, null)?.id === to.id);
+
+      const routing = win.FlowchartsRouting?.createRouting?.({
+        state,
+        routeModes: ['auto', 'vertical', 'horizontal'],
+        domShapeToBox: shapeGeometry?.domShapeToBox,
+        decisionVertexDistance: shapeGeometry?.decisionVertexDistance
+      });
+      addCheck(checks, 'routing factory', !!routing);
+
+      const connectionsDom = win.FlowchartsConnectionsDom?.createConnectionsDom?.({
+        state,
+        svgLayer: svg,
+        routeModes: ['auto', 'vertical', 'horizontal'],
+        buildMergeContext: routing?.buildMergeContext,
+        computeConnectionGeometry: routing?.computeConnectionGeometry,
+        pointAlongPolyline: routing?.pointAlongPolyline
+      });
+      addCheck(checks, 'connections DOM factory', !!connectionsDom);
+
+      const path = connectionsDom?.connectShapes?.(from, to, null);
+      addCheck(checks, 'connectShapes returns path', !!path);
+      addCheck(checks, 'connection state recorded', state.connections.length === 1);
+      addCheck(checks, 'connection path rendered', !!doc.getElementById('conn-smoke-from-smoke-to'));
+      addCheck(checks, 'connection hit path rendered', !!doc.getElementById('hit-conn-smoke-from-smoke-to'));
+      addCheck(checks, 'connection path has geometry', !!path?.getAttribute('d'));
+
+      connectionsDom?.removeConnectionDom?.('conn-smoke-from-smoke-to');
+      addCheck(checks, 'removeConnectionDom removes path', !doc.getElementById('conn-smoke-from-smoke-to'));
+
+      const selectionState = doc.createElement('div');
+      const routeButton = doc.createElement('button');
+      routeButton.innerHTML = '<span>Маршрут</span>';
+      const labelButton = doc.createElement('button');
+      labelButton.innerHTML = '<span>Підпис</span>';
+      const editShapeButton = doc.createElement('button');
+      const deleteButton = doc.createElement('button');
+      const selectedPath = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+      selectedPath.id = 'conn-selection-smoke';
+      selectedPath.setAttribute('stroke', '#555');
+      selectedPath.setAttribute('marker-end', 'url(#arrowhead)');
+      svg.appendChild(selectedPath);
+      state.connections = [{ id: selectedPath.id, from: from.id, to: to.id, routeMode: 'auto', type: 'yes' }];
+      state.selectedConnId = null;
+      let updatedConnectionId = null;
+      let snapshots = 0;
+
+      const selection = win.FlowchartsConnectionSelection?.createConnectionSelectionController?.({
+        state,
+        routeModes: ['auto', 'vertical', 'horizontal'],
+        routeModeLabels: { auto: 'Авто', vertical: 'Вертикально', horizontal: 'Горизонтально' },
+        selectionStateEl: selectionState,
+        routeButton,
+        labelButton,
+        editShapeButton,
+        deleteButton,
+        saveSnapshot: () => { snapshots += 1; },
+        updateConnection: (id) => { updatedConnectionId = id; },
+        deselectAll: () => {},
+        hideAllHandles: () => {},
+        openModal: (modal) => modal.classList.add('active'),
+        closeModal: (modal) => modal.classList.remove('active')
+      });
+      addCheck(checks, 'connection selection factory', !!selection);
+      selection?.selectConnection?.(selectedPath.id);
+      addCheck(checks, 'connection selection state', state.selectedConnId === selectedPath.id);
+      addCheck(checks, 'connection selection highlights path', selectedPath.getAttribute('stroke') === '#e91e63');
+      addCheck(checks, 'connection toolbar enables route', routeButton.disabled === false);
+      selection?.cycleSelectedConnectionRouteMode?.();
+      addCheck(checks, 'connection route cycles mode', state.connections[0].routeMode === 'vertical');
+      addCheck(checks, 'connection route updates DOM', updatedConnectionId === selectedPath.id && snapshots === 1);
+      selection?.clearConnectionSelection?.();
+      addCheck(checks, 'connection selection clears state', state.selectedConnId === null);
+
+      let shownHandlesFor = null;
+      let handlesHidden = 0;
+      let colorSyncedTo = null;
+      let selectionBarUpdates = 0;
+      state.selectedShape = null;
+      from.style.backgroundColor = '#123456';
+      const shapeSelection = win.FlowchartsShapeSelection?.createShapeSelectionController?.({
+        state,
+        clearConnectionSelection: () => { state.selectedConnId = null; },
+        showHandlesForShape: (id) => { shownHandlesFor = id; },
+        hideAllHandles: () => { handlesHidden += 1; },
+        rgbToHex: () => '#123456',
+        syncColorPickerToCurrent: (hex) => { colorSyncedTo = hex; },
+        updateConnectionBar: () => { selectionBarUpdates += 1; }
+      });
+      addCheck(checks, 'shape selection factory', !!shapeSelection);
+      shapeSelection?.selectShape?.(from);
+      addCheck(checks, 'shape selection marks selected shape', state.selectedShape === from && from.classList.contains('selected') && from.getAttribute('aria-selected') === 'true');
+      addCheck(checks, 'shape selection syncs handles and color', shownHandlesFor === from.id && colorSyncedTo === '#123456' && state.currentColor === '#123456');
+      shapeSelection?.deselectAll?.();
+      addCheck(checks, 'shape selection clears selected shape', state.selectedShape === null && !from.classList.contains('selected') && handlesHidden === 1 && selectionBarUpdates >= 2);
+
+      const viewportCanvas = doc.createElement('div');
+      const viewportContainer = doc.createElement('div');
+      const viewportSvg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      doc.body.appendChild(viewportContainer);
+      viewportContainer.appendChild(viewportCanvas);
+      viewportContainer.appendChild(viewportSvg);
+      Object.assign(viewportContainer.style, { width: '200px', height: '100px', overflow: 'scroll' });
+      Object.assign(viewportCanvas.style, { width: '800px', height: '600px' });
+      viewportContainer.getBoundingClientRect = () => ({ width: 200, height: 100, left: 0, top: 0, right: 200, bottom: 100 });
+      viewportContainer.scrollLeft = 40;
+      viewportContainer.scrollTop = 30;
+      const viewportState = { scale: 1, minScale: 0.5, maxScale: 2, scaleStep: 0.25 };
+      let viewportRefreshes = 0;
+      let backgroundDeselects = 0;
+      const zoomText = doc.createElement('span');
+      const viewport = win.FlowchartsViewport?.createViewportController?.({
+        state: viewportState,
+        canvas: viewportCanvas,
+        canvasContainer: viewportContainer,
+        svgLayer: viewportSvg,
+        zoomLevelText: zoomText,
+        scheduleRefresh: () => { viewportRefreshes += 1; },
+        deselectAll: () => { backgroundDeselects += 1; },
+        clearConnectionSelection: () => {},
+        updateConnectionBar: () => {}
+      });
+      addCheck(checks, 'viewport factory', !!viewport);
+      viewport?.setZoom?.(1.5);
+      addCheck(checks, 'viewport setZoom updates scale and label', viewportState.scale === 1.5 && viewportCanvas.style.transform === 'scale(1.5)' && zoomText.textContent === '150%');
+      viewport?.bind?.();
+      viewportContainer.scrollLeft = 40;
+      viewportContainer.scrollTop = 30;
+      viewportContainer.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 100, pointerId: 1 }));
+      viewportContainer.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, clientX: 70, clientY: 80, pointerId: 1 }));
+      viewportContainer.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+      addCheck(checks, 'viewport pan moves scroll position', viewportContainer.scrollLeft === 70 && viewportContainer.scrollTop === 50);
+      addCheck(checks, 'viewport background deselect hook', backgroundDeselects >= 1 && viewportRefreshes >= 1);
+      viewportContainer.remove();
+
+      const deleteState = {
+        shapes: [
+          { id: from.id, type: 'process', textRaw: 'Process' },
+          { id: to.id, type: 'decision', textRaw: 'Decision' }
+        ],
+        connections: [{ id: 'conn-delete-smoke', from: from.id, to: to.id }],
+        selectedShape: from,
+        selectedConnId: null,
+        shapeCounter: 2,
+        redoStack: ['redo']
+      };
+      const deletionCalls = { snapshots: 0, removedConnections: [], removedHandles: [], refreshed: 0 };
+      const deletion = win.FlowchartsShapeDeletion?.createShapeDeletionController?.({
+        state: deleteState,
+        saveSnapshot: () => { deletionCalls.snapshots += 1; },
+        removeConnectionDom: (id) => deletionCalls.removedConnections.push(id),
+        removeHandleGroup: (id) => deletionCalls.removedHandles.push(id),
+        deselectAll: () => { deleteState.selectedShape = null; },
+        clearConnectionSelection: () => { deleteState.selectedConnId = null; },
+        updateConnectionBar: () => {},
+        scheduleRefresh: () => { deletionCalls.refreshed += 1; },
+        getDefaultText: () => 'Process',
+        showConfirmModal: (_message, onConfirm) => onConfirm(),
+        hideAllHandles: () => {},
+        updateHistoryButtons: () => {},
+        deleteConnection: () => {}
+      });
+      addCheck(checks, 'shape deletion factory', !!deletion);
+      addCheck(checks, 'shape deletion confirms connected shape', deletion?.shouldConfirmShapeDeletion?.(from) === true);
+      deletion?.deleteSelected?.();
+      addCheck(checks, 'shape deletion removes shape state', !deleteState.shapes.some(item => item.id === from.id));
+      addCheck(checks, 'shape deletion removes linked connection state', deleteState.connections.length === 0);
+      addCheck(checks, 'shape deletion removes DOM node', !doc.getElementById(from.id));
+      addCheck(checks, 'shape deletion calls cleanup hooks', deletionCalls.snapshots === 1 && deletionCalls.removedConnections[0] === 'conn-delete-smoke' && deletionCalls.removedHandles[0] === from.id);
+
+      const colorButton = doc.createElement('button');
+      colorButton.dataset.color = '#123456';
+      const colorState = {
+        shapes: [{ id: to.id, type: 'decision', color: '#ff9800' }],
+        selectedShape: to,
+        currentColor: '#ff9800',
+        baseColors: { decision: '#ff9800', process: '#03a9f4' },
+        lastShapeType: 'process'
+      };
+      let colorSnapshots = 0;
+      let colorRefreshes = 0;
+      const colors = win.FlowchartsColors?.createColorController?.({
+        state: colorState,
+        defaultBaseColors: { decision: '#ff9800', process: '#03a9f4' },
+        colorButtons: [colorButton],
+        saveSnapshot: () => { colorSnapshots += 1; },
+        scheduleRefresh: () => { colorRefreshes += 1; }
+      });
+      addCheck(checks, 'colors factory', !!colors);
+      colors?.applyColor?.('#123456');
+      addCheck(checks, 'colors apply to selected shape', colorState.shapes[0].color === '#123456' && to.style.backgroundColor);
+      addCheck(checks, 'colors sync selected swatch', colorButton.classList.contains('selected'));
+      addCheck(checks, 'colors schedule selected shape refresh', colorSnapshots === 1 && colorRefreshes === 1);
+
+      const textModal = doc.createElement('div');
+      const textArea = doc.createElement('textarea');
+      const cancelText = doc.createElement('button');
+      const saveText = doc.createElement('button');
+      const textContent = doc.createElement('div');
+      textContent.className = 'content';
+      to.appendChild(textContent);
+      textModal.appendChild(textArea);
+      doc.body.appendChild(textModal);
+      let textSnapshots = 0;
+      let textRefreshes = 0;
+      const textState = {
+        shapes: [{ id: to.id, type: 'decision', textRaw: 'Old' }],
+        activeShape: null
+      };
+      const shapeText = win.FlowchartsShapeText?.createShapeTextController?.({
+        state: textState,
+        textModal,
+        shapeTextArea: textArea,
+        cancelButton: cancelText,
+        saveButton: saveText,
+        openModal: (modal) => modal.classList.add('active'),
+        closeModal: (modal) => modal.classList.remove('active'),
+        saveSnapshot: () => { textSnapshots += 1; },
+        scheduleRefresh: () => { textRefreshes += 1; },
+        smartWrapText: (value) => value,
+        getDefaultText: () => 'Default'
+      });
+      addCheck(checks, 'shape text factory', !!shapeText);
+      shapeText?.openTextModal?.(to);
+      addCheck(checks, 'shape text opens modal', textState.activeShape === to && textArea.value === 'Old' && textModal.classList.contains('active'));
+      textArea.value = 'Updated';
+      shapeText?.saveEdit?.();
+      addCheck(checks, 'shape text saves value', textState.shapes[0].textRaw === 'Updated' && to.querySelector('.content')?.textContent === 'Updated');
+      addCheck(checks, 'shape text cleanup hooks', textState.activeShape === null && textSnapshots === 1 && textRefreshes === 1 && !textModal.classList.contains('active'));
+      textModal.remove();
+
+      const interactionShape = doc.createElement('div');
+      interactionShape.id = 'interaction-shape';
+      interactionShape.tabIndex = 0;
+      let interactionPointerDowns = 0;
+      let interactionOpens = 0;
+      let interactionClears = 0;
+      let interactionSelects = 0;
+      let interactionShows = 0;
+      let interactionHides = 0;
+      let interactionDeletes = 0;
+      const interactionState = { selectedShape: null, connDrag: null };
+      const interactions = win.FlowchartsShapeInteractions?.createShapeInteractionsController?.({
+        state: interactionState,
+        onShapePointerDown: () => { interactionPointerDowns += 1; },
+        openTextModal: () => { interactionOpens += 1; },
+        clearConnectionSelection: () => { interactionClears += 1; },
+        selectShape: () => { interactionSelects += 1; interactionState.selectedShape = interactionShape; },
+        showHandlesForShape: () => { interactionShows += 1; },
+        hideAllHandles: () => { interactionHides += 1; },
+        deleteSelected: () => { interactionDeletes += 1; }
+      });
+      addCheck(checks, 'shape interactions factory', !!interactions);
+      interactions?.bindShape?.(interactionShape);
+      interactionShape.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 10, button: 0 }));
+      interactionShape.click();
+      interactionShape.dispatchEvent(new win.PointerEvent('pointerenter', { bubbles: true, pointerId: 10 }));
+      interactionShape.dispatchEvent(new win.KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+      interactionShape.dispatchEvent(new win.KeyboardEvent('keydown', { bubbles: true, key: 'Delete' }));
+      addCheck(checks, 'shape interactions dispatch basic events', interactionPointerDowns === 1 && interactionClears === 1 && interactionSelects === 1 && interactionShows === 1);
+      addCheck(checks, 'shape interactions keyboard actions', interactionOpens === 1 && interactionDeletes === 1);
+      interactionState.selectedShape = null;
+      interactionShape.dispatchEvent(new win.PointerEvent('pointerleave', { bubbles: true, pointerId: 10 }));
+      addCheck(checks, 'shape interactions hides handles on leave', interactionHides === 1);
+
+      const factoryCanvas = doc.createElement('div');
+      const factoryContainer = doc.createElement('div');
+      doc.body.appendChild(factoryContainer);
+      factoryContainer.appendChild(factoryCanvas);
+      factoryContainer.getBoundingClientRect = () => ({ width: 320, height: 180, left: 0, top: 0, right: 320, bottom: 180 });
+      factoryContainer.scrollLeft = 20;
+      factoryContainer.scrollTop = 10;
+      const factoryState = { shapes: [], shapeCounter: 0, scale: 1 };
+      let factoryTextSet = null;
+      let factoryInteractionsBound = 0;
+      let factoryHandlesCreated = 0;
+      let factoryRefreshes = 0;
+      const factory = win.FlowchartsShapeFactory?.createShapeFactory?.({
+        state: factoryState,
+        canvas: factoryCanvas,
+        canvasContainer: factoryContainer,
+        getBaseColor: () => '#abcdef',
+        getDefaultText: () => 'Factory Text',
+        resolveShapePosition: (_type, position) => ({ left: Math.round(position.defaultLeft), top: Math.round(position.defaultTop) }),
+        setShapeText: (_shape, raw) => { factoryTextSet = raw; },
+        bindShapeInteractions: () => { factoryInteractionsBound += 1; },
+        createHandleGroup: () => { factoryHandlesCreated += 1; },
+        scheduleRefresh: () => { factoryRefreshes += 1; }
+      });
+      addCheck(checks, 'shape factory factory', !!factory);
+      const factoryShape = factory?.createShape?.('process', null, null, null, null, 'factory-shape');
+      addCheck(checks, 'shape factory creates DOM shape', !!factoryShape && factoryShape.parentNode === factoryCanvas && factoryShape.classList.contains('process'));
+      addCheck(checks, 'shape factory records state', factoryState.shapes.length === 1 && factoryState.shapes[0].id === factoryShape?.id && factoryState.shapes[0].textRaw === 'Factory Text');
+      addCheck(checks, 'shape factory calls hooks', factoryTextSet === 'Factory Text' && factoryInteractionsBound === 1 && factoryHandlesCreated === 1 && factoryRefreshes === 1);
+      const duplicateShape = factory?.createShape?.('process', null, null, null, null, 'factory-shape', true);
+      addCheck(checks, 'shape factory reuses forced existing shape', duplicateShape === factoryShape && factoryState.shapes.length === 1);
+      factoryContainer.remove();
+
+      let shortcutUndo = 0;
+      let shortcutRedo = 0;
+      let shortcutRoute = 0;
+      let shortcutDelete = 0;
+      let shortcutGrid = 0;
+      let shortcutMenusClosed = 0;
+      const shortcutHelpPanel = { hidden: false };
+      const shortcutState = { selectedConnId: 'conn-keyboard', pendingConn: { id: 1 }, activeShape: from };
+      const shortcuts = win.FlowchartsKeyboardShortcuts?.createKeyboardShortcutsController?.({
+        state: shortcutState,
+        runOfficeCommand: () => false,
+        undo: () => { shortcutUndo += 1; },
+        redo: () => { shortcutRedo += 1; },
+        cycleSelectedConnectionRouteMode: () => { shortcutRoute += 1; },
+        snapToggleButton: { click: () => { shortcutGrid += 1; } },
+        closeMenus: () => { shortcutMenusClosed += 1; },
+        helpPanel: shortcutHelpPanel,
+        toggleHelp: (show) => { shortcutHelpPanel.hidden = !show; },
+        closeModal: () => {},
+        deleteSelected: () => { shortcutDelete += 1; }
+      });
+      addCheck(checks, 'keyboard shortcuts factory', !!shortcuts);
+      shortcuts?.onKeydown?.(new win.KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, key: 'z' }));
+      shortcuts?.onKeydown?.(new win.KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, key: 'y' }));
+      shortcuts?.onKeydown?.(new win.KeyboardEvent('keydown', { bubbles: true, key: 'r' }));
+      shortcuts?.onKeydown?.(new win.KeyboardEvent('keydown', { bubbles: true, key: 'g' }));
+      shortcuts?.onKeydown?.(new win.KeyboardEvent('keydown', { bubbles: true, key: 'Delete' }));
+      shortcuts?.onKeydown?.(new win.KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
+      addCheck(checks, 'keyboard shortcuts command actions', shortcutUndo === 1 && shortcutRedo === 1 && shortcutRoute === 1 && shortcutGrid === 1 && shortcutDelete === 1);
+      addCheck(checks, 'keyboard shortcuts escape cleanup', shortcutMenusClosed === 1 && shortcutHelpPanel.hidden === true && shortcutState.pendingConn === null && shortcutState.activeShape === null);
+
+      const historyShape = doc.createElement('div');
+      historyShape.id = 'history-shape';
+      Object.assign(historyShape.style, { position: 'absolute', left: '30px', top: '40px' });
+      doc.body.appendChild(historyShape);
+      const historyUndoButton = doc.createElement('button');
+      const historyRedoButton = doc.createElement('button');
+      const historyState = {
+        shapes: [{ id: historyShape.id, type: 'process', color: '#111111', textRaw: 'History' }],
+        connections: [],
+        baseColors: { process: '#111111' },
+        diagramTitle: 'Before',
+        shapeCounter: 1,
+        lastShapeType: 'process',
+        snapEnabled: true,
+        undoStack: [],
+        redoStack: [],
+        MAX_UNDO: 5,
+        selectedShape: historyShape,
+        selectedConnId: 'conn-history',
+        activeShape: historyShape,
+        dragState: {},
+        connDrag: {},
+        pendingConn: {}
+      };
+      const historyCalls = { removedHandles: [], removedConnections: [], created: [], refreshes: 0, autosaves: 0, dirty: 0, titleCancels: 0, titleSyncs: 0, titleRenders: 0, snapUpdates: 0 };
+      const history = win.FlowchartsHistory?.createHistoryController?.({
+        state: historyState,
+        undoButton: historyUndoButton,
+        redoButton: historyRedoButton,
+        defaultBaseColors: { process: '#03a9f4' },
+        removeHandleGroup: (id) => historyCalls.removedHandles.push(id),
+        removeConnectionDom: (id) => historyCalls.removedConnections.push(id),
+        createShape: (type, color, textRaw, left, top, id) => {
+          historyCalls.created.push({ type, color, textRaw, left, top, id });
+          const el = doc.createElement('div');
+          el.id = id;
+          Object.assign(el.style, { position: 'absolute', left: `${left}px`, top: `${top}px` });
+          doc.body.appendChild(el);
+          historyState.shapes.push({ id, type, color, textRaw });
+          return el;
+        },
+        connectShapes: () => {},
+        scheduleRefresh: () => { historyCalls.refreshes += 1; },
+        updateConnectionBar: () => {},
+        syncColorPickerToCurrent: () => {},
+        scheduleAutosave: () => { historyCalls.autosaves += 1; },
+        setDirty: () => { historyCalls.dirty += 1; },
+        cancelTitleUpdate: () => { historyCalls.titleCancels += 1; },
+        syncTitleInput: () => { historyCalls.titleSyncs += 1; },
+        renderTitle: () => { historyCalls.titleRenders += 1; },
+        updateSnapButton: () => { historyCalls.snapUpdates += 1; }
+      });
+      addCheck(checks, 'history factory', !!history);
+      const captured = history?.captureSnapshot?.();
+      addCheck(checks, 'history captures shape positions', captured?.shapes?.[0]?.left === 30 && captured?.shapes?.[0]?.top === 40);
+      history?.saveSnapshot?.();
+      addCheck(checks, 'history save updates stacks/buttons', historyState.undoStack.length === 1 && historyState.redoStack.length === 0 && historyUndoButton.disabled === false && historyCalls.dirty === 1 && historyCalls.autosaves === 1);
+      historyState.shapes[0].textRaw = 'Changed';
+      history?.undo?.();
+      addCheck(checks, 'history undo restores state shell', historyState.shapes.length === 1 && historyState.shapes[0].textRaw === 'History' && historyState.selectedShape === null && historyState.pendingConn === null);
+      addCheck(checks, 'history undo calls cleanup hooks', historyCalls.removedHandles.includes('history-shape') && historyCalls.titleCancels === 1 && historyCalls.titleSyncs === 1 && historyCalls.titleRenders === 1 && historyCalls.snapUpdates === 1);
+
+      const menuHelpPanel = { hidden: true };
+      let menuInitCalled = 0;
+      let menuRenderedHelp = 0;
+      let menuZoom = null;
+      let menuDeleted = 0;
+      let menuMessage = '';
+      const menuActions = win.FlowchartsMenuActions?.createMenuActionsController?.({
+        UI: {
+          initMenus: (handler) => { menuInitCalled += 1; return { handler }; },
+          renderHelpPanelContent: () => { menuRenderedHelp += 1; }
+        },
+        helpPanel: menuHelpPanel,
+        deleteSelected: () => { menuDeleted += 1; },
+        setZoom: (value) => { menuZoom = value; },
+        showMessageModal: (message) => { menuMessage = message; }
+      });
+      addCheck(checks, 'menu actions factory', !!menuActions);
+      const menuApi = menuActions?.bind?.();
+      menuActions?.dispatchMenuAction?.('zoom-125');
+      menuActions?.dispatchMenuAction?.('delete-selected');
+      menuActions?.dispatchMenuAction?.('help-panel');
+      menuActions?.dispatchMenuAction?.('about');
+      addCheck(checks, 'menu actions bind/init help', menuInitCalled === 1 && menuRenderedHelp === 1 && !!menuApi?.handler);
+      addCheck(checks, 'menu actions dispatch commands', menuZoom === 1.25 && menuDeleted === 1 && menuHelpPanel.hidden === false && menuMessage.includes('ПЛЮС Схеми'));
+
+      const flowState = { snapEnabled: true, lastShapeType: 'process', shapes: [], pendingConn: { fromEl: from, toEl: to } };
+      const flowSnapButton = doc.createElement('button');
+      const flowShapeButton = doc.createElement('button');
+      flowShapeButton.dataset.shape = 'decision';
+      const flowModal = doc.createElement('div');
+      const flowYesButton = doc.createElement('button');
+      const flowNoButton = doc.createElement('button');
+      const flowCancelButton = doc.createElement('button');
+      let flowSnapshots = 0;
+      let flowCreatedType = null;
+      let flowSelected = null;
+      let flowConnectionKind = null;
+      let flowRefreshes = 0;
+      let flowClosedModal = 0;
+      const flowActions = win.FlowchartsFlowActions?.createFlowActionsController?.({
+        state: flowState,
+        snapToggleButton: flowSnapButton,
+        shapeButtons: [flowShapeButton],
+        connectionModal: flowModal,
+        connectionYesBtn: flowYesButton,
+        connectionNoBtn: flowNoButton,
+        cancelConnBtn: flowCancelButton,
+        saveSnapshot: () => { flowSnapshots += 1; },
+        createShape: (type) => {
+          flowCreatedType = type;
+          const el = doc.createElement('div');
+          el.id = 'flow-created-shape';
+          flowState.shapes.push({ id: el.id, type, color: '#000000' });
+          return el;
+        },
+        getBaseColor: () => '#654321',
+        selectShape: (el) => { flowSelected = el; },
+        connectShapes: (_fromEl, _toEl, kind) => { flowConnectionKind = kind; },
+        scheduleRefresh: () => { flowRefreshes += 1; },
+        closeModal: () => { flowClosedModal += 1; }
+      });
+      addCheck(checks, 'flow actions factory', !!flowActions);
+      flowActions?.bind?.();
+      flowSnapButton.click();
+      flowShapeButton.click();
+      flowYesButton.click();
+      addCheck(checks, 'flow actions snap and add shape', flowState.snapEnabled === false && flowSnapButton.getAttribute('aria-pressed') === 'false' && flowCreatedType === 'decision' && flowSelected?.id === 'flow-created-shape');
+      addCheck(checks, 'flow actions decision connection', flowConnectionKind === 'yes' && flowState.pendingConn === null && flowSnapshots === 2 && flowRefreshes === 1 && flowClosedModal === 1);
+
+      svg.remove();
+      from.remove();
+      to.remove();
+      return checks;
+    }
+
+    async function run() {
+      const frame = await loadFrame();
+      const win = frame.contentWindow;
+      const doc = frame.contentDocument;
+      const checks = [
+        ...(await runEditorChecks(win, doc)),
+        ...runModuleChecks(win, doc)
+      ];
+
+      const failures = checks.filter(check => !check.ok);
+      result.className = failures.length ? 'fail' : 'pass';
+      result.textContent = checks.map(check =>
+        `${check.ok ? 'PASS' : 'FAIL'} ${check.name}${check.detail ? ` (${check.detail})` : ''}`
+      ).join('\n') + `\n\n${failures.length ? 'FAILED' : 'PASSED'}`;
+      document.body.dataset.flowcharts = failures.length ? 'failed' : 'passed';
+      frame.remove();
+    }
+
+    run().catch(error => {
+      result.className = 'fail';
+      result.textContent = String(error && error.stack || error);
+      document.body.dataset.flowcharts = 'failed';
+    });
+  </script>
+</body>
+</html>

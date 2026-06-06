@@ -1,0 +1,262 @@
+﻿<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ПЛЮС Малюнки — графічний редактор</title>
+  <meta name="description" content="ПЛЮС Малюнки — графічний редактор для шкільного офісного набору з пензликом, фігурами, штампами та навчальними підкладками.">
+<link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css">
+  <link rel="stylesheet" href="../UI_TOKENS.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="../shell-overrides.css">
+</head>
+<body class="office-app" data-office-service="paint">
+  <noscript>
+    <p class="noscript-warning">Увімкніть JavaScript для роботи редактора.</p>
+  </noscript>
+
+  <div id="modalOverlay" class="modal-overlay hidden" aria-hidden="true">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalText">
+      <div id="modalIcon" class="modal-icon"></div>
+      <div id="modalTitle" class="modal-title"></div>
+      <div id="modalText" class="modal-text"></div>
+      <div class="modal-actions">
+        <button id="modalCancel" class="modal-btn secondary hidden">Скасувати</button>
+        <button id="modalConfirm" class="modal-btn primary">Гаразд</button>
+      </div>
+    </div>
+  </div>
+
+  <input id="importFileInput" type="file" accept="image/*" hidden>
+
+  <header class="app-header office-header">
+    <div class="header-left">
+      <a href="../" class="back-link" aria-label="Повернутися до Офіс ПЛЮС" title="Офіс ПЛЮС">
+        <i class="fa-solid fa-arrow-left"></i>
+      </a>
+      <div class="app-logo"><i class="fa-solid fa-palette"></i> ПЛЮС Малюнки</div>
+      <div class="file-name-wrap">
+        <span id="dirtyDot" aria-hidden="true" title="Є незбережені зміни"></span>
+        <span id="fileName" role="button" tabindex="0" title="Перейменувати файл">малюнок</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="saveBadge">Збережено ✓</span>
+    </div>
+  </header>
+
+  <nav class="menubar office-menubar" aria-label="Головне меню">
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="file" aria-haspopup="true" aria-expanded="false">Файл</button>
+      <div class="menu-dropdown" data-menu="file" role="menu">
+        <button class="menu-item" data-action="new-drawing"><span><i class="fa-solid fa-file-circle-plus fa-fw"></i> Новий малюнок</span><span class="shortcut">Ctrl+N</span></button>
+        <button class="menu-item" data-action="import-image"><span><i class="fa-solid fa-image fa-fw"></i> Відкрити зображення</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="save-png"><span><i class="fa-solid fa-file-image fa-fw"></i> Зберегти як PNG</span><span class="shortcut">Ctrl+S</span></button>
+        <button class="menu-item" data-action="save-jpg"><span><i class="fa-solid fa-file-export fa-fw"></i> Зберегти як JPG</span></button>
+        <button class="menu-item" data-action="print"><span><i class="fa-solid fa-print fa-fw"></i> Друк</span><span class="shortcut">Ctrl+P</span></button>
+      </div>
+    </div>
+
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="edit" aria-haspopup="true" aria-expanded="false">Редагування</button>
+      <div class="menu-dropdown" data-menu="edit" role="menu">
+        <button class="menu-item" data-action="undo"><span><i class="fa-solid fa-rotate-left fa-fw"></i> Скасувати</span><span class="shortcut">Ctrl+Z</span></button>
+        <button class="menu-item" data-action="redo"><span><i class="fa-solid fa-rotate-right fa-fw"></i> Повернути</span><span class="shortcut">Ctrl+Y</span></button>
+        <button class="menu-item" data-action="delete-selected"><span><i class="fa-solid fa-trash fa-fw"></i> Видалити вибраний об'єкт</span><span class="shortcut">Delete</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="clear-canvas"><span><i class="fa-solid fa-broom fa-fw"></i> Очистити полотно</span></button>
+      </div>
+    </div>
+
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="view" aria-haspopup="true" aria-expanded="false">Перегляд</button>
+      <div class="menu-dropdown" data-menu="view" role="menu">
+        <button class="menu-item" data-action="guide-none"><span><i class="fa-regular fa-square fa-fw"></i> Підкладка: немає</span></button>
+        <button class="menu-item" data-action="guide-grid"><span><i class="fa-solid fa-border-all fa-fw"></i> Підкладка: сітка</span></button>
+        <button class="menu-item" data-action="guide-lines"><span><i class="fa-solid fa-grip-lines fa-fw"></i> Підкладка: рядки</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="fit-canvas"><span><i class="fa-solid fa-expand fa-fw"></i> Підігнати полотно до вікна</span></button>
+      </div>
+    </div>
+
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="help" aria-haspopup="true" aria-expanded="false">Допомога</button>
+      <div class="menu-dropdown" data-menu="help" role="menu">
+        <button class="menu-item" data-action="show-shortcuts"><span><i class="fa-solid fa-keyboard fa-fw"></i> Клавіатурні скорочення</span></button>
+        <button class="menu-item" data-action="show-about"><span><i class="fa-solid fa-circle-info fa-fw"></i> Про ПЛЮС Малюнки</span></button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="toolbar office-toolbar" role="toolbar" aria-label="Панель інструментів">
+    <div class="toolbar-section toolbar-file-actions">
+      <button class="tool-btn" data-action="new-drawing" data-office-command="new" title="Новий малюнок"><i class="fa-solid fa-file-circle-plus"></i></button>
+      <button class="tool-btn" data-action="import-image" data-office-command="open" title="Відкрити зображення"><i class="fa-solid fa-folder-open"></i></button>
+      <button class="tool-btn" data-action="save-png" data-office-command="save" title="Зберегти PNG"><i class="fa-solid fa-floppy-disk"></i></button>
+      <button class="tool-btn" data-action="print" title="Друк"><i class="fa-solid fa-print"></i></button>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <div class="toolbar-section toolbar-edit-actions">
+      <button class="tool-btn" data-action="undo" data-office-command="undo" title="Скасувати"><i class="fa-solid fa-rotate-left"></i></button>
+      <button class="tool-btn" data-action="redo" data-office-command="redo" title="Повернути"><i class="fa-solid fa-rotate-right"></i></button>
+      <button class="tool-btn danger" data-action="delete-selected" title="Видалити вибраний об'єкт"><i class="fa-solid fa-trash"></i></button>
+      <button class="tool-btn danger" data-action="clear-canvas" title="Очистити полотно"><i class="fa-solid fa-broom"></i></button>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <div class="toolbar-section toolbar-tool-actions">
+      <div class="picker-wrap">
+        <button id="brushPickerTrigger" class="picker-trigger tool-picker-trigger" data-picker="brush" type="button" title="Пензлик та режими малювання">
+          <i id="brushTriggerIcon" class="fa-solid fa-pencil"></i>
+          <span id="brushTriggerLabel">Пензлик</span>
+          <i class="fa-solid fa-chevron-down picker-caret"></i>
+        </button>
+        <div class="picker-dropdown" data-picker-panel="brush">
+          <div class="picker-panel-title">Режими пензлика</div>
+          <div id="brushGrid" class="brush-grid"></div>
+        </div>
+      </div>
+
+      <button id="eraserToolBtn" class="tool-switch" data-tool="eraser" title="Гумка">
+        <i class="fa-solid fa-eraser"></i>
+        <span>Гумка</span>
+      </button>
+
+      <button id="fillToolBtn" class="tool-switch" data-tool="fill" title="Заливка">
+        <i class="fa-solid fa-fill-drip"></i>
+        <span>Заливка</span>
+      </button>
+
+      <div class="picker-wrap">
+        <button id="shapePickerTrigger" class="picker-trigger tool-picker-trigger" data-picker="shape" type="button" title="Фігури">
+          <i class="fa-solid fa-shapes"></i>
+          <span id="shapeTriggerLabel">Фігури</span>
+          <i class="fa-solid fa-chevron-down picker-caret"></i>
+        </button>
+        <div class="picker-dropdown picker-dropdown-sm" data-picker-panel="shape">
+          <div class="picker-panel-title">Фігури</div>
+          <div id="shapeGrid" class="shape-grid"></div>
+        </div>
+      </div>
+
+      <div class="picker-wrap">
+        <button id="stampPickerTrigger" class="picker-trigger tool-picker-trigger" data-picker="stamp" type="button" title="Штампи">
+          <span id="stampTriggerEmoji" class="stamp-trigger-emoji">⭐</span>
+          <span id="stampTriggerLabel">Штампи</span>
+          <i class="fa-solid fa-chevron-down picker-caret"></i>
+        </button>
+        <div class="picker-dropdown picker-dropdown-md" data-picker-panel="stamp">
+          <div class="picker-panel-head">
+            <div class="picker-panel-title">Штампи</div>
+            <button id="shuffleStampsBtn" class="mini-btn" type="button" title="Перемішати добірку">
+              <i class="fa-solid fa-shuffle"></i>
+            </button>
+          </div>
+          <div id="stampGrid" class="stamp-grid"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <div class="toolbar-section toolbar-color-actions">
+      <div class="toolbar-label">Кольори</div>
+      <div id="colorPalette" class="inline-palette" aria-label="Основна палітра кольорів"></div>
+      <label class="custom-color-btn" title="Власний колір">
+        <i class="fa-solid fa-droplet"></i>
+        <input id="nativeColorPicker" type="color" value="#1f2937" aria-label="Власний колір">
+      </label>
+      <button id="advancedColorBtn" class="mini-btn" type="button" title="Точне налаштування кольору">
+        <i class="fa-solid fa-sliders"></i>
+      </button>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <div class="toolbar-section toolbar-range-actions">
+      <label class="range-control" title="Товщина пензлика, гумки та контуру фігур">
+        <span class="range-label">Товщина</span>
+        <input id="sizeSlider" type="range" min="1" max="48" step="1" value="6">
+        <span id="sizeValue" class="range-value">6</span>
+      </label>
+
+      <label class="range-control" title="Непрозорість мазка, заливки, фігур і штампів">
+        <span class="range-label">Непрозорість</span>
+        <input id="opacitySlider" type="range" min="1" max="100" step="1" value="100">
+        <span id="opacityValue" class="range-value">100%</span>
+      </label>
+    </div>
+  </div>
+
+  <main class="workspace office-workspace office-workspace-focusable" tabindex="0">
+    <div id="advancedColorPanel" class="advanced-color-panel hidden" aria-label="Точне налаштування кольору">
+      <div class="advanced-color-header">
+        <div class="advanced-color-title">Точне налаштування кольору</div>
+        <button id="closeAdvancedColorBtn" class="mini-btn" type="button" title="Закрити панель кольору">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="advanced-color-body">
+        <div id="colorPreview" class="color-preview"></div>
+        <div class="color-codes">
+          <div><span>HEX</span><strong id="hexValue">#1F2937</strong></div>
+          <div><span>RGB</span><strong id="rgbValue">31, 41, 55</strong></div>
+          <div><span>BIN</span><strong id="binValue">00011111 00101001 00110111</strong></div>
+        </div>
+      </div>
+      <div class="rgb-grid">
+        <label class="slider-row"><span>R</span><input id="redSlider" type="range" min="0" max="255" value="31"><strong id="redValue">31</strong></label>
+        <label class="slider-row"><span>G</span><input id="greenSlider" type="range" min="0" max="255" value="41"><strong id="greenValue">41</strong></label>
+        <label class="slider-row"><span>B</span><input id="blueSlider" type="range" min="0" max="255" value="55"><strong id="blueValue">55</strong></label>
+      </div>
+      <div class="advanced-color-actions">
+        <button id="applyMixerBtn" class="primary-btn" type="button">Застосувати колір</button>
+      </div>
+    </div>
+    <section class="studio-shell">
+      <div class="canvas-stage-wrap">
+        <div id="canvasStage" class="canvas-stage">
+          <canvas id="guideCanvas" class="guide-canvas" aria-hidden="true"></canvas>
+          <canvas id="drawingCanvas" class="drawing-canvas" aria-label="Полотно для малювання"></canvas>
+          <div id="objectLayer" class="object-layer" aria-hidden="true"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="statusbar office-statusbar" aria-label="Рядок стану">
+    <div class="status-left" data-office-status-slot="primary">
+      <span id="statusCoords">X: 0, Y: 0</span>
+      <span id="statusTool">Інструмент: Пензлик</span>
+      <span id="statusDetail">Режим: Олівець</span>
+      <span id="statusColor">Колір: #1F2937</span>
+    </div>
+    <div class="status-right" data-office-status-slot="secondary">
+      <span id="statusSize">Товщина: 6</span>
+      <span id="statusOpacity">Непрозорість: 100%</span>
+      <span id="statusGuide">Підкладка: Немає</span>
+      <span id="statusCanvas">Полотно: 0 × 0</span>
+    </div>
+  </footer>
+
+  <script src="js/constants.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/canvas.js"></script>
+  <script src="js/document.js"></script>
+  <script src="js/object-interactions.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/runtime.js"></script>
+  <script src="../office-shell.js"></script>
+  <script src="../office-ui.js"></script>
+  <script src="../offline.js"></script>
+</body>
+</html>
+
+
+

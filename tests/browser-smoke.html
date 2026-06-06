@@ -1,0 +1,58 @@
+﻿<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office PLUS Browser Smoke</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Office PLUS Browser Smoke</h1>
+  <pre id="result">Running...</pre>
+  <script>
+    const services = ['text', 'tables', 'paint', 'slides', 'flowcharts', 'vector'];
+    const result = document.getElementById('result');
+
+    Promise.all(services.map(async service => {
+      const response = await fetch(`../${service}/index.html`);
+      const html = await response.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const checks = [
+        ['body office-app', doc.body.classList.contains('office-app')],
+        ['data-office-service', doc.body.dataset.officeService === service],
+        ['office-header', !!doc.querySelector('.office-header')],
+        ['office-menubar', !!doc.querySelector('.office-menubar')],
+        ['office-toolbar', !!doc.querySelector('.office-toolbar')],
+        ['office-workspace', !!doc.querySelector('.office-workspace')],
+        ['office-statusbar', !!doc.querySelector('.office-statusbar')]
+      ];
+      const commandOrder = [...doc.querySelectorAll('[data-office-command]')].map(node => node.dataset.officeCommand);
+      checks.push(['toolbar command order', ['new', 'open', 'save', 'undo', 'redo'].every((command, index) => commandOrder[index] === command)]);
+      return { service, checks };
+    })).then(rows => {
+      const failures = [];
+      const lines = [];
+      for (const row of rows) {
+        lines.push(row.service);
+        for (const [name, ok] of row.checks) {
+          lines.push(`  ${ok ? 'PASS' : 'FAIL'} ${name}`);
+          if (!ok) failures.push(`${row.service}: ${name}`);
+        }
+      }
+      result.className = failures.length ? 'fail' : 'pass';
+      result.textContent = lines.join('\n') + `\n\n${failures.length ? 'FAILED' : 'PASSED'}`;
+      document.body.dataset.smoke = failures.length ? 'failed' : 'passed';
+    }).catch(error => {
+      result.className = 'fail';
+      result.textContent = String(error && error.stack || error);
+      document.body.dataset.smoke = 'failed';
+    });
+  </script>
+</body>
+</html>
+

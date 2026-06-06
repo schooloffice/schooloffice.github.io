@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>Office PLUS Save Command Smoke</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 16px; }
+    iframe { width: 1px; height: 1px; border: 0; position: absolute; left: -9999px; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Office PLUS Save Command Smoke</h1>
+  <pre id="result">Running...</pre>
+
+  <script>
+    const allServices = [
+      { key: 'text', path: '../text/index.html' },
+      { key: 'tables', path: '../tables/index.html' },
+      { key: 'paint', path: '../paint/index.html' },
+      { key: 'slides', path: '../slides/index.html' },
+      { key: 'flowcharts', path: '../flowcharts/index.html' },
+      { key: 'vector', path: '../vector/index.html' }
+    ];
+    const requestedService = new URLSearchParams(location.search).get('service');
+    const services = requestedService
+      ? allServices.filter(service => service.key === requestedService)
+      : allServices;
+
+    const result = document.getElementById('result');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function loadFrame(service) {
+      return new Promise((resolve, reject) => {
+        const frame = document.createElement('iframe');
+        frame.src = service.path;
+        frame.addEventListener('load', () => resolve(frame), { once: true });
+        frame.addEventListener('error', () => reject(new Error(`${service.key}: frame failed to load`)), { once: true });
+        document.body.appendChild(frame);
+      });
+    }
+
+    async function checkService(service) {
+      const frame = await loadFrame(service);
+      const win = frame.contentWindow;
+      const doc = frame.contentDocument;
+      const downloads = [];
+      const errors = [];
+
+      win.addEventListener('error', event => errors.push(event.message || 'window error'));
+      win.addEventListener('unhandledrejection', event => errors.push(String(event.reason || 'unhandled rejection')));
+
+      const originalClick = win.HTMLAnchorElement.prototype.click;
+      win.HTMLAnchorElement.prototype.click = function patchedClick() {
+        if (this.download || this.href.startsWith('blob:') || this.href.startsWith('data:')) {
+          downloads.push({ download: this.download || '', href: this.href || '' });
+        }
+        return originalClick.call(this);
+      };
+
+      const saveButton = doc.querySelector('[data-office-command="save"]');
+      if (!saveButton) return { service: service.key, ok: false, detail: 'missing data-office-command="save"' };
+
+      saveButton.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+      saveButton.click();
+      await wait(900);
+
+      const saveModal = doc.querySelector('#modalSave.active, #save-title-modal.active, #save-title-modal:not(.hidden)[aria-hidden="false"]');
+      if (saveModal) {
+        const modalSaveButton = saveModal.querySelector('[data-save-as="docx"], #save-without-title, #save-with-title, .modal-btn.ok-btn, .save-format-btn');
+        modalSaveButton?.click();
+        await wait(900);
+      }
+
+      win.HTMLAnchorElement.prototype.click = originalClick;
+      frame.remove();
+
+      return {
+        service: service.key,
+        ok: downloads.length > 0 && errors.length === 0,
+        detail: downloads.length
+          ? `downloads=${downloads.map(item => item.download || item.href.slice(0, 32)).join(', ')}`
+          : `downloads=0${errors.length ? ` errors=${errors.join('; ')}` : ''}`
+      };
+    }
+
+    async function run() {
+      const rows = [];
+      for (const service of services) {
+        rows.push(await checkService(service));
+      }
+      const failures = rows.filter(row => !row.ok);
+      result.className = failures.length ? 'fail' : 'pass';
+      result.textContent = rows.map(row => `${row.ok ? 'PASS' : 'FAIL'} ${row.service}: ${row.detail}`).join('\n') +
+        `\n\n${failures.length ? 'FAILED' : 'PASSED'}`;
+      document.body.dataset.save = failures.length ? 'failed' : 'passed';
+    }
+
+    run().catch(error => {
+      result.className = 'fail';
+      result.textContent = String(error && error.stack || error);
+      document.body.dataset.save = 'failed';
+    });
+  </script>
+</body>
+</html>

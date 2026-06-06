@@ -1,0 +1,50 @@
+{
+  "meta": {
+    "name": "Office PLUS Service Theme Map",
+    "version": "1.4.0"
+  },
+  "services": {
+    "text": {
+      "serviceKey": "text",
+      "title": "ПЛЮС Текст",
+      "accent": "#2563eb",
+      "menuOrder": ["Файл", "Редагування", "Вставка", "Формат", "Перегляд", "Допомога"],
+      "contextbarPolicy": "dynamic-for-grade-5-plus"
+    },
+    "tables": {
+      "serviceKey": "tables",
+      "title": "ПЛЮС Таблиці",
+      "accent": "#16a34a",
+      "menuOrder": ["Файл", "Редагування", "Вставка", "Формат", "Дані", "Перегляд", "Допомога"],
+      "contextbarPolicy": "dynamic-for-grade-5-plus"
+    },
+    "paint": {
+      "serviceKey": "paint",
+      "title": "ПЛЮС Малюнки",
+      "accent": "#d97706",
+      "menuOrder": ["Файл", "Редагування", "Вставка", "Інструменти", "Перегляд", "Допомога"],
+      "contextbarPolicy": "sticky-or-disabled-for-grades-1-5"
+    },
+    "slides": {
+      "serviceKey": "slides",
+      "title": "ПЛЮС Слайди",
+      "accent": "#dc2626",
+      "menuOrder": ["Файл", "Редагування", "Вставка", "Слайд", "Перегляд", "Допомога"],
+      "contextbarPolicy": "dynamic-for-grade-5-plus"
+    },
+    "flowcharts": {
+      "serviceKey": "flowcharts",
+      "title": "ПЛЮС Схеми",
+      "accent": "#7c3aed",
+      "menuOrder": ["Файл", "Редагування", "Вставка", "Перегляд", "Допомога"],
+      "contextbarPolicy": "sticky-or-disabled-for-grades-1-5"
+    },
+    "vector": {
+      "serviceKey": "vector",
+      "title": "ПЛЮС Вектор",
+      "accent": "#0f766e",
+      "menuOrder": ["Файл", "Редагування", "Вставка", "Формат", "Перегляд", "Допомога"],
+      "contextbarPolicy": "dynamic-for-grade-5-plus"
+    }
+  }
+}

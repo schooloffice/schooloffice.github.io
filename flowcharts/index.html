@@ -1,0 +1,377 @@
+﻿<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ПЛЮС Схеми — редактор блок-схем</title>
+  <link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css">
+  <script src="../vendor/html2canvas/html2canvas.min.js"></script>
+  <link rel="stylesheet" href="../UI_TOKENS.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="../shell-overrides.css">
+</head>
+
+<body class="office-app" data-office-service="flowcharts">
+  <header class="app-header office-header" role="banner">
+    <div class="header-left">
+      <a href="../" class="back-link" aria-label="Повернутися до Офіс ПЛЮС" title="Офіс ПЛЮС">
+        <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+      </a>
+      <div class="app-logo">
+        <i class="fa-solid fa-diagram-project" aria-hidden="true"></i>
+        ПЛЮС Схеми
+      </div>
+      <div class="file-name-wrap">
+        <span id="dirtyDot" aria-hidden="true" title="Є незбережені зміни"></span>
+        <span id="fileName" class="file-name" tabindex="0" role="button"
+          aria-label="Назва схеми, натисни щоб змінити">схема</span>
+        <input id="diagram-title-input" class="filename-input visually-hidden" type="text" maxlength="60"
+          placeholder="схема" aria-label="Назва блок-схеми">
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="savedBadge" aria-live="polite" aria-atomic="true">Збережено ✓</span>
+    </div>
+  </header>
+
+  <nav class="menubar office-menubar" role="menubar" aria-label="Головне меню">
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="file" role="menuitem" aria-haspopup="true"
+        aria-expanded="false">Файл</button>
+      <div class="menu-dropdown" data-menu="file" role="menu">
+        <button class="menu-item" data-action="new-project" role="menuitem"><span><i
+              class="fa-solid fa-file-circle-plus fa-fw"></i> Нова схема</span><span
+            class="shortcut">Ctrl+N</span></button>
+        <button class="menu-item" data-action="open-project" role="menuitem"><span><i
+              class="fa-solid fa-folder-open fa-fw"></i> Відкрити JSON…</span><span
+            class="shortcut">Ctrl+O</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="save-project" role="menuitem"><span><i
+              class="fa-solid fa-file-arrow-down fa-fw"></i> Зберегти проєкт JSON</span><span
+            class="shortcut">Ctrl+Shift+S</span></button>
+        <button class="menu-item" data-action="export-png" role="menuitem"><span><i class="fa-solid fa-image fa-fw"></i>
+            Зберегти як PNG</span><span class="shortcut">Ctrl+S</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="print" role="menuitem"><span><i class="fa-solid fa-print fa-fw"></i>
+            Друк…</span><span class="shortcut">Ctrl+P</span></button>
+      </div>
+    </div>
+
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="edit" role="menuitem" aria-haspopup="true"
+        aria-expanded="false">Редагування</button>
+      <div class="menu-dropdown" data-menu="edit" role="menu">
+        <button class="menu-item" data-action="undo" role="menuitem"><span><i class="fa-solid fa-rotate-left fa-fw"></i>
+            Скасувати</span><span class="shortcut">Ctrl+Z</span></button>
+        <button class="menu-item" data-action="redo" role="menuitem"><span><i
+              class="fa-solid fa-rotate-right fa-fw"></i> Повернути</span><span class="shortcut">Ctrl+Y</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="delete-selected" role="menuitem"><span><i
+              class="fa-solid fa-trash fa-fw"></i> Видалити вибране</span><span class="shortcut">Delete</span></button>
+        <button class="menu-item" data-action="clear-canvas" role="menuitem"><span><i
+              class="fa-solid fa-broom fa-fw"></i> Очистити полотно</span></button>
+      </div>
+    </div>
+
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="insert" role="menuitem" aria-haspopup="true"
+        aria-expanded="false">Вставка</button>
+      <div class="menu-dropdown" data-menu="insert" role="menu">
+        <button class="menu-item" data-action="insert-start-end" role="menuitem"><span><i
+              class="fa-solid fa-circle-play fa-fw"></i> Початок / Кінець</span></button>
+        <button class="menu-item" data-action="insert-process" role="menuitem"><span><i
+              class="fa-regular fa-square fa-fw"></i> Дія</span></button>
+        <button class="menu-item" data-action="insert-decision" role="menuitem"><span><i
+              class="fa-regular fa-gem fa-fw"></i> Умова</span></button>
+        <button class="menu-item" data-action="insert-input-output" role="menuitem"><span><i
+              class="fa-solid fa-right-left fa-fw"></i> Ввід / Вивід</span></button>
+        <button class="menu-item" data-action="insert-subroutine" role="menuitem"><span><i
+              class="fa-solid fa-window-restore fa-fw"></i> Підпрограма</span></button>
+        <button class="menu-item" data-action="insert-connector" role="menuitem"><span><i
+              class="fa-regular fa-circle-dot fa-fw"></i> З'єднувач</span></button>
+      </div>
+    </div>
+
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="view" role="menuitem" aria-haspopup="true"
+        aria-expanded="false">Перегляд</button>
+      <div class="menu-dropdown" data-menu="view" role="menu">
+        <button class="menu-item" data-action="zoom-75" role="menuitem"><span><i
+              class="fa-solid fa-magnifying-glass-minus fa-fw"></i> Масштаб 75%</span></button>
+        <button class="menu-item" data-action="zoom-100" role="menuitem"><span><i
+              class="fa-solid fa-magnifying-glass fa-fw"></i> Масштаб 100%</span></button>
+        <button class="menu-item" data-action="zoom-125" role="menuitem"><span><i
+              class="fa-solid fa-magnifying-glass-plus fa-fw"></i> Масштаб 125%</span></button>
+        <button class="menu-item" data-action="zoom-150" role="menuitem"><span><i
+              class="fa-solid fa-magnifying-glass-plus fa-fw"></i> Масштаб 150%</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="toggle-grid" role="menuitem"><span><i
+              class="fa-solid fa-border-all fa-fw"></i> Прив'язка до сітки</span><span
+            class="shortcut">G</span></button>
+        <button class="menu-item" data-action="zoom-reset" role="menuitem"><span><i
+              class="fa-solid fa-arrows-to-circle fa-fw"></i> Скинути масштаб</span></button>
+      </div>
+    </div>
+
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="help" role="menuitem" aria-haspopup="true"
+        aria-expanded="false">Допомога</button>
+      <div class="menu-dropdown" data-menu="help" role="menu">
+        <button class="menu-item" data-action="help-panel" role="menuitem"><span><i
+              class="fa-solid fa-circle-question fa-fw"></i> Як користуватись</span></button>
+        <button class="menu-item" data-action="open-manual" role="menuitem"><span><i
+              class="fa-solid fa-book-open fa-fw"></i> Довідник</span></button>
+        <button class="menu-item" data-action="about" role="menuitem"><span><i
+              class="fa-solid fa-circle-info fa-fw"></i> Про ПЛЮС Схеми</span></button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="toolbar office-toolbar" role="toolbar" aria-label="Панель інструментів">
+    <div class="tb-group tb-group-file" role="group" aria-label="Файл">
+      <button id="new-project-button" class="tb-btn" type="button" data-action="new-project" data-office-command="new" aria-label="Нова схема" title="Нова схема (Ctrl+N)">
+        <i class="fa-solid fa-file-circle-plus"></i>
+      </button>
+      <button id="open-project-button" class="tb-btn" type="button" data-action="open-project" data-office-command="open" aria-label="Відкрити проєкт"
+        title="Відкрити проєкт (Ctrl+O)">
+        <i class="fa-solid fa-folder-open"></i>
+      </button>
+      <button id="save-project-button" class="tb-btn" type="button" data-action="save-project" data-office-command="save" aria-label="Зберегти проєкт"
+        title="Зберегти проєкт (Ctrl+Shift+S)">
+        <i class="fa-solid fa-floppy-disk"></i>
+      </button>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <div class="tb-group tb-group-history" role="group" aria-label="Історія">
+      <button id="undo-button" class="tb-btn" type="button" data-action="undo" data-office-command="undo" aria-label="Скасувати" title="Скасувати (Ctrl+Z)">
+        <i class="fa-solid fa-rotate-left"></i>
+      </button>
+      <button id="redo-button" class="tb-btn" type="button" data-action="redo" data-office-command="redo" aria-label="Повернути" title="Повернути (Ctrl+Y)">
+        <i class="fa-solid fa-rotate-right"></i>
+      </button>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <div class="tb-group tb-group-selection" role="group" aria-label="Обраний елемент">
+      <div id="selection-state" class="selection-state is-empty" aria-live="polite">Нічого не вибрано</div>
+      <button id="toolbar-edit-button" class="tb-action" type="button" aria-label="Змінити текст вибраного блока"
+        title="Текст" disabled>
+        <i class="fa-solid fa-pen"></i><span>Текст</span>
+      </button>
+      <button id="toolbar-route-button" class="tb-action" type="button" aria-label="Змінити маршрут вибраної стрілки"
+        title="Маршрут стрілки" disabled>
+        <i class="fa-solid fa-share-nodes"></i><span>Маршрут</span>
+      </button>
+      <button id="toolbar-label-button" class="tb-action" type="button" aria-label="Змінити підпис вибраної стрілки"
+        title="Підпис стрілки" disabled>
+        <i class="fa-solid fa-tag"></i><span>Підпис</span>
+      </button>
+      <button id="toolbar-delete-button" class="tb-action danger" type="button" aria-label="Видалити вибране"
+        title="Видалити вибране" disabled>
+        <i class="fa-solid fa-trash"></i><span>Видалити</span>
+      </button>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <div class="tb-group tb-group-view" role="group" aria-label="Перегляд">
+      <button id="snap-toggle-button" class="tb-btn tb-btn-toggle" type="button" aria-label="Прив'язка до сітки"
+        title="Прив'язка до сітки (G)" aria-pressed="true">
+        <i class="fa-solid fa-border-all"></i>
+      </button>
+      <div class="tb-sep"></div>
+      <button id="zoom-out" class="tb-btn" aria-label="Зменшити" title="Зменшити">−</button>
+      <div id="zoom-level" class="zoom-badge" aria-live="polite">100%</div>
+      <button id="zoom-in" class="tb-btn" aria-label="Збільшити" title="Збільшити">+</button>
+      <button id="zoom-reset" class="tb-btn" aria-label="Скинути масштаб" title="Скинути масштаб"><i
+          class="fa-solid fa-expand"></i></button>
+    </div>
+
+    <button id="clear-button" class="visually-hidden" type="button" aria-label="Очистити полотно"
+      title="Очистити полотно"></button>
+    <button id="save-button" class="visually-hidden" type="button" aria-label="Зберегти зображення"
+      title="Зберегти зображення (Ctrl+S)"></button>
+  </div>
+
+  <div class="app-shell">
+    <aside class="left-sidebar" aria-label="Бокова панель блоків">
+      <section class="sidebar-card">
+        <h2 class="sidebar-title">Блоки</h2>
+        <div class="shape-list" role="group" aria-label="Типи фігур">
+          <button class="shape-button" data-shape="start-end" aria-label="Початок або Кінець">
+            <span class="shape-icon se-icon"></span><span class="shape-button-text">Початок / Кінець</span>
+          </button>
+          <button class="shape-button" data-shape="process" aria-label="Дія">
+            <span class="shape-icon proc-icon"></span><span class="shape-button-text">Дія</span>
+          </button>
+          <button class="shape-button" data-shape="decision" aria-label="Умова">
+            <span class="shape-icon dec-icon"></span><span class="shape-button-text">Умова</span>
+          </button>
+          <button class="shape-button" data-shape="input-output" aria-label="Ввід або Вивід">
+            <span class="shape-icon io-icon"></span><span class="shape-button-text">Ввід / Вивід</span>
+          </button>
+          <button class="shape-button" data-shape="subroutine" aria-label="Підпрограма">
+            <span class="shape-icon sub-icon"></span><span class="shape-button-text">Підпрограма</span>
+          </button>
+          <button class="shape-button" data-shape="connector" aria-label="З'єднувач">
+            <span class="shape-icon conn-icon"></span><span class="shape-button-text">З'єднувач</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="sidebar-card">
+        <h2 class="sidebar-title">Кольори</h2>
+        <div class="color-picker" role="group" aria-label="Вибір кольору">
+          <button class="color-option color-purple selected" data-color="#7c3aed"
+            aria-label="Фіолетовий"></button>
+          <button class="color-option color-blue" data-color="#2563eb" aria-label="Синій"></button>
+          <button class="color-option color-green" data-color="#16a34a" aria-label="Зелений"></button>
+          <button class="color-option color-amber" data-color="#f59e0b"
+            aria-label="Помаранчевий"></button>
+          <button class="color-option color-red" data-color="#ef4444" aria-label="Червоний"></button>
+          <button class="color-option color-cyan" data-color="#06b6d4" aria-label="Бірюзовий"></button>
+          <button class="color-option color-orange" data-color="#f97316" aria-label="Оранжевий"></button>
+          <button class="color-option color-dark" data-color="#0f172a" aria-label="Темний"></button>
+        </div>
+      </section>
+    </aside>
+
+    <main class="workspace office-workspace office-workspace-focusable" tabindex="0">
+      <div class="canvas-container" id="canvas-container" role="application"
+        aria-label="Полотно для побудови блок-схеми">
+        <div id="flowchart-canvas">
+          <div id="diagram-title-display" class="diagram-title" aria-hidden="true"></div>
+          <svg id="connectors-layer" aria-hidden="true">
+            <defs>
+              <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#475569"></polygon>
+              </marker>
+              <marker id="arrowhead-yes" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"></polygon>
+              </marker>
+              <marker id="arrowhead-no" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#dc2626"></polygon>
+              </marker>
+              <marker id="arrowhead-selected" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#e11d48"></polygon>
+              </marker>
+            </defs>
+          </svg>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <footer class="statusbar office-statusbar" aria-label="Рядок стану">
+    <div class="status-left" data-office-status-slot="primary">
+      <span>ЛКМ: вибір і перетягування</span>
+      <span>Кружечки: з'єднання блоків</span>
+      <span>Подвійний клік: редагувати текст</span>
+    </div>
+    <div class="status-right" data-office-status-slot="secondary">
+      <span>Ctrl+S: PNG</span>
+      <span>Ctrl+Shift+S: JSON</span>
+      <span>G: сітка</span>
+    </div>
+  </footer>
+
+  <div id="text-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="text-modal-title">
+    <div class="modal-content">
+      <h2 id="text-modal-title"><i class="fa-solid fa-pen"></i> Введи текст</h2>
+      <textarea id="shape-text" placeholder="Наприклад: Перевірити умову" aria-label="Текст фігури"
+        maxlength="72"></textarea>
+      <div class="modal-buttons">
+        <button class="modal-btn cancel-btn" id="cancel-text">Скасувати</button>
+        <button class="modal-btn ok-btn" id="save-text"><i class="fa-solid fa-check"></i> Зберегти</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="connection-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="conn-modal-title">
+    <div class="modal-content">
+      <h2 id="conn-modal-title"><i class="fa-solid fa-code-branch"></i> Тип стрілки</h2>
+      <p>Від блоку <strong>«Умова»</strong> стрілки позначають результат перевірки.</p>
+      <div class="conn-choice">
+        <button id="connection-yes" class="modal-btn yes-btn" aria-label="Так"><i class="fa-solid fa-check"></i>
+          Так</button>
+        <button id="connection-no" class="modal-btn no-btn" aria-label="Ні"><i class="fa-solid fa-xmark"></i>
+          Ні</button>
+      </div>
+      <div class="modal-buttons modal-buttons-center">
+        <button class="modal-btn cancel-btn" id="cancel-connection">Скасувати</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="message-modal" class="modal" role="alertdialog" aria-modal="true" aria-labelledby="message-modal-text">
+    <div class="modal-content">
+      <div id="message-modal-text" class="message-modal-text"></div>
+      <div id="message-modal-buttons" class="message-modal-buttons"></div>
+    </div>
+  </div>
+
+  <div id="save-title-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="save-title-modal-title">
+    <div class="modal-content">
+      <button id="close-save-title" class="modal-close-btn" aria-label="Закрити"><i
+          class="fa-solid fa-xmark"></i></button>
+      <h2 id="save-title-modal-title"><i class="fa-solid fa-floppy-disk"></i> Назва перед збереженням</h2>
+      <p>Введи назву блок-схеми або збережи картинку без назви.</p>
+      <input id="save-title-input" class="modal-input" type="text" maxlength="60"
+        placeholder="Наприклад: Алгоритм сортування" aria-label="Назва блок-схеми перед збереженням">
+      <div class="modal-buttons">
+        <button class="modal-btn cancel-btn" id="save-without-title">Зберегти без назви</button>
+        <button class="modal-btn ok-btn" id="save-with-title"><i class="fa-solid fa-check"></i> Зберегти</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="help-panel" class="help-panel" role="dialog" aria-modal="true" aria-label="Довідка" hidden>
+    <div class="help-panel-head">
+      <h3><i class="fa-solid fa-graduation-cap"></i> Як користуватись</h3>
+      <button id="help-close" class="help-close-btn" aria-label="Закрити довідку"><i
+          class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="help-steps"></div>
+  </div>
+
+  <script src="js/core.js"></script>
+  <script src="js/project-io.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/autosave.js"></script>
+  <script src="js/modals.js"></script>
+  <script src="js/editor-utils.js"></script>
+  <script src="js/status.js"></script>
+  <script src="js/colors.js"></script>
+  <script src="js/connection-selection.js"></script>
+  <script src="js/shape-selection.js"></script>
+  <script src="js/shape-deletion.js"></script>
+  <script src="js/shape-text.js"></script>
+  <script src="js/shape-interactions.js"></script>
+  <script src="js/shape-factory.js"></script>
+  <script src="js/viewport.js"></script>
+  <script src="js/keyboard-shortcuts.js"></script>
+  <script src="js/history.js"></script>
+  <script src="js/menu-actions.js"></script>
+  <script src="js/flow-actions.js"></script>
+  <script src="js/title.js"></script>
+  <script src="js/shape-geometry.js"></script>
+  <script src="js/shape-placement.js"></script>
+  <script src="js/handles.js"></script>
+  <script src="js/routing.js"></script>
+  <script src="js/connections-dom.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/runtime.js"></script>
+  <script src="../office-shell.js"></script>
+  <script src="../office-ui.js"></script>
+  <script src="../offline.js"></script>
+</body>
+
+</html>
+
+
+

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tables Formula Behavior</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Tables Formula Behavior</h1>
+  <pre id="result">Running...</pre>
+
+  <script src="../tables/js/addressing.js"></script>
+  <script src="../tables/js/model.js"></script>
+  <script src="../tables/js/storage.js"></script>
+  <script src="../tables/js/formula-parser.js"></script>
+  <script src="../tables/js/formula-references.js"></script>
+  <script src="../tables/js/formula-functions.js"></script>
+  <script src="../tables/js/formula-engine.js"></script>
+  <script src="../tables/js/core.js"></script>
+  <script src="../tables/js/state.js"></script>
+  <script src="../tables/js/grid.js"></script>
+  <script src="../tables/js/clipboard.js"></script>
+  <script>
+    const result = document.getElementById('result');
+
+    function assertEqual(name, actual, expected) {
+      if (Object.is(actual, expected)) return `PASS ${name}`;
+      throw new Error(`${name}: expected ${expected}, got ${actual}`);
+    }
+
+    try {
+      localStorage.clear();
+      setGridSize(20, 10);
+      selStart = { c: 0, r: 1 };
+      selEnd = { c: 1, r: 2 };
+      cellData = {
+        A1: '10',
+        A2: '20',
+        A3: '30',
+        B1: '5',
+        B2: '=A1+B1',
+        C1: 'текст'
+      };
+
+      const checks = [
+        assertEqual('SUM range', evaluateFormula('SUM(A1:A3)'), 60),
+        assertEqual('AVG range', evaluateFormula('AVG(A1:A3)'), 20),
+        assertEqual('COUNT range', evaluateFormula('COUNT(A1:C1)'), 2),
+        assertEqual('COUNTA range', evaluateFormula('COUNTA(A1:C1)'), 3),
+        assertEqual('IF comparison true', evaluateFormula('IF(A1>=10,1,0)'), 1),
+        assertEqual('IF comparison false', evaluateFormula('IF(A1>10,1,0)'), 0),
+        assertEqual('AND comparison', evaluateFormula('AND(A1=10,B1<10)'), 1),
+        assertEqual('OR comparison', evaluateFormula('OR(A1=5,B1=5)'), 1),
+        assertEqual('NOT comparison', evaluateFormula('NOT(A1=5)'), 1),
+        assertEqual('MOD', evaluateFormula('MOD(A3,20)'), 10),
+        assertEqual('INT', evaluateFormula('INT(12.9)'), 12),
+        assertEqual('CEILING', evaluateFormula('CEILING(12.1)'), 13),
+        assertEqual('percent literal', evaluateFormula('200*15%'), 30),
+        assertEqual('cell formula reference', evaluateFormula('B2*2'), 30),
+        assertEqual('clipboard TSV serialization', TablesClipboard.serializeSelectionToTsv(), '10\t5\n20\t=A1+B1')
+      ];
+
+      TablesClipboard.applyTsvToGridData('7\t8\n9\t10', 4, 4);
+      checks.push(assertEqual('clipboard paste top-left', cellData.E4, '7'));
+      checks.push(assertEqual('clipboard paste bottom-right', cellData.F5, '10'));
+
+      result.className = 'pass';
+      result.textContent = checks.join('\n') + '\n\nPASSED';
+      document.body.dataset.tablesFormula = 'passed';
+    } catch (error) {
+      result.className = 'fail';
+      result.textContent = String(error && error.stack || error);
+      document.body.dataset.tablesFormula = 'failed';
+    }
+  </script>
+</body>
+</html>

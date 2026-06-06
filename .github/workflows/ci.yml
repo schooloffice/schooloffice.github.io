@@ -1,0 +1,20 @@
+name: Office CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run static audit
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1
+
+      - name: Run browser smoke
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-browser-smoke.ps1

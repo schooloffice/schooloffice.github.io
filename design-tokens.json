@@ -1,0 +1,147 @@
+{
+  "meta": {
+    "name": "Office PLUS Design Tokens",
+    "version": "1.1.0",
+    "purpose": "UI tokens for the Office PLUS browser-based school productivity suite",
+    "format": "custom-json",
+    "packageVersion": "1.3.0"
+  },
+  "typography": {
+    "fontFamily": {
+      "base": "Nunito, Nunito Sans, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+    },
+    "fontSize": {
+      "menu": "13px",
+      "toolbar": "13px",
+      "statusbar": "12px",
+      "label": "12px",
+      "body": "14px"
+    },
+    "fontWeight": {
+      "ui": 700,
+      "strong": 800
+    },
+    "lineHeight": {
+      "tight": 1.2,
+      "normal": 1.4
+    }
+  },
+  "layout": {
+    "height": {
+      "header": "44px",
+      "menu": "34px",
+      "toolbar": "50px",
+      "contextbar": "38px",
+      "statusbar": "26px"
+    },
+    "control": {
+      "height": "34px",
+      "iconButton": "34px",
+      "input": "34px",
+      "divider": "22px"
+    }
+  },
+  "spacing": {
+    "2": "2px",
+    "4": "4px",
+    "6": "6px",
+    "8": "8px",
+    "10": "10px",
+    "12": "12px",
+    "14": "14px",
+    "16": "16px",
+    "20": "20px",
+    "shellInlinePadding": "12px",
+    "controlGap": "6px",
+    "groupGap": "10px"
+  },
+  "radius": {
+    "sm": "6px",
+    "md": "8px",
+    "lg": "10px",
+    "pill": "999px"
+  },
+  "border": {
+    "default": "#d6dce5",
+    "strong": "#b8c2d1"
+  },
+  "shadow": {
+    "surface": "0 1px 2px rgba(16, 24, 40, 0.06)",
+    "popover": "0 12px 24px rgba(16, 24, 40, 0.14)",
+    "focus": "0 0 0 3px rgba(37, 99, 235, 0.2)"
+  },
+  "color": {
+    "bgApp": "#f4f7fb",
+    "bgShell": "#ffffff",
+    "bgToolbar": "#f8fafc",
+    "bgContext": "#f5f7fb",
+    "bgStatusbar": "#eef2f7",
+    "surface": "#ffffff",
+    "surfaceMuted": "#f8fafc",
+    "text": "#162033",
+    "textMuted": "#5b6577",
+    "textSoft": "#748094",
+    "icon": "#22304d",
+    "divider": "#d9e0ea",
+    "hover": "#eef4ff",
+    "active": "#dbeafe",
+    "selected": "#dbeafe",
+    "selectedText": "#1d4ed8",
+    "disabled": "#b5becd",
+    "disabledBg": "#f3f5f8",
+    "danger": "#dc2626",
+    "dangerBg": "#fee2e2",
+    "success": "#15803d",
+    "warning": "#d97706"
+  },
+  "serviceAccent": {
+    "text": "#2563eb",
+    "tables": "#16a34a",
+    "paint": "#d97706",
+    "slides": "#dc2626",
+    "flowcharts": "#7c3aed",
+    "vector": "#0f766e"
+  },
+  "zIndex": {
+    "header": 50,
+    "toolbar": 45,
+    "contextbar": 44,
+    "panel": 60,
+    "popover": 100,
+    "modal": 200
+  },
+  "componentRules": {
+    "leftPinnedToolbarActions": [
+      "new",
+      "open",
+      "save",
+      "undo",
+      "redo"
+    ],
+    "rightPinnedToolbarActions": [
+      "zoomOut",
+      "zoom100",
+      "zoomIn"
+    ],
+    "menuOrderBase": [
+      "file",
+      "edit",
+      "insert",
+      "subject",
+      "view",
+      "help"
+    ],
+    "paintMenuOrder": [
+      "file",
+      "edit",
+      "insert",
+      "tools",
+      "view",
+      "help"
+    ],
+    "contextbarPolicy": {
+      "grade1to5": "sticky-or-disabled",
+      "grade5plus": "dynamic-allowed"
+    }
+  }
+}

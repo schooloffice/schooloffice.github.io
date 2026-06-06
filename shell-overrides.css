@@ -1,0 +1,25 @@
+body.office-app {
+  padding: 0;
+}
+
+.office-header.app-header {
+  padding-left: .65rem;
+  padding-right: .65rem;
+  gap: .5rem;
+}
+
+.office-menubar.menubar {
+  padding-left: .35rem;
+  padding-right: .35rem;
+}
+
+.office-toolbar.toolbar {
+  padding-left: .5rem;
+  padding-right: .5rem;
+}
+
+.office-statusbar.status-bar,
+.office-statusbar.statusbar {
+  padding-left: .75rem;
+  padding-right: .75rem;
+}

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office PLUS Modal Behavior</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .fixture { position: absolute; left: -9999px; top: 0; width: 1px; height: 1px; overflow: hidden; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+  <script src="../office-ui.js"></script>
+</head>
+<body>
+  <h1>Office PLUS Modal Behavior</h1>
+  <button id="trigger">Trigger</button>
+  <pre id="result">Running...</pre>
+  <div id="fixtures" class="fixture">
+    <section data-service="text-like">
+      <div id="modalTextLike" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalTextLikeTitle">
+        <div class="modal-box">
+          <div id="modalTextLikeTitle" class="modal-title">Text Like</div>
+          <p class="modal-text">Modal overlay with hidden state.</p>
+          <div class="modal-actions">
+            <button class="btn-secondary">Скасувати</button>
+            <button class="btn-primary" data-autofocus>Гаразд</button>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section data-service="tables-like">
+      <div id="modalTablesLike" class="modal-overlay">
+        <div class="modal-content">
+          <h3 class="modal-title">Tables Like</h3>
+          <p class="modal-text">Modal overlay with active class.</p>
+          <div class="modal-actions">
+            <button class="modal-primary-btn">Так</button>
+            <button class="modal-secondary-btn">Ні</button>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section data-service="flowcharts-like">
+      <div id="modalFlowchartsLike" class="modal" role="alertdialog" aria-modal="true">
+        <div class="modal-content">
+          <h2 class="modal-title">Flowcharts Like</h2>
+          <p class="modal-text">Legacy modal element.</p>
+          <div class="modal-buttons">
+            <button class="modal-btn cancel-btn">Скасувати</button>
+            <button class="modal-btn ok-btn">Зберегти</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+    const result = document.getElementById('result');
+    const trigger = document.getElementById('trigger');
+    const services = [...document.querySelectorAll('#fixtures > section')];
+
+    function settle() {
+      return new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    async function checkService(host) {
+      const service = host.dataset.service;
+      const modal = host.querySelector('.modal-overlay, .modal');
+      const checks = [['modal exists', !!modal]];
+
+      if (modal) {
+        trigger.focus();
+        window.OfficeUI.init();
+        window.OfficeUI.openModal(modal, { returnFocus: trigger });
+        await settle();
+
+        const panel = modal.querySelector('.modal-box, .modal-content, .choffice-modal-content, [role="dialog"], [role="alertdialog"]') || modal;
+        const focusables = [...panel.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+        const first = focusables[0] || panel;
+        const last = focusables[focusables.length - 1] || panel;
+
+        checks.push(['office backdrop class', modal.classList.contains('office-modal-backdrop')]);
+        checks.push(['office modal sizing class respects modal-box contract', panel.classList.contains('modal-box') ? !panel.classList.contains('office-modal') : panel.classList.contains('office-modal')]);
+        checks.push(['panel has dialog role', ['dialog', 'alertdialog'].includes(panel.getAttribute('role'))]);
+        checks.push(['panel aria-modal true', panel.getAttribute('aria-modal') === 'true']);
+        checks.push(['autofocus moves inside modal', panel.contains(document.activeElement)]);
+
+        last.focus();
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Tab',
+          bubbles: true,
+          cancelable: true
+        }));
+        await settle();
+        checks.push(['Tab wraps inside modal', panel.contains(document.activeElement)]);
+
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true
+        }));
+        await settle();
+        checks.push(['Escape hides modal', modal.classList.contains('hidden') && modal.getAttribute('aria-hidden') === 'true']);
+        checks.push(['Escape restores trigger focus', document.activeElement === trigger]);
+
+        modal.classList.remove('active');
+        modal.classList.add('hidden');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+
+      return { service, checks };
+    }
+
+    async function run() {
+      const rows = [];
+      for (const host of services) {
+        rows.push(await checkService(host));
+      }
+      return rows;
+    }
+
+    run().then(rows => {
+      const failures = [];
+      const lines = [];
+      for (const row of rows) {
+        lines.push(row.service);
+        for (const [name, ok] of row.checks) {
+          lines.push(`  ${ok ? 'PASS' : 'FAIL'} ${name}`);
+          if (!ok) failures.push(`${row.service}: ${name}`);
+        }
+      }
+      result.className = failures.length ? 'fail' : 'pass';
+      result.textContent = lines.join('\n') + `\n\n${failures.length ? 'FAILED' : 'PASSED'}`;
+      document.body.dataset.modal = failures.length ? 'failed' : 'passed';
+    }).catch(error => {
+      result.className = 'fail';
+      result.textContent = String(error && error.stack || error);
+      document.body.dataset.modal = 'failed';
+    });
+  </script>
+</body>
+</html>

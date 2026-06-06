@@ -1,0 +1,372 @@
+﻿<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Office PLUS App Shell</title>
+  <link rel="stylesheet" href="./UI_TOKENS.css" />
+  <link rel="stylesheet" href="./shell-overrides.css" />
+  <style>
+    /* Demo-only helpers. Do not duplicate if your project already has layout utilities. */
+    body {
+      margin: 0;
+      font-family: var(--office-font-family, Nunito, system-ui, sans-serif);
+      background: var(--office-app-bg, #f4f7fb);
+      color: var(--office-text, #1f2937);
+    }
+
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto auto auto 1fr auto;
+      /* contextual UI is optional and should not be a permanent duplicate row by default */
+      background: var(--office-surface, #ffffff);
+    }
+
+    .titlebar {
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      background: var(--office-header-bg, #2563eb);
+      color: var(--office-header-fg, #ffffff);
+      border-bottom: 1px solid var(--office-header-border, rgba(255, 255, 255, .2));
+    }
+
+    .titlebar__left,
+    .titlebar__right,
+    .menu-bar,
+    .toolbar,
+    .toolbar__group,
+    .statusbar,
+    .contextbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .titlebar__left {
+      min-width: 0;
+    }
+
+    .app-badge {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, .16);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      flex: 0 0 auto;
+    }
+
+    .titlebar__title {
+      font-weight: 800;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .titlebar__docname {
+      font-size: 13px;
+      opacity: .92;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 320px;
+    }
+
+    .menu-bar {
+      min-height: 34px;
+      padding: 0 12px;
+      background: var(--office-menu-bg, #ffffff);
+      border-bottom: 1px solid var(--office-border, #dbe3ee);
+    }
+
+    .menu-item,
+    .tool-btn,
+    .seg-btn,
+    .status-chip,
+    .context-chip {
+      height: 34px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: inherit;
+      padding: 0 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .menu-item:hover,
+    .tool-btn:hover,
+    .seg-btn:hover,
+    .context-chip:hover {
+      background: var(--office-hover, #eef4ff);
+      border-color: var(--office-border, #dbe3ee);
+    }
+
+    .tool-btn.is-active,
+    .seg-btn.is-active,
+    .context-chip.is-active {
+      background: var(--office-active-bg, #e0ecff);
+      border-color: var(--office-accent, #2563eb);
+      color: var(--office-accent-strong, #1747a6);
+    }
+
+    .toolbar,
+    .contextbar,
+    .statusbar {
+      padding: 0 12px;
+      border-bottom: 1px solid var(--office-border, #dbe3ee);
+      background: var(--office-surface, #ffffff);
+    }
+
+    .toolbar {
+      min-height: 50px;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar__left,
+    .toolbar__right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar__group {
+      gap: 6px;
+      padding-right: 10px;
+      margin-right: 2px;
+      border-right: 1px solid var(--office-border, #dbe3ee);
+    }
+
+    .toolbar__group:last-child {
+      border-right: none;
+      padding-right: 0;
+      margin-right: 0;
+    }
+
+    .contextbar {
+      min-height: 38px;
+      background: var(--office-context-bg, #f8fbff);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: var(--office-sidebar-width, 0px) 1fr var(--office-inspector-width, 0px);
+      min-height: 0;
+      background: var(--office-workspace-bg, #f4f7fb);
+    }
+
+    .sidebar,
+    .inspector {
+      display: none;
+      border-right: 1px solid var(--office-border, #dbe3ee);
+      background: var(--office-surface, #ffffff);
+      padding: 12px;
+    }
+
+    .inspector {
+      border-right: none;
+      border-left: 1px solid var(--office-border, #dbe3ee);
+    }
+
+    .workspace.has-sidebar .sidebar,
+    .workspace.has-inspector .inspector {
+      display: block;
+    }
+
+    .canvas-zone {
+      min-width: 0;
+      min-height: 0;
+      padding: 16px;
+      overflow: auto;
+    }
+
+    .canvas-demo {
+      min-height: 520px;
+      border: 1px dashed var(--office-border-strong, #b8c6d8);
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, .88), rgba(250, 252, 255, .92));
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      color: #667085;
+    }
+
+    .statusbar {
+      min-height: 26px;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: none;
+      border-top: 1px solid var(--office-border, #dbe3ee);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .statusbar__left,
+    .statusbar__right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .divider {
+      width: 1px;
+      height: 22px;
+      background: var(--office-border, #dbe3ee);
+      flex: 0 0 auto;
+    }
+
+    .segmented {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px;
+      border: 1px solid var(--office-border, #dbe3ee);
+      border-radius: 10px;
+      background: var(--office-control-bg, #ffffff);
+    }
+
+    .tool-select {
+      height: 34px;
+      min-width: 110px;
+      border-radius: 8px;
+      border: 1px solid var(--office-border, #dbe3ee);
+      background: var(--office-control-bg, #ffffff);
+      padding: 0 10px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    @media (max-width: 1024px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar,
+      .inspector {
+        display: none !important;
+      }
+
+      .titlebar__docname {
+        max-width: 180px;
+      }
+    }
+  </style>
+</head>
+
+<body class="office-app" data-office-service="text">
+  <div class="app-shell">
+    <header class="titlebar office-header" role="banner">
+      <div class="titlebar__left">
+        <span class="app-badge" aria-hidden="true">A</span>
+        <span class="titlebar__title">ПЛЮС Текст</span>
+        <span aria-hidden="true">•</span>
+        <span class="titlebar__docname">Новий документ</span>
+      </div>
+      <div class="titlebar__right">
+        <button class="tool-btn" type="button">Файл</button>
+        <button class="tool-btn" type="button">Поділитися</button>
+      </div>
+    </header>
+
+    <nav class="menu-bar office-menubar" aria-label="Головне меню">
+      <button class="menu-item" type="button">Файл</button>
+      <button class="menu-item" type="button">Редагування</button>
+      <button class="menu-item" type="button">Вставка</button>
+      <button class="menu-item" type="button">Формат</button>
+      <button class="menu-item" type="button">Перегляд</button>
+      <button class="menu-item" type="button">Допомога</button>
+    </nav>
+
+    <section class="toolbar office-toolbar" aria-label="Основна панель інструментів">
+      <div class="toolbar__left">
+        <div class="toolbar__group" aria-label="Файл">
+          <button class="tool-btn" type="button">Новий</button>
+          <button class="tool-btn" type="button">Відкрити</button>
+          <button class="tool-btn" type="button">Зберегти</button>
+        </div>
+
+        <div class="toolbar__group" aria-label="Історія">
+          <button class="tool-btn" type="button">Скасувати</button>
+          <button class="tool-btn" type="button">Повернути</button>
+        </div>
+
+        <div class="toolbar__group" aria-label="Формат">
+          <select class="tool-select" aria-label="Стиль">
+            <option>Звичайний</option>
+            <option>Заголовок 1</option>
+            <option>Заголовок 2</option>
+          </select>
+          <select class="tool-select" aria-label="Шрифт">
+            <option>Nunito</option>
+            <option>Arial</option>
+            <option>Times New Roman</option>
+          </select>
+          <select class="tool-select" aria-label="Розмір">
+            <option>14</option>
+            <option>16</option>
+            <option>18</option>
+          </select>
+          <button class="tool-btn" type="button">Ж</button>
+          <button class="tool-btn" type="button">К</button>
+          <button class="tool-btn" type="button">П</button>
+        </div>
+      </div>
+
+      <div class="toolbar__right">
+        <div class="toolbar__group" aria-label="Масштаб та вигляд">
+          <div class="segmented" role="group" aria-label="Масштаб">
+            <button class="seg-btn" type="button">−</button>
+            <button class="seg-btn is-active" type="button">100%</button>
+            <button class="seg-btn" type="button">+</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="contextbar" aria-label="Приклад sticky contextual strip" hidden>
+      <span class="status-chip">Контекст: текст виділено</span>
+      <button class="context-chip is-active" type="button">По лівому краю</button>
+      <button class="context-chip" type="button">По центру</button>
+      <button class="context-chip" type="button">Нумерований список</button>
+    </section>
+
+    <main class="workspace office-workspace office-workspace-focusable" aria-label="Робоча область" tabindex="0">
+      <section class="canvas-zone" aria-label="Полотно або документ">
+        <div class="canvas-demo">Тут розміщується документ / сітка / полотно / слайд</div>
+      </section>
+    </main>
+
+    <footer class="statusbar office-statusbar" aria-label="Статус-бар">
+      <div class="statusbar__left">
+        <span class="status-chip">Слів: 128</span>
+        <span class="status-chip">Символів: 742</span>
+      </div>
+      <div class="statusbar__right">
+        <span class="status-chip">Масштаб: 100%</span>
+        <span class="status-chip">Мова: Українська</span>
+      </div>
+    </footer>
+  </div>
+</body>
+<script src="./office-shell.js" defer></script>
+<script src="./office-ui.js" defer></script>
+<script src="./offline.js" defer></script>
+
+</html>

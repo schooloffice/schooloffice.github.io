@@ -1,0 +1,594 @@
+﻿<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ПЛЮС Текст — Текстовий редактор</title>
+<link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css">
+
+  <!-- Формати -->
+  <script src="../vendor/mammoth/mammoth.browser.min.js"></script>
+  <script src="../vendor/docx/index.umd.js"></script>
+  <script src="../vendor/dompurify/purify.min.js"></script>
+
+  <link rel="stylesheet" href="../UI_TOKENS.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="../shell-overrides.css">
+</head>
+
+<body class="office-app" data-office-service="text">
+
+  <!-- ════════════════════════════════════════
+     ШАПКА
+════════════════════════════════════════ -->
+  <header class="app-header office-header" role="banner">
+    <div class="header-left">
+      <a href="../" class="back-link" aria-label="Повернутися до Офіс ПЛЮС" title="Офіс ПЛЮС">
+        <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+      </a>
+      <div class="app-logo">
+        <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
+        ПЛЮС Текст
+      </div>
+      <div class="file-name-wrap">
+        <span id="dirtyDot" aria-hidden="true" title="Незбережені зміни"></span>
+        <span id="fileName" role="button" tabindex="0" title="Клікни для перейменування" aria-label="Назва файлу"
+          data-edit-file-name>
+          документ
+        </span>
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="savedBadge" aria-live="polite" aria-atomic="true">Збережено ✓</span>
+    </div>
+  </header>
+
+  <!-- ════════════════════════════════════════
+     РЯДОК МЕНЮ
+════════════════════════════════════════ -->
+  <nav class="menubar office-menubar" role="menubar" aria-label="Головне меню">
+
+    <!-- Файл -->
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="file" role="menuitem" aria-haspopup="true" aria-expanded="false">
+        Файл
+      </button>
+      <div class="menu-dropdown" data-menu="file" role="menu">
+        <button class="menu-item" data-action="new" role="menuitem">
+          <span><i class="fa-solid fa-file-circle-plus fa-fw"></i> Новий</span>
+          <span class="shortcut">Ctrl+N</span>
+        </button>
+        <button class="menu-item" data-action="open" role="menuitem">
+          <span><i class="fa-solid fa-folder-open fa-fw"></i> Відкрити…</span>
+          <span class="shortcut">Ctrl+O</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="save-txt" role="menuitem">
+          <span><i class="fa-solid fa-file-lines fa-fw"></i> Зберегти як .txt</span>
+        </button>
+        <button class="menu-item" data-action="save-rtf" role="menuitem">
+          <span><i class="fa-solid fa-file-code fa-fw"></i> Зберегти як .rtf</span>
+        </button>
+        <button class="menu-item" data-action="save-docx" role="menuitem">
+          <span><i class="fa-solid fa-file-word fa-fw"></i> Зберегти як .docx</span>
+          <span class="shortcut">Ctrl+S</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="print" role="menuitem">
+          <span><i class="fa-solid fa-print fa-fw"></i> Друк…</span>
+          <span class="shortcut">Ctrl+P</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Редагування -->
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="edit" role="menuitem" aria-haspopup="true" aria-expanded="false">
+        Редагування
+      </button>
+      <div class="menu-dropdown" data-menu="edit" role="menu">
+        <button class="menu-item" data-action="undo" role="menuitem" id="menuUndo">
+          <span><i class="fa-solid fa-rotate-left fa-fw"></i> Скасувати</span>
+          <span class="shortcut">Ctrl+Z</span>
+        </button>
+        <button class="menu-item" data-action="redo" role="menuitem" id="menuRedo">
+          <span><i class="fa-solid fa-rotate-right fa-fw"></i> Повернути</span>
+          <span class="shortcut">Ctrl+Y</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="cut" role="menuitem">
+          <span><i class="fa-solid fa-scissors fa-fw"></i> Вирізати</span>
+          <span class="shortcut">Ctrl+X</span>
+        </button>
+        <button class="menu-item" data-action="copy" role="menuitem">
+          <span><i class="fa-regular fa-copy fa-fw"></i> Копіювати</span>
+          <span class="shortcut">Ctrl+C</span>
+        </button>
+        <button class="menu-item" data-action="paste" role="menuitem">
+          <span><i class="fa-solid fa-paste fa-fw"></i> Вставити</span>
+          <span class="shortcut">Ctrl+V</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="select-all" role="menuitem">
+          <span><i class="fa-solid fa-object-group fa-fw"></i> Виділити все</span>
+          <span class="shortcut">Ctrl+A</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="find" role="menuitem">
+          <span><i class="fa-solid fa-magnifying-glass fa-fw"></i> Знайти…</span>
+          <span class="shortcut">Ctrl+F</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Вставка -->
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="insert" role="menuitem" aria-haspopup="true" aria-expanded="false">
+        Вставка
+      </button>
+      <div class="menu-dropdown" data-menu="insert" role="menu">
+        <button class="menu-item" data-action="insert-table" role="menuitem">
+          <span><i class="fa-solid fa-table fa-fw"></i> Таблиця…</span>
+        </button>
+        <button class="menu-item" data-action="insert-image" role="menuitem">
+          <span><i class="fa-solid fa-image fa-fw"></i> Зображення…</span>
+        </button>
+        <button class="menu-item" data-action="insert-hr" role="menuitem">
+          <span><i class="fa-solid fa-minus fa-fw"></i> Горизонтальна лінія</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Перегляд -->
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="view" role="menuitem" aria-haspopup="true" aria-expanded="false">
+        Перегляд
+      </button>
+      <div class="menu-dropdown" data-menu="view" role="menu">
+        <button class="menu-item checked" data-action="orient-portrait" role="menuitem">
+          <span><i class="fa-solid fa-file fa-fw"></i> Портретна</span>
+        </button>
+        <button class="menu-item" data-action="orient-landscape" role="menuitem">
+          <span><i class="fa-solid fa-file fa-fw icon-rotated"></i> Альбомна</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="zoom-75" role="menuitem">75%</button>
+        <button class="menu-item checked" data-action="zoom-100" role="menuitem">100%</button>
+        <button class="menu-item" data-action="zoom-125" role="menuitem">125%</button>
+        <button class="menu-item" data-action="zoom-150" role="menuitem">150%</button>
+      </div>
+    </div>
+
+    <!-- Допомога -->
+    <div class="menu-item-wrap">
+      <button class="menu-title" data-menu="help" role="menuitem" aria-haspopup="true" aria-expanded="false">
+        Допомога
+      </button>
+      <div class="menu-dropdown" data-menu="help" role="menu">
+        <button class="menu-item" data-action="shortcuts" role="menuitem">
+          <span><i class="fa-solid fa-keyboard fa-fw"></i> Клавіатурні скорочення</span>
+        </button>
+        <button class="menu-item" data-action="about" role="menuitem">
+          <span><i class="fa-solid fa-circle-info fa-fw"></i> Про ПЛЮС Текст</span>
+        </button>
+      </div>
+    </div>
+
+  </nav>
+
+  <!-- ════════════════════════════════════════
+     ПАНЕЛЬ ФОРМАТУВАННЯ
+════════════════════════════════════════ -->
+  <div class="toolbar office-toolbar" role="toolbar" aria-label="Форматування">
+
+    <!-- Файл -->
+    <div class="tb-group office-toolbar-group">
+      <button class="tb-btn" type="button" data-office-command="new" data-menu-action="new"
+        title="Новий (Ctrl+N)" aria-label="Новий">
+        <i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i>
+      </button>
+      <button class="tb-btn" type="button" data-office-command="open" data-menu-action="open"
+        title="Відкрити (Ctrl+O)" aria-label="Відкрити">
+        <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+      </button>
+      <button class="tb-btn" type="button" data-office-command="save" data-menu-action="save-docx"
+        title="Зберегти (Ctrl+S)" aria-label="Зберегти">
+        <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
+      </button>
+    </div>
+
+    <div class="tb-sep" aria-hidden="true"></div>
+
+    <!-- Історія -->
+    <div class="tb-group office-toolbar-group">
+      <button class="tb-btn" id="tbUndo" data-office-command="undo" data-history-action="undo" disabled
+        title="Скасувати (Ctrl+Z)" aria-label="Скасувати">
+        <i class="fa-solid fa-rotate-left" aria-hidden="true"></i>
+      </button>
+      <button class="tb-btn" id="tbRedo" data-office-command="redo" data-history-action="redo" disabled
+        title="Повернути (Ctrl+Y)" aria-label="Повернути">
+        <i class="fa-solid fa-rotate-right" aria-hidden="true"></i>
+      </button>
+    </div>
+
+    <div class="tb-sep" aria-hidden="true"></div>
+
+    <!-- Стиль -->
+    <div class="tb-group">
+      <select class="tb-select" id="tbHeading" aria-label="Стиль абзацу" data-heading-select>
+        <option value="p">Звичайний</option>
+        <option value="h1">Заголовок 1</option>
+        <option value="h2">Заголовок 2</option>
+        <option value="h3">Заголовок 3</option>
+        <option value="h4">Заголовок 4</option>
+        <option value="blockquote">Цитата</option>
+      </select>
+    </div>
+
+    <div class="tb-sep" aria-hidden="true"></div>
+
+    <!-- Шрифт + Розмір -->
+    <div class="tb-group">
+      <select class="tb-select" id="tbFontFamily" aria-label="Шрифт"></select>
+      <select class="tb-select" id="tbFontSize" aria-label="Розмір шрифту (пт)"></select>
+    </div>
+
+    <div class="tb-sep" aria-hidden="true"></div>
+
+    <!-- Форматування тексту -->
+    <div class="tb-group">
+      <button class="tb-btn" data-cmd="bold" title="Жирний (Ctrl+B)" aria-label="Жирний" aria-pressed="false">
+        <b>Ж</b>
+      </button>
+      <button class="tb-btn" data-cmd="italic" title="Курсив (Ctrl+I)" aria-label="Курсив" aria-pressed="false">
+        <i class="italic-glyph">К</i>
+      </button>
+      <button class="tb-btn" data-cmd="underline" title="Підкреслення (Ctrl+U)" aria-label="Підкреслення"
+        aria-pressed="false">
+        <u>П</u>
+      </button>
+      <button class="tb-btn" data-cmd="strikeThrough" title="Закреслення" aria-label="Закреслення" aria-pressed="false">
+        <s>З</s>
+      </button>
+    </div>
+
+    <div class="tb-sep" aria-hidden="true"></div>
+
+    <!-- Вирівнювання -->
+    <div class="tb-group">
+      <button class="tb-btn" data-align="left"
+        title="По лівому краю" aria-label="По лівому краю">
+        <i class="fa-solid fa-align-left" aria-hidden="true"></i>
+      </button>
+      <button class="tb-btn" data-align="center"
+        title="По центру" aria-label="По центру">
+        <i class="fa-solid fa-align-center" aria-hidden="true"></i>
+      </button>
+      <button class="tb-btn" data-align="right"
+        title="По правому краю" aria-label="По правому краю">
+        <i class="fa-solid fa-align-right" aria-hidden="true"></i>
+      </button>
+      <button class="tb-btn" data-align="justify"
+        title="По ширині" aria-label="По ширині">
+        <i class="fa-solid fa-align-justify" aria-hidden="true"></i>
+      </button>
+      <button class="tb-btn" data-image-layout="wrap-left"
+        title="Обтікання: ліворуч" aria-label="Обтікання: ліворуч">
+        <i class="fa-solid fa-image" aria-hidden="true"></i>
+        <i class="fa-solid fa-arrow-left image-layout-arrow" aria-hidden="true"></i>
+      </button>
+
+      <button class="tb-btn" data-image-layout="wrap-right"
+        title="Обтікання: праворуч" aria-label="Обтікання: праворуч">
+        <i class="fa-solid fa-image" aria-hidden="true"></i>
+        <i class="fa-solid fa-arrow-right image-layout-arrow" aria-hidden="true"></i>
+      </button>
+    </div>
+
+    <div class="tb-sep" aria-hidden="true"></div>
+
+    <!-- Списки + відступи -->
+    <div class="tb-group">
+      <button class="tb-btn" data-cmd="insertUnorderedList" title="Маркований список" aria-label="Маркований список"
+        aria-pressed="false">
+        <i class="fa-solid fa-list-ul" aria-hidden="true"></i>
+      </button>
+      <button class="tb-btn" data-cmd="insertOrderedList" title="Нумерований список" aria-label="Нумерований список"
+        aria-pressed="false">
+        <i class="fa-solid fa-list-ol" aria-hidden="true"></i>
+      </button>
+      <button class="tb-btn" data-cmd="outdent" title="Зменшити відступ" aria-label="Зменшити відступ">
+        <i class="fa-solid fa-outdent" aria-hidden="true"></i>
+      </button>
+      <button class="tb-btn" data-cmd="indent" title="Збільшити відступ" aria-label="Збільшити відступ">
+        <i class="fa-solid fa-indent" aria-hidden="true"></i>
+      </button>
+    </div>
+
+    <div class="tb-sep" aria-hidden="true"></div>
+
+    <!-- Кольори -->
+    <div class="tb-group palette-group">
+      <div class="palette-wrap">
+        <button class="tb-btn palette-toggle" type="button" data-palette="text" title="Колір тексту"
+          aria-label="Колір тексту" aria-expanded="false">
+          <i class="fa-solid fa-font" aria-hidden="true"></i>
+        </button>
+        <div class="palette-popover" id="textPalette" hidden>
+          <div class="palette-title">Колір тексту</div>
+          <button type="button" class="palette-clear" id="textNoColor">Без кольору</button>
+          <div class="palette-swatches" id="textSwatches"></div>
+          <label class="palette-custom">Свій колір
+            <input type="color" id="textCustomColor" value="#1e293b" aria-label="Свій колір тексту">
+          </label>
+        </div>
+      </div>
+      <div class="palette-wrap">
+        <button class="tb-btn palette-toggle" type="button" data-palette="highlight" title="Колір виділення"
+          aria-label="Колір виділення" aria-expanded="false">
+          <i class="fa-solid fa-highlighter highlight-icon" aria-hidden="true"></i>
+        </button>
+        <div class="palette-popover" id="highlightPalette" hidden>
+          <div class="palette-title">Колір виділення</div>
+          <button type="button" class="palette-clear" id="highlightNoColor">Без кольору</button>
+          <div class="palette-swatches" id="highlightSwatches"></div>
+          <label class="palette-custom">Свій колір
+            <input type="color" id="highlightCustomColor" value="#fef08a" aria-label="Свій колір виділення">
+          </label>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ════════════════════════════════════════
+     ОБЛАСТЬ АРКУШІВ
+════════════════════════════════════════ -->
+  <div class="editor-scroll office-workspace office-workspace-focusable" role="main" aria-label="Документ" tabindex="0">
+    <div class="pages-wrap" data-orientation="portrait">
+      <div id="editor" class="document-editor" role="document" tabindex="-1" aria-label="Текстовий редактор"
+        aria-multiline="true"></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+     СТАТУСНИЙ РЯДОК
+════════════════════════════════════════ -->
+  <footer class="status-bar office-statusbar" role="status" aria-label="Стан документа">
+    <span class="status-item" data-office-status-slot="primary">
+      Слів:&nbsp;<strong id="statusWords">0</strong>
+    </span>
+    <span class="status-item" data-office-status-slot="secondary">
+      Символів:&nbsp;<strong id="statusChars">0</strong>
+    </span>
+    <span id="zoomBadge" data-open-modal="modalZoom" title="Змінити масштаб" role="button" tabindex="0"
+      aria-label="Масштаб" data-office-status-slot="meta">
+      100%
+    </span>
+  </footer>
+
+  <!-- ════════════════════════════════════════
+     МОДАЛЬНІ ВІКНА
+════════════════════════════════════════ -->
+
+  <!-- Зберегти як -->
+  <div id="modalSave" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalSaveTitle">
+    <div class="modal-box">
+      <div class="modal-title" id="modalSaveTitle">
+        <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
+        Зберегти як…
+      </div>
+      <div class="save-format-list">
+        <button class="save-format-btn fmt-txt" data-save-as="txt" aria-label="Зберегти як .txt">
+          <div class="fmt-icon"><i class="fa-solid fa-file-lines" aria-hidden="true"></i></div>
+          <div>
+            <div>Простий текст (.txt)</div>
+            <div class="fmt-desc">Тільки текст, без форматування</div>
+          </div>
+        </button>
+        <button class="save-format-btn fmt-rtf" data-save-as="rtf" aria-label="Зберегти як .rtf">
+          <div class="fmt-icon"><i class="fa-solid fa-file-code" aria-hidden="true"></i></div>
+          <div>
+            <div>Форматований текст (.rtf)</div>
+            <div class="fmt-desc">Жирний, курсив, заголовки. Відкриється у Word і LibreOffice</div>
+          </div>
+        </button>
+        <button class="save-format-btn fmt-docx" data-save-as="docx" aria-label="Зберегти як .docx">
+          <div class="fmt-icon"><i class="fa-solid fa-file-word" aria-hidden="true"></i></div>
+          <div>
+            <div>Документ Word (.docx)</div>
+            <div class="fmt-desc">Сумісний з Microsoft Word і Google Docs</div>
+          </div>
+        </button>
+      </div>
+      <button class="modal-cancel" data-close-modal="modalSave">Скасувати</button>
+    </div>
+  </div>
+
+  <!-- Таблиця -->
+  <div id="modalTable" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalTableTitle">
+    <div class="modal-box">
+      <div class="modal-title" id="modalTableTitle">
+        <i class="fa-solid fa-table" aria-hidden="true"></i>
+        Вставити таблицю
+      </div>
+      <div class="table-inputs">
+        <label>
+          Рядків
+          <input type="number" id="tableRows" value="3" min="1" max="50" data-autofocus aria-label="Кількість рядків">
+        </label>
+        <label>
+          Колонок
+          <input type="number" id="tableCols" value="3" min="1" max="20" aria-label="Кількість колонок">
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" data-close-modal="modalTable">Скасувати</button>
+        <button class="btn-primary" data-insert-table>
+          Вставити
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Пошук -->
+  <div id="modalFind" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalFindTitle">
+    <div class="modal-box">
+      <div class="modal-title" id="modalFindTitle">
+        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+        Знайти
+      </div>
+      <div class="find-row">
+        <input type="search" id="findInput" placeholder="Введи слово для пошуку…" data-autofocus aria-label="Пошук"
+          data-find-input>
+        <button class="btn-primary" data-find-next>
+          Знайти
+        </button>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" data-close-modal="modalFind">Закрити</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Масштаб -->
+  <div id="modalZoom" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalZoomTitle">
+    <div class="modal-box">
+      <div class="modal-title" id="modalZoomTitle">
+        <i class="fa-solid fa-magnifying-glass-plus" aria-hidden="true"></i>
+        Масштаб
+      </div>
+      <div class="zoom-options">
+        <button class="save-format-btn" data-set-zoom="75">75%</button>
+        <button class="save-format-btn" data-set-zoom="100">100%</button>
+        <button class="save-format-btn" data-set-zoom="125">125%</button>
+        <button class="save-format-btn" data-set-zoom="150">150%</button>
+      </div>
+      <button class="modal-cancel" data-close-modal="modalZoom">Скасувати</button>
+    </div>
+  </div>
+
+  <!-- Клавіатурні скорочення -->
+  <div id="modalShortcuts" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalShortcutsTitle">
+    <div class="modal-box modal-wide">
+      <div class="modal-title" id="modalShortcutsTitle">
+        <i class="fa-solid fa-keyboard" aria-hidden="true"></i>
+        Клавіатурні скорочення
+      </div>
+      <div class="shortcuts-grid">
+        <kbd>Ctrl+B</kbd><span>Жирний</span>
+        <kbd>Ctrl+I</kbd><span>Курсив</span>
+        <kbd>Ctrl+U</kbd><span>Підкреслення</span>
+        <kbd>Ctrl+Z</kbd><span>Скасувати</span>
+        <kbd>Ctrl+Y</kbd><span>Повернути</span>
+        <kbd>Ctrl+S</kbd><span>Зберегти як .docx</span>
+        <kbd>Ctrl+O</kbd><span>Відкрити файл</span>
+        <kbd>Ctrl+P</kbd><span>Друк</span>
+        <kbd>Ctrl+F</kbd><span>Пошук</span>
+        <kbd>Ctrl+A</kbd><span>Виділити все</span>
+        <kbd>Ctrl+X</kbd><span>Вирізати</span>
+        <kbd>Ctrl+C</kbd><span>Копіювати</span>
+        <kbd>Ctrl+V</kbd><span>Вставити</span>
+      </div>
+      <div class="modal-actions modal-actions-spaced">
+        <button class="btn-primary" data-autofocus data-close-modal="modalShortcuts">
+          Зрозуміло
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Про програму -->
+  <div id="modalAbout" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalAboutTitle">
+    <div class="modal-box modal-centered">
+      <div class="modal-hero-icon modal-hero-icon-large">
+        <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
+      </div>
+      <div class="modal-title modal-title-centered" id="modalAboutTitle">
+        ПЛЮС Текст
+      </div>
+      <p class="modal-text">
+        Безкоштовний текстовий редактор для школи.<br>
+        Частина пакету <strong>Офіс ПЛЮС</strong>.<br><br>
+        Підтримує .txt, .rtf, .docx.<br>
+        Без реєстрації та хмарного сховища.
+      </p>
+      <a href="https://itnauka.org/office" class="modal-link">
+        itnauka.org/office
+      </a>
+      <div class="modal-actions modal-actions-centered modal-actions-spaced">
+        <button class="btn-primary" data-autofocus data-close-modal="modalAbout">
+          Закрити
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Підтвердження -->
+  <div id="modalConfirm" class="modal-overlay" role="alertdialog" aria-modal="true" aria-labelledby="modalConfirmTitle">
+    <div class="modal-box">
+      <div class="modal-title" id="modalConfirmTitle">
+        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+        Підтвердження
+      </div>
+      <p class="modal-text" id="modalConfirmText"></p>
+      <div class="modal-actions">
+        <button class="btn-secondary" data-confirm-choice="no">Скасувати</button>
+        <button class="btn-primary" data-autofocus data-confirm-choice="yes">Продовжити</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Інфо -->
+  <div id="modalInfo" class="modal-overlay" role="alertdialog" aria-modal="true" aria-labelledby="modalInfoTitle">
+    <div class="modal-box modal-centered">
+      <div class="modal-hero-icon">
+        <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+      </div>
+      <div class="modal-title modal-title-centered" id="modalInfoTitle">Інфо</div>
+      <p class="modal-text" id="modalInfoText"></p>
+      <div class="modal-actions modal-actions-centered">
+        <button class="btn-primary" data-autofocus data-close-modal="modalInfo">
+          Гаразд
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+     СЛУЖБОВІ ЕЛЕМЕНТИ
+════════════════════════════════════════ -->
+  <input id="fileInput" type="file" accept=".txt,.rtf,.docx,text/plain,application/rtf,
+               application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="sr-only"
+    aria-hidden="true">
+
+  <input id="imageInput" type="file" accept="image/*" class="sr-only" aria-hidden="true">
+
+  <div id="ariaAnnouncer" aria-live="polite" aria-atomic="true" class="sr-only"></div>
+
+  <!-- ════════════════════════════════════════
+     СКРИПТИ (порядок обов'язковий)
+════════════════════════════════════════ -->
+  <script src="core/state.js"></script>
+  <script src="core/history.js"></script>
+  <script src="core/selection.js"></script>
+  <script src="core/sanitize.js"></script>
+  <script src="formats/txt.js"></script>
+  <script src="formats/rtf.js"></script>
+  <script src="formats/docx.js"></script>
+  <script src="ui/modals.js"></script>
+  <script src="ui/toolbar.js"></script>
+  <script src="ui/menu.js"></script>
+  <script src="ui/editor.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/runtime.js"></script>
+  <script src="../office-shell.js"></script>
+  <script src="../office-ui.js"></script>
+  <script src="../offline.js"></script>
+</body>
+
+</html>
+
+
+

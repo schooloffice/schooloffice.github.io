@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tables Render Behavior</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    iframe { width: 960px; height: 540px; border: 1px solid #d6dce5; border-radius: 8px; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Tables Render Behavior</h1>
+  <pre id="result">Running...</pre>
+  <iframe id="tablesFrame" src="../tables/"></iframe>
+
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('tablesFrame');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function run() {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('tables iframe load timed out')), 7000);
+        frame.addEventListener('load', () => {
+          clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
+
+      await wait(500);
+
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      const headers = doc.querySelectorAll('#headRow th.col-header');
+      const rows = doc.querySelectorAll('#bodyRows tr');
+      const cells = doc.querySelectorAll('#bodyRows td[data-id]');
+      const activeCell = doc.getElementById('activeCellRef')?.textContent?.trim();
+
+      const checks = [
+        ['TablesApp boot exported', typeof win.TablesApp?.boot === 'function'],
+        ['default columns rendered', headers.length >= 30],
+        ['default rows rendered', rows.length >= 60],
+        ['default cells rendered', cells.length >= 1800],
+        ['active cell visible', activeCell === 'A1']
+      ];
+
+      const failures = checks.filter(([, ok]) => !ok).map(([name]) => name);
+      result.className = failures.length ? 'fail' : 'pass';
+      result.textContent = checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} ${name}`).join('\n') +
+        `\n\n${failures.length ? 'FAILED' : 'PASSED'}`;
+      document.body.dataset.tablesRender = failures.length ? 'failed' : 'passed';
+    }
+
+    run().catch(error => {
+      result.className = 'fail';
+      result.textContent = String(error && error.stack || error);
+      document.body.dataset.tablesRender = 'failed';
+    });
+  </script>
+</body>
+</html>

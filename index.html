@@ -1,0 +1,568 @@
+﻿<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Офіс ПЛЮС — Онлайн-редактори для школи</title>
+  <!-- Favicons -->
+  <link rel="icon" type="image/png" href="favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="shortcut icon" href="favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+  <link rel="manifest" href="site.webmanifest" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://schooloffice.github.io/" />
+  <meta property="og:title" content="Офіс ПЛЮС — Онлайн-редактори для школи" />
+  <meta property="og:description"
+    content="Повноцінні онлайн-редактори для навчання: Текст, Таблиці, Малюнки, Слайди, Схеми та Вектор. Без реєстрації та встановлення." />
+  <meta property="og:image" content="https://schooloffice.github.io/web-app-manifest-512x512.png" />
+  <meta property="og:site_name" content="Комп'ютерна наука з паном Артемом" />
+  <meta property="og:locale" content="uk_UA" />
+
+  <!-- Fonts -->
+<link rel="stylesheet" href="vendor/fontawesome/css/all.min.css" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* Modernized Office suite specific styles, integrated with global style.css */
+
+    :root {
+      --office-blue: #3b82f6;
+      --office-blue-light: rgba(59, 130, 246, 0.1);
+      --office-green: #10b981;
+      --office-green-light: rgba(16, 185, 129, 0.1);
+      --office-red: #ef4444;
+      --office-red-light: rgba(239, 68, 68, 0.1);
+      --office-amber: #f59e0b;
+      --office-amber-light: rgba(245, 158, 11, 0.1);
+      --office-violet: #8b5cf6;
+      --office-violet-light: rgba(139, 92, 246, 0.1);
+      --office-cyan: #06b6d4;
+      --office-cyan-light: rgba(6, 182, 212, 0.1);
+      --office-fuchsia: #c026d3;
+      --office-fuchsia-light: rgba(192, 38, 211, 0.1);
+    }
+
+    body.dark-mode {
+      --office-blue-light: rgba(59, 130, 246, 0.2);
+      --office-green-light: rgba(16, 185, 129, 0.2);
+      --office-red-light: rgba(239, 68, 68, 0.2);
+      --office-amber-light: rgba(245, 158, 11, 0.2);
+      --office-violet-light: rgba(139, 92, 246, 0.2);
+      --office-cyan-light: rgba(6, 182, 212, 0.2);
+      --office-fuchsia-light: rgba(192, 38, 211, 0.2);
+    }
+
+    .hero-section {
+      padding: 15px 20px 5px;
+      text-align: center;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background-color: var(--primary-light);
+      color: var(--primary-color);
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 24px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .hero-section h1 {
+      font-size: clamp(2rem, 6vw, 3rem);
+      font-weight: 900;
+      margin: 0 auto 4px;
+      line-height: 1.1;
+      letter-spacing: -1px;
+    }
+
+    .hero-section h1 span {
+      background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-section p {
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      max-width: 600px;
+      margin: 0 auto 12px;
+    }
+
+    .chips-container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .office-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 999px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text-main);
+      transition: var(--transition);
+    }
+
+    .office-chip i {
+      color: var(--primary-color);
+    }
+
+    .office-chip:hover {
+      border-color: var(--primary-color);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+
+    /* Card Customization */
+    .office-card {
+      border-top: 4px solid var(--card-accent);
+      padding: 20px;
+    }
+
+    .office-card-icon {
+      width: 60px;
+      height: 60px;
+      border-radius: 16px;
+      background-color: var(--card-accent-light);
+      color: var(--card-accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.8rem;
+      margin-bottom: 15px;
+      transition: var(--transition);
+    }
+
+    .office-card:hover .office-card-icon {
+      transform: scale(1.1) rotate(-5deg);
+    }
+
+    .office-card .card-subtitle {
+      font-size: 0.75rem;
+      font-weight: 800;
+      color: var(--card-accent);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+    }
+
+    .office-card .card-title {
+      font-size: 1.5rem;
+      margin-bottom: 8px;
+    }
+
+    .office-card .card-desc {
+      font-size: 1rem;
+      margin-bottom: 16px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    .office-card-footer {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 15px;
+      padding-top: 15px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .office-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .office-grades {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .office-grades i {
+      color: var(--card-accent);
+    }
+
+    .office-formats {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .office-format-tag {
+      font-size: 0.7rem;
+      font-weight: 800;
+      padding: 4px 8px;
+      background: var(--card-accent-light);
+      color: var(--card-accent);
+      border-radius: 6px;
+      text-transform: lowercase;
+    }
+
+    .btn-office {
+      background-color: var(--card-accent);
+      color: white;
+      padding: 10px 24px;
+      border-radius: 12px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      transition: var(--transition);
+      white-space: nowrap;
+    }
+
+    .btn-office:hover {
+      filter: brightness(1.1);
+      transform: translateX(3px);
+      box-shadow: 0 4px 12px var(--card-accent-light);
+    }
+
+    .btn-office.disabled {
+      background-color: var(--border-color);
+      color: var(--text-secondary);
+      cursor: not-allowed;
+      filter: none;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .wide-card {
+      grid-column: 1 / -1;
+    }
+
+    .office-features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .feat-item {
+      display: flex;
+      gap: 10px;
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    .feat-item i {
+      color: var(--card-accent);
+      margin-top: 3px;
+    }
+
+    .status-badge {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.7rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .status-ready {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .status-soon {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    body.dark-mode .status-ready {
+      background: rgba(34, 197, 94, 0.2);
+      color: #4ade80;
+    }
+
+    body.dark-mode .status-soon {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+    }
+
+    @media (max-width: 768px) {
+      .wide-card {
+        grid-column: span 1;
+      }
+
+      .office-card-footer {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .btn-office {
+        justify-content: center;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app-container">
+    <!-- HEADER -->
+    <header class="header">
+      <div class="header-left">
+        <a href="../" class="brand">
+          <i class="fas fa-laptop-code brand-icon"></i>
+          <div class="brand-text">
+            <h1>Комп'ютерна наука</h1>
+            <p>Освітні сервіси для вивчення ІТ</p>
+          </div>
+        </a>
+      </div>
+      <div class="header-right">
+        <button class="theme-toggle-btn" id="themeToggle" aria-label="Змінити тему">
+          <i class="fas fa-moon"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-wrapper" style="flex-direction: column; gap: 10px;">
+      <section class="hero-section">
+        <h1>Офіс <span>ПЛЮС</span></h1>
+        <p>Повноцінні онлайн-редактори для навчання.</p>
+
+        <div class="chips-container">
+          <div class="office-chip"><i class="fas fa-money-bill-wave"></i> Безкоштовно</div>
+          <div class="office-chip"><i class="fas fa-user-slash"></i> Без реєстрації</div>
+          <div class="office-chip"><i class="fas fa-code-branch"></i> Open Source</div>
+        </div>
+      </section>
+
+      <div class="services-grid">
+        <!-- ПЛЮС Текст -->
+        <article class="card office-card"
+          style="--card-accent: var(--office-blue); --card-accent-light: var(--office-blue-light);">
+          <span class="status-badge status-soon">beta</span>
+          <div class="office-card-icon">
+            <i class="fas fa-file-alt"></i>
+          </div>
+          <div class="card-subtitle">Текстовий редактор</div>
+          <h2 class="card-title">ПЛЮС Текст</h2>
+          <p class="card-desc">Розширений редактор для роботи з текстами, рефератами та звітами. Підтримує форматування
+            та експорт у Microsoft Word.</p>
+
+          <div class="office-card-footer">
+            <div class="office-meta">
+              <div class="office-grades"><i class="fas fa-school"></i> 1–11 класи</div>
+              <div class="office-formats">
+                <span class="office-format-tag">.docx</span>
+                <span class="office-format-tag">.rtf</span>
+                <span class="office-format-tag">.txt</span>
+              </div>
+            </div>
+            <a href="text/" class="btn-office">
+              Відкрити <i class="fas fa-arrow-right"></i>
+            </a>
+          </div>
+        </article>
+
+        <!-- ПЛЮС Таблиці -->
+        <article class="card office-card"
+          style="--card-accent: var(--office-green); --card-accent-light: var(--office-green-light);">
+          <span class="status-badge status-soon">beta</span>
+          <div class="office-card-icon">
+            <i class="fas fa-table"></i>
+          </div>
+          <div class="card-subtitle">Табличний редактор</div>
+          <h2 class="card-title">ПЛЮС Таблиці</h2>
+          <p class="card-desc">Інструмент для обробки даних, створення таблиць та діаграм. Має вбудовану підтримку
+            основних математичних формул.</p>
+
+          <div class="office-card-footer">
+            <div class="office-meta">
+              <div class="office-grades"><i class="fas fa-school"></i> 5–11 класи</div>
+              <div class="office-formats">
+                <span class="office-format-tag">.csv</span>
+                <span class="office-format-tag">.xls (скоро)</span>
+              </div>
+            </div>
+            <a href="tables/" class="btn-office">
+              Відкрити <i class="fas fa-arrow-right"></i>
+            </a>
+          </div>
+        </article>
+
+
+        <!-- ПЛЮС Слайди -->
+        <article class="card office-card"
+          style="--card-accent: var(--office-red); --card-accent-light: var(--office-red-light);">
+          <span class="status-badge status-soon">beta</span>
+          <div class="office-card-icon">
+            <i class="fas fa-film"></i>
+          </div>
+          <div class="card-subtitle">Редактор презентацій</div>
+          <h2 class="card-title">ПЛЮС Слайди</h2>
+          <p class="card-desc">Створюй яскраві презентації з анімацією та мультимедіа. Зручний інтерфейс для швидкої
+            підготовки до уроків.</p>
+
+          <div class="office-card-footer">
+            <div class="office-meta">
+              <div class="office-grades"><i class="fas fa-school"></i> 3–11 класи</div>
+              <div class="office-formats">
+                <span class="office-format-tag">.pptx</span>
+                <span class="office-format-tag">.pdf</span>
+              </div>
+            </div>
+            <a href="slides/" class="btn-office">
+              Відкрити <i class="fas fa-arrow-right"></i>
+            </a>
+          </div>
+        </article>
+
+        <!-- ПЛЮС Схеми -->
+        <article class="card office-card"
+          style="--card-accent: var(--office-violet); --card-accent-light: var(--office-violet-light);">
+          <span class="status-badge status-soon">beta</span>
+          <div class="office-card-icon">
+            <i class="fas fa-project-diagram"></i>
+          </div>
+          <div class="card-subtitle">Алгоритми та блок-схеми</div>
+          <h2 class="card-title">ПЛЮС Схеми</h2>
+          <p class="card-desc">Візуальний редактор для побудови алгоритмів та блок-схем. Дозволяє учням легко створювати
+            логічні структури та схеми процесів.</p>
+
+          <div class="office-card-footer">
+            <div class="office-meta">
+              <div class="office-grades"><i class="fas fa-school"></i> 3–11 класи</div>
+              <div class="office-formats">
+                <span class="office-format-tag">.png</span>
+                <span class="office-format-tag">.svg</span>
+                <span class="office-format-tag">.json</span>
+              </div>
+            </div>
+            <a href="flowcharts/" class="btn-office">
+              Відкрити <i class="fas fa-arrow-right"></i>
+            </a>
+          </div>
+        </article>
+
+        <!-- ПЛЮС Малюнки -->
+        <article class="card office-card"
+          style="--card-accent: var(--office-amber); --card-accent-light: var(--office-amber-light);">
+          <span class="status-badge status-soon">beta</span>
+          <div class="office-card-icon">
+            <i class="fas fa-paint-brush"></i>
+          </div>
+          <div class="card-subtitle">Графічний редактор</div>
+          <h2 class="card-title">ПЛЮС Малюнки</h2>
+          <p class="card-desc">Простий та потужний растровий редактор для уроків малювання. Пензлі, фігури та робота з
+            кольорами.</p>
+
+          <div class="office-card-footer">
+            <div class="office-meta">
+              <div class="office-grades"><i class="fas fa-school"></i> 1–6 класи</div>
+              <div class="office-formats">
+                <span class="office-format-tag">.png</span>
+                <span class="office-format-tag">.jpg</span>
+                <span class="office-format-tag">.bmp</span>
+              </div>
+            </div>
+            <a href="paint/" class="btn-office">
+              Відкрити <i class="fas fa-arrow-right"></i>
+            </a>
+          </div>
+        </article>
+
+        <!-- ПЛЮС Вектор -->
+        <article class="card office-card"
+          style="--card-accent: var(--office-fuchsia); --card-accent-light: var(--office-fuchsia-light);">
+          <span class="status-badge status-soon">soon</span>
+          <div class="office-card-icon">
+            <i class="fas fa-bezier-curve"></i>
+          </div>
+          <div class="card-subtitle">Векторний редактор</div>
+          <h2 class="card-title">ПЛЮС Вектор</h2>
+          <p class="card-desc">Інструмент для створення векторних зображень та ілюстрацій. Робота з кривими Безьє,
+            шарами та геометричними примітивами.</p>
+
+          <div class="office-card-footer">
+            <div class="office-meta">
+              <div class="office-grades"><i class="fas fa-school"></i> 5–11 класи</div>
+              <div class="office-formats">
+                <span class="office-format-tag">.svg</span>
+                <span class="office-format-tag">.png</span>
+                <span class="office-format-tag">.json</span>
+              </div>
+            </div>
+            <a href="vector/" class="btn-office">
+              Відкрити <i class="fas fa-arrow-right"></i>
+            </a>
+          </div>
+        </article>
+      </div>
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+      <div class="footer-socials">
+        <a href="https://www.facebook.com/panaptem" target="_blank" class="social-link facebook"><i
+            class="fab fa-facebook-f"></i></a>
+        <a href="https://instagram.com/pan_aptem" target="_blank" class="social-link instagram"><i
+            class="fab fa-instagram"></i></a>
+        <a href="https://www.tiktok.com/@pan_aptem" target="_blank" class="social-link tiktok"><i
+            class="fab fa-tiktok"></i></a>
+        <a href="https://www.linkedin.com/in/artemkysliakov/" target="_blank" class="social-link linkedin"><i
+            class="fab fa-linkedin-in"></i></a>
+      </div>
+      <p>&copy; 2026 Комп'ютерна наука з Паном Артемом. Всі права захищено.</p>
+    </footer>
+  </div>
+
+  <script>
+    // Minimal theme toggle script
+    const themeToggle = document.getElementById('themeToggle');
+    const themeIcon = themeToggle.querySelector('i');
+    const body = document.body;
+
+    // Check saved theme
+    const savedTheme = localStorage.getItem("theme");
+    if (savedTheme === "dark") {
+      body.classList.add("dark-mode");
+      themeIcon.classList.replace("fa-moon", "fa-sun");
+    }
+
+    themeToggle.addEventListener("click", () => {
+      body.classList.toggle("dark-mode");
+      const isDark = body.classList.contains("dark-mode");
+
+      if (isDark) {
+        themeIcon.classList.replace("fa-moon", "fa-sun");
+        localStorage.setItem("theme", "dark");
+      } else {
+        themeIcon.classList.replace("fa-sun", "fa-moon");
+        localStorage.setItem("theme", "light");
+      }
+    });
+  </script>
+  <script src="offline.js"></script>
+</body>
+
+</html>
+
+

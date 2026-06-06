@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Slides Behavior</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    iframe { width: 960px; height: 540px; border: 1px solid #d6dce5; border-radius: 8px; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Slides Behavior</h1>
+  <pre id="result">Running...</pre>
+  <iframe id="slidesFrame" src="../slides/index.html"></iframe>
+
+  <script type="module">
+    import { normalizePresentation, parsePresentationText, slugify } from '../slides/js/project.js';
+
+    const result = document.getElementById('result');
+    const frame = document.getElementById('slidesFrame');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function waitFor(predicate, label, timeout = 5000) {
+      const start = performance.now();
+      while (performance.now() - start < timeout) {
+        if (predicate()) return;
+        await wait(100);
+      }
+      throw new Error(label);
+    }
+
+    function check(name, ok) {
+      if (!ok) throw new Error(name);
+      return `PASS ${name}`;
+    }
+
+    async function run() {
+      await import('../slides/js/app.js');
+      check('Slides app module import', typeof window.SlidesApp?.boot === 'function');
+
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('slides iframe load timed out')), 7000);
+        frame.addEventListener('load', () => {
+          clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
+
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      await waitFor(() => typeof win.SlidesApp?.boot === 'function', 'SlidesApp boot exported');
+      await waitFor(() => doc.querySelectorAll('#slideList .slide-card').length >= 1, 'slide list rendered');
+      await waitFor(() => doc.querySelectorAll('#stage .stage-element').length >= 1, 'stage elements rendered');
+      const project = {
+        fileName: 'Шкільна презентація',
+        slides: [{
+          id: 's1',
+          background: '#ffffff',
+          elements: [{
+            id: 't1',
+            type: 'text',
+            x: 120,
+            y: 120,
+            w: 320,
+            h: 90,
+            content: 'Тема',
+            style: { fontSize: 32 }
+          }]
+        }],
+        currentSlideId: 's1'
+      };
+      const normalized = normalizePresentation(project);
+      const parsed = parsePresentationText(JSON.stringify(project));
+
+      const checks = [
+        check('SlidesApp boot exported', typeof win.SlidesApp?.boot === 'function'),
+        check('slide list rendered', doc.querySelectorAll('#slideList .slide-card').length >= 1),
+        check('stage rendered', !!doc.querySelector('#stage')),
+        check('stage elements rendered', doc.querySelectorAll('#stage .stage-element').length >= 1),
+        check('standard commands exported', ['new', 'open', 'save', 'undo', 'redo'].every(command => !!doc.querySelector(`[data-office-command="${command}"]`))),
+        check('project normalize keeps file name', normalized?.fileName === 'Шкільна презентація'),
+        check('project normalize keeps elements', normalized?.slides?.[0]?.elements?.length === 1),
+        check('project parse works', parsed?.slides?.[0]?.id === 's1'),
+        check('slugify handles ukrainian', slugify('Моя презентація 1') === 'моя-презентація-1')
+      ];
+
+      result.className = 'pass';
+      result.textContent = checks.join('\n') + '\n\nPASSED';
+      document.body.dataset.slidesBehavior = 'passed';
+    }
+
+    run().catch(error => {
+      result.className = 'fail';
+      result.textContent = String(error && error.stack || error);
+      document.body.dataset.slidesBehavior = 'failed';
+    });
+  </script>
+</body>
+</html>

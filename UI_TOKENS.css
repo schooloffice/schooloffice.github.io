@@ -1,0 +1,396 @@
+﻿:root {
+  /* Typography */
+  --office-font-family-base: "Nunito", "Nunito Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --office-font-size-menu: 13px;
+  --office-font-size-toolbar: 13px;
+  --office-font-size-statusbar: 12px;
+  --office-font-size-label: 12px;
+  --office-font-size-body: 14px;
+  --office-font-weight-ui: 700;
+  --office-font-weight-strong: 800;
+  --office-line-height-tight: 1.2;
+  --office-line-height-normal: 1.4;
+
+  /* Layout heights */
+  --office-header-height: 44px;
+  --office-menu-height: 34px;
+  --office-toolbar-height: 50px;
+  --office-contextbar-height: 38px;
+  --office-statusbar-height: 26px;
+
+  /* Controls */
+  --office-control-height: 34px;
+  --office-icon-button-size: 34px;
+  --office-segment-height: 34px;
+  --office-input-height: 34px;
+  --office-divider-height: 22px;
+  --office-control-min-width: 34px;
+  --office-radius-sm: 6px;
+  --office-radius-md: 8px;
+  --office-radius-lg: 10px;
+
+  /* Spacing */
+  --office-space-2: 2px;
+  --office-space-4: 4px;
+  --office-space-6: 6px;
+  --office-space-8: 8px;
+  --office-space-10: 10px;
+  --office-space-12: 12px;
+  --office-space-14: 14px;
+  --office-space-16: 16px;
+  --office-space-20: 20px;
+  --office-shell-inline-padding: 12px;
+  --office-group-gap: 10px;
+  --office-control-gap: 6px;
+
+  /* Borders / shadow */
+  --office-border-color: #d6dce5;
+  --office-border-strong: #b8c2d1;
+  --office-surface-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --office-popover-shadow: 0 12px 24px rgba(16, 24, 40, 0.14);
+  --office-focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.2);
+
+  /* Neutrals */
+  --office-color-bg-app: #f4f7fb;
+  --office-color-bg-shell: #ffffff;
+  --office-color-bg-toolbar: #f8fafc;
+  --office-color-bg-context: #f5f7fb;
+  --office-color-bg-statusbar: #eef2f7;
+  --office-color-surface: #ffffff;
+  --office-color-surface-muted: #f8fafc;
+  --office-color-text: #162033;
+  --office-color-text-muted: #5b6577;
+  --office-color-text-soft: #748094;
+  --office-color-icon: #22304d;
+  --office-color-divider: #d9e0ea;
+
+  /* Common action states */
+  --office-color-hover: #eef4ff;
+  --office-color-active: #dbeafe;
+  --office-color-selected: #dbeafe;
+  --office-color-selected-text: #1d4ed8;
+  --office-color-disabled: #b5becd;
+  --office-color-disabled-bg: #f3f5f8;
+  --office-color-danger: #dc2626;
+  --office-color-danger-bg: #fee2e2;
+  --office-color-success: #15803d;
+  --office-color-warning: #d97706;
+
+  /* Service accents */
+  --office-accent-text: #2563eb;
+  --office-accent-tables: #16a34a;
+  --office-accent-paint: #d97706;
+  --office-accent-slides: #dc2626;
+  --office-accent-flowcharts: #7c3aed;
+  --office-accent-vector: #0f766e;
+
+  /* Default accent slot; override per app root */
+  --office-accent: var(--office-accent-text);
+  --office-accent-strong: var(--office-accent);
+  --office-accent-soft: color-mix(in srgb, var(--office-accent) 14%, white);
+  --office-accent-border: color-mix(in srgb, var(--office-accent) 28%, white);
+
+  /* Layers */
+  --office-z-header: 50;
+  --office-z-toolbar: 45;
+  --office-z-contextbar: 44;
+  --office-z-panel: 60;
+  --office-z-popover: 100;
+  --office-z-modal: 200;
+}
+
+[data-office-service="text"] { --office-accent: var(--office-accent-text); }
+[data-office-service="tables"] { --office-accent: var(--office-accent-tables); }
+[data-office-service="paint"] { --office-accent: var(--office-accent-paint); }
+[data-office-service="slides"] { --office-accent: var(--office-accent-slides); }
+[data-office-service="flowcharts"] { --office-accent: var(--office-accent-flowcharts); }
+[data-office-service="vector"] { --office-accent: var(--office-accent-vector); }
+
+.office-app {
+  font-family: var(--office-font-family-base);
+  color: var(--office-color-text);
+  background: var(--office-color-bg-app);
+}
+
+.office-header {
+  min-height: var(--office-header-height);
+  display: flex;
+  align-items: center;
+  gap: var(--office-space-10);
+  padding: 0 var(--office-shell-inline-padding);
+  color: #fff;
+  background: var(--office-accent);
+}
+
+.office-menubar,
+.office-toolbar,
+.office-contextbar,
+.office-statusbar {
+  display: flex;
+  align-items: center;
+  padding-inline: var(--office-shell-inline-padding);
+  background: var(--office-color-bg-shell);
+}
+
+.office-menubar {
+  min-height: var(--office-menu-height);
+  gap: var(--office-space-4);
+  border-bottom: 1px solid var(--office-border-color);
+}
+
+.office-toolbar {
+  min-height: var(--office-toolbar-height);
+  gap: var(--office-group-gap);
+  border-bottom: 1px solid var(--office-border-color);
+  background: var(--office-color-bg-toolbar);
+}
+
+.office-contextbar {
+  min-height: var(--office-contextbar-height);
+  gap: var(--office-group-gap);
+  border-bottom: 1px solid var(--office-border-color);
+  background: var(--office-color-bg-context);
+}
+
+.office-statusbar {
+  min-height: var(--office-statusbar-height);
+  justify-content: space-between;
+  gap: var(--office-space-12);
+  border-top: 1px solid var(--office-border-color);
+  background: var(--office-color-bg-statusbar);
+  font-size: var(--office-font-size-statusbar);
+  font-weight: var(--office-font-weight-ui);
+  color: var(--office-color-text-muted);
+}
+
+.office-toolbar-group,
+.office-context-group,
+.office-status-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--office-control-gap);
+  min-width: 0;
+}
+
+.office-toolbar-spacer,
+.office-context-spacer,
+.office-status-spacer {
+  flex: 1 1 auto;
+}
+
+.office-divider {
+  inline-size: 1px;
+  block-size: var(--office-divider-height);
+  background: var(--office-color-divider);
+  flex: 0 0 1px;
+}
+
+.office-menu-button,
+.office-button,
+.office-icon-button,
+.office-segment-button,
+.office-select,
+.office-input {
+  min-height: var(--office-control-height);
+  border: 1px solid transparent;
+  border-radius: var(--office-radius-md);
+  font-family: inherit;
+  font-size: var(--office-font-size-toolbar);
+  font-weight: var(--office-font-weight-ui);
+  color: var(--office-color-text);
+  background: transparent;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.office-menu-button {
+  min-height: 30px;
+  padding-inline: 12px;
+  font-size: var(--office-font-size-menu);
+}
+
+.office-button,
+.office-select,
+.office-input {
+  padding-inline: 10px;
+}
+
+.office-icon-button,
+.office-segment-button {
+  inline-size: var(--office-icon-button-size);
+  block-size: var(--office-icon-button-size);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.office-button:hover,
+.office-icon-button:hover,
+.office-segment-button:hover,
+.office-menu-button:hover,
+.office-select:hover,
+.office-input:hover {
+  background: var(--office-color-hover);
+  border-color: var(--office-accent-border);
+}
+
+.office-button[aria-pressed="true"],
+.office-icon-button[aria-pressed="true"],
+.office-segment-button[aria-pressed="true"],
+.office-menu-button[data-open="true"],
+.office-select[data-open="true"] {
+  background: var(--office-color-selected);
+  border-color: var(--office-accent-border);
+  color: var(--office-color-selected-text);
+}
+
+.office-button:focus-visible,
+.office-icon-button:focus-visible,
+.office-segment-button:focus-visible,
+.office-menu-button:focus-visible,
+.office-select:focus-visible,
+.office-input:focus-visible {
+  outline: none;
+  box-shadow: var(--office-focus-ring);
+  border-color: var(--office-accent-border);
+}
+
+.office-button:disabled,
+.office-icon-button:disabled,
+.office-segment-button:disabled,
+.office-select:disabled,
+.office-input:disabled {
+  color: var(--office-color-disabled);
+  background: var(--office-color-disabled-bg);
+  border-color: transparent;
+  cursor: not-allowed;
+}
+
+.office-button--danger,
+.office-icon-button--danger {
+  color: var(--office-color-danger);
+}
+
+.office-button--danger:hover,
+.office-icon-button--danger:hover {
+  background: var(--office-color-danger-bg);
+  border-color: color-mix(in srgb, var(--office-color-danger) 22%, white);
+}
+
+.office-chip {
+  min-height: 28px;
+  padding-inline: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--office-border-color);
+  background: var(--office-color-surface);
+  font-size: var(--office-font-size-label);
+  font-weight: var(--office-font-weight-ui);
+}
+
+.office-dropdown,
+.office-popover,
+.office-panel,
+.office-modal {
+  background: var(--office-color-surface);
+  border: 1px solid var(--office-border-color);
+  border-radius: var(--office-radius-lg);
+  box-shadow: var(--office-popover-shadow);
+}
+
+.office-dropdown,
+.office-popover {
+  padding: var(--office-space-6);
+}
+
+.office-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: var(--office-space-8);
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: var(--office-radius-sm);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--office-color-text);
+}
+
+.office-dropdown-item:hover,
+.office-dropdown-item[aria-checked="true"] {
+  background: var(--office-color-hover);
+}
+
+.office-workspace {
+  background: var(--office-color-bg-app);
+}
+
+.office-contextbar[hidden],
+.office-panel[hidden],
+.office-popover[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 960px) {
+  :root {
+    --office-toolbar-height: auto;
+    --office-contextbar-height: auto;
+  }
+
+  .office-toolbar,
+  .office-contextbar {
+    flex-wrap: wrap;
+    row-gap: var(--office-space-8);
+    padding-block: var(--office-space-8);
+  }
+}
+
+
+.office-workspace-focusable {
+  outline: none;
+}
+
+.office-workspace-focusable:focus-visible,
+.office-workspace:focus-visible {
+  box-shadow: var(--office-focus-ring);
+  border-radius: var(--office-radius-lg);
+}
+
+.office-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: var(--office-z-modal);
+}
+
+.office-modal {
+  min-inline-size: min(480px, calc(100vw - 32px));
+  max-inline-size: min(760px, calc(100vw - 32px));
+  max-block-size: calc(100vh - 48px);
+  overflow: auto;
+}
+
+.office-modal__header,
+.office-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--office-space-12);
+  padding: 14px 16px;
+}
+
+.office-modal__body {
+  padding: 0 16px 16px;
+}
+
+.office-modal__footer {
+  justify-content: flex-end;
+}
+
+.office-dropdown[hidden],
+.office-modal-backdrop[hidden] {
+  display: none !important;
+}
+
