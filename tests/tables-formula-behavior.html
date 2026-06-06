@@ -26,6 +26,7 @@
   <script src="../tables/js/state.js"></script>
   <script src="../tables/js/grid.js"></script>
   <script src="../tables/js/clipboard.js"></script>
+  <script src="../tables/js/cell-format-ui.js"></script>
   <script>
     const result = document.getElementById('result');
 
@@ -69,6 +70,25 @@
       TablesClipboard.applyTsvToGridData('7\t8\n9\t10', 4, 4);
       checks.push(assertEqual('clipboard paste top-left', cellData.E4, '7'));
       checks.push(assertEqual('clipboard paste bottom-right', cellData.F5, '10'));
+
+      // Selection stats must ignore empty cells (Number('') === 0 regression)
+      cellData = { A1: '10', A2: '20', A3: '30', B1: '-5', B3: '-2' };
+      selStart = { c: 0, r: 0 };
+      selEnd = { c: 0, r: 4 }; // A1:A5, with A4 and A5 empty
+      const statsA = getSelectionStats();
+      checks.push(assertEqual('stats count ignores empty', statsA.count, 3));
+      checks.push(assertEqual('stats countNumbers ignores empty', statsA.countNumbers, 3));
+      checks.push(assertEqual('stats sum', statsA.sum, 60));
+      checks.push(assertEqual('stats min ignores empty', statsA.min, 10));
+      checks.push(assertEqual('stats max', statsA.max, 30));
+      checks.push(assertEqual('stats avg', statsA.avg, 20));
+
+      selStart = { c: 1, r: 0 };
+      selEnd = { c: 1, r: 4 }; // B1:B5, negatives with empty B2/B4/B5
+      const statsB = getSelectionStats();
+      checks.push(assertEqual('stats max not zeroed by empty', statsB.max, -2));
+      checks.push(assertEqual('stats min negative', statsB.min, -5));
+      checks.push(assertEqual('stats countNumbers negatives', statsB.countNumbers, 2));
 
       result.className = 'pass';
       result.textContent = checks.join('\n') + '\n\nPASSED';

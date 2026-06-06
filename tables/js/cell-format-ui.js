@@ -49,17 +49,19 @@ function getSelectionStats() {
     for (let c = b.cMin; c <= b.cMax; c++) {
       const id = getCellId(c, r);
       const raw = cellData[id] ?? '';
-      if (String(raw).trim() !== '') count++;
+      const trimmed = String(raw).trim();
+      if (trimmed === '') continue;
+      count++;
 
       let num = NaN;
-      if (String(raw).startsWith('=')) {
+      if (trimmed.startsWith('=')) {
         try {
-          num = Number(evaluateFormula(String(raw).substring(1)));
+          num = Number(evaluateFormula(trimmed.substring(1)));
         } catch (_) {
           num = NaN;
         }
       } else {
-        num = Number(String(raw).replace(',', '.'));
+        num = Number(trimmed.replace(',', '.'));
       }
 
       if (Number.isFinite(num)) {
