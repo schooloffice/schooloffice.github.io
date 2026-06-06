@@ -13,6 +13,7 @@ let COLS = buildCols(COL_COUNT);
 let cellData = {};
 let colWidths = {};
 let cellStyles = {};
+let condRules = []; // умовне форматування: [{ range:[cMin,rMin,cMax,rMax], op, v1, v2, fill }]
 
 let calcDepth = 0;
 let history = [];

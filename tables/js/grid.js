@@ -255,6 +255,8 @@ function rebuildGrid() {
       }
     }
   }
+
+  if (typeof applyRowFilter === 'function') applyRowFilter();
 }
 
 // ---- Selection ----

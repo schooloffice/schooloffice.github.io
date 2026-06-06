@@ -8,7 +8,8 @@ function exportWorkbook() {
     cols: COL_COUNT,
     cellData,
     cellStyles,
-    colWidths
+    colWidths,
+    condRules
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
@@ -44,6 +45,7 @@ function importWorkbookText(text) {
     cellData = payload.cellData && typeof payload.cellData === 'object' ? payload.cellData : {};
     cellStyles = payload.cellStyles && typeof payload.cellStyles === 'object' ? payload.cellStyles : {};
     colWidths = payload.colWidths && typeof payload.colWidths === 'object' ? payload.colWidths : {};
+    condRules = Array.isArray(payload.condRules) ? payload.condRules : [];
 
     rebuildGrid();
     recalculateAll();

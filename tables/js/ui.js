@@ -290,6 +290,9 @@ function dispatchUiAction(action) {
     case 'toggle-border': toggleStyle('style-border-all'); break;
     case 'clear-fill': clearFillStyles(); break;
     case 'clear-text-color': clearTextColorStyles(); break;
+    case 'cond-format': TablesConditionalFormatting.openCondFormatModal(); break;
+    case 'filter': TablesFilter.openFilterModal(); break;
+    case 'clear-filter': TablesFilter.clearRowFilter(); break;
     case 'func-sum': applyFunc('SUM'); break;
     case 'func-avg': applyFunc('AVERAGE'); break;
     case 'func-max': applyFunc('MAX'); break;
@@ -318,6 +321,8 @@ F4 — тип посилання у формулі: A1 → $A$1 → A$1 → $A1`
 • абсолютні посилання ($A$1) і клавішу F4
 • копіювання формул та автозаповнення (маркер)
 • умовні функції COUNTIF, SUMIF, AVERAGEIF
+• дати TODAY, NOW, DATE і формат дати
+• умовне форматування за правилом
 • вирівнювання за типом даних
 • сортування діапазону, формати чисел
 • кольори тексту й заливки, діаграми

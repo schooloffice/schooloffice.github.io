@@ -64,6 +64,41 @@ function makeCriteriaPredicate(criteria) {
   };
 }
 
+// ---- Date serials (Excel-сумісні: дні від 1899-12-30) ----
+const DATE_EPOCH_UTC = Date.UTC(1899, 11, 30);
+
+function ymdToSerial(y, m, d) {
+  return Math.round((Date.UTC(y, m - 1, d) - DATE_EPOCH_UTC) / 86400000);
+}
+
+function todaySerial() {
+  const n = new Date();
+  return ymdToSerial(n.getFullYear(), n.getMonth() + 1, n.getDate());
+}
+
+function nowSerial() {
+  const n = new Date();
+  const dayFrac = (n.getHours() * 3600 + n.getMinutes() * 60 + n.getSeconds()) / 86400;
+  return todaySerial() + dayFrac;
+}
+
+function serialToDateString(serial, withTime) {
+  const s = Number(serial);
+  if (!Number.isFinite(s)) return String(serial);
+  const whole = Math.floor(s);
+  const dt = new Date(DATE_EPOCH_UTC + whole * 86400000);
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  let out = `${dd}.${mm}.${dt.getUTCFullYear()}`;
+  if (withTime) {
+    const totalSec = Math.round((s - whole) * 86400);
+    const hh = String(Math.floor(totalSec / 3600) % 24).padStart(2, '0');
+    const mi = String(Math.floor(totalSec / 60) % 60).padStart(2, '0');
+    out += ` ${hh}:${mi}`;
+  }
+  return out;
+}
+
 const FORMULA_FUNCTIONS = {
   // Агрегатні (ігнорують текст і порожні клітинки, як у Excel)
   SUM: (a, ctx) => numericValues(a, ctx).reduce((x, y) => x + y, 0),
@@ -152,7 +187,12 @@ const FORMULA_FUNCTIONS = {
     const b = ctx.num(a[1]);
     if (b === 0) throw formulaError(FORMULA_ERRORS.DIV0);
     return ctx.num(a[0]) % b;
-  }
+  },
+
+  // Дати (повертають серійний номер; формат «Дата» показує DD.MM.YYYY)
+  TODAY: () => todaySerial(),
+  NOW: () => nowSerial(),
+  DATE: (a, ctx) => ymdToSerial(ctx.num(a[0]), ctx.num(a[1]), ctx.num(a[2]))
 };
 
 window.TablesFormulaFunctions = { FORMULA_FUNCTIONS, isFormulaNumber };

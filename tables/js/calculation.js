@@ -54,6 +54,8 @@ function recalculateAll() {
     }
   }
 
+  applyConditionalFormatting();
+
   const fb = document.getElementById('formulaBar');
   if (fb && activeId) fb.value = cellData[activeId] || '';
   updateSelectionStats();

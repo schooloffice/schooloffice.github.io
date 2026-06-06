@@ -84,6 +84,8 @@
         <button class="menu-item" data-action="toggle-border"><span><i class="fa-solid fa-border-all fa-fw"></i> Межі</span></button>
         <button class="menu-item" data-action="clear-fill"><span><i class="fa-solid fa-droplet-slash fa-fw"></i> Без заливки</span></button>
         <button class="menu-item" data-action="clear-text-color"><span><i class="fa-solid fa-font fa-fw"></i> Стандартний колір тексту</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="cond-format"><span><i class="fa-solid fa-wand-magic-sparkles fa-fw"></i> Умовне форматування…</span></button>
       </div>
     </div>
 
@@ -99,6 +101,9 @@
         <button class="menu-item" data-action="sort-asc"><span><i class="fa-solid fa-arrow-down-a-z fa-fw"></i> Сортувати A→Я / 1→9</span></button>
         <button class="menu-item" data-action="sort-desc"><span><i class="fa-solid fa-arrow-down-z-a fa-fw"></i> Сортувати Я→A / 9→1</span></button>
         <button class="menu-item" data-action="autofit"><span><i class="fa-solid fa-arrows-left-right-to-line fa-fw"></i> Автоширина</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="filter"><span><i class="fa-solid fa-filter fa-fw"></i> Фільтр за стовпцем…</span></button>
+        <button class="menu-item" data-action="clear-filter"><span><i class="fa-solid fa-filter-circle-xmark fa-fw"></i> Зняти фільтр</span></button>
       </div>
     </div>
 
@@ -185,6 +190,8 @@
         <option value="style-num-fixed2">2 знаки після коми</option>
         <option value="style-num-percent">Відсотки</option>
         <option value="style-num-currency-uah">Гривні ₴</option>
+        <option value="style-num-date">Дата</option>
+        <option value="style-num-datetime">Дата і час</option>
       </select>
     </div>
 
@@ -278,6 +285,64 @@
     </div>
   </div>
 
+  <div id="condFormatModal" class="modal-overlay">
+    <div class="modal-content cond-modal">
+      <h3 class="modal-title">Умовне форматування</h3>
+      <p class="modal-text">Діапазон: <strong id="condRangeLabel">A1</strong></p>
+      <div class="cond-form">
+        <label class="cond-label" for="condOp">Якщо число</label>
+        <select id="condOp" class="cond-select">
+          <option value="gt">більше ніж</option>
+          <option value="ge">більше або дорівнює</option>
+          <option value="lt">менше ніж</option>
+          <option value="le">менше або дорівнює</option>
+          <option value="eq">дорівнює</option>
+          <option value="ne">не дорівнює</option>
+          <option value="between">між</option>
+        </select>
+        <input id="condV1" type="number" class="cond-num" placeholder="число">
+        <span id="condAnd" hidden>і</span>
+        <input id="condV2" type="number" class="cond-num" placeholder="число" hidden>
+      </div>
+      <div class="cond-swatches" id="condSwatches" aria-label="Колір заливки"></div>
+      <p id="condError" class="cond-error" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button id="condClearBtn" class="modal-secondary-btn">Очистити всі</button>
+        <button data-close-modal="condFormatModal" class="modal-secondary-btn">Закрити</button>
+        <button id="condAddBtn" class="modal-primary-btn">Додати правило</button>
+      </div>
+      <ul class="cond-rule-list" id="condRuleList"></ul>
+    </div>
+  </div>
+
+  <div id="filterModal" class="modal-overlay">
+    <div class="modal-content cond-modal">
+      <h3 class="modal-title">Фільтр за стовпцем</h3>
+      <p class="modal-text">Стовпець: <strong id="filterColLabel">A</strong> — показати рядки, де значення</p>
+      <div class="cond-form">
+        <select id="filterOp" class="cond-select">
+          <option value="gt">більше ніж</option>
+          <option value="ge">більше або дорівнює</option>
+          <option value="lt">менше ніж</option>
+          <option value="le">менше або дорівнює</option>
+          <option value="eq">дорівнює</option>
+          <option value="ne">не дорівнює</option>
+          <option value="between">між</option>
+          <option value="contains">містить текст</option>
+        </select>
+        <input id="filterV1" type="text" class="cond-num" placeholder="значення">
+        <span id="filterAnd" hidden>і</span>
+        <input id="filterV2" type="number" class="cond-num" placeholder="число" hidden>
+      </div>
+      <p id="filterError" class="cond-error" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button id="filterClearBtn" class="modal-secondary-btn">Зняти фільтр</button>
+        <button data-close-modal="filterModal" class="modal-secondary-btn">Закрити</button>
+        <button id="filterApplyBtn" class="modal-primary-btn">Застосувати</button>
+      </div>
+    </div>
+  </div>
+
   <div id="ariaAnnouncer" aria-live="polite" aria-atomic="true" class="sr-only"></div>
 
   <div id="rowHeaderMenu" class="header-context-menu hidden">
@@ -314,9 +379,11 @@
   <script src="js/charts.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/sorting.js"></script>
+  <script src="js/filter.js"></script>
   <script src="js/workbook-file.js"></script>
   <script src="js/view-options.js"></script>
   <script src="js/cell-format-ui.js"></script>
+  <script src="js/conditional-formatting.js"></script>
   <script src="js/calculation.js"></script>
   <script src="js/app.js"></script>
   <script src="js/runtime.js"></script>

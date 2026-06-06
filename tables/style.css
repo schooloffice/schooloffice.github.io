@@ -662,6 +662,35 @@ th.col-header {
   pointer-events: none;
 }
 
+/* Conditional formatting modal */
+.cond-modal { text-align: left; max-width: 460px; }
+.cond-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.cond-label { font-weight: 700; }
+.cond-select, .cond-num {
+  padding: 6px 8px;
+  border: 1px solid #d6dce5;
+  border-radius: 8px;
+  font: inherit;
+}
+.cond-num { width: 90px; }
+.cond-swatches { display: flex; gap: 8px; margin-bottom: 8px; }
+.cond-swatch-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.cond-swatch-btn.selected { border-color: var(--accent-dark); }
+.cond-error { color: #dc2626; min-height: 1.2em; margin: 0 0 4px; }
+.cond-rule-list { list-style: none; padding: 0; margin: 12px 0 0; max-height: 180px; overflow-y: auto; }
+.cond-empty { color: #64748b; padding: 8px 0; }
+.cond-rule-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid #eef2f7; }
+.cond-swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid rgba(0,0,0,.1); flex: none; }
+.cond-rule-text { flex: 1; }
+.cond-del { border: none; background: none; color: #dc2626; cursor: pointer; padding: 4px; border-radius: 6px; }
+.cond-del:hover { background: #fee2e2; }
+
 #grid td.error-cell .cell-input {
   color: #b91c1c;
 }

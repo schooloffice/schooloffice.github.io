@@ -13,6 +13,9 @@ let isFilling = false;
 let fillSource = null; // {cMin,cMax,rMin,rMax}
 let fillTarget = null; // {cMin,cMax,rMin,rMax}
 
+// Row filter (фільтр за стовпцем) — транзитивний, у файл не зберігається
+let rowFilter = null; // { col, op, v1, v2 }
+
 let markedCells = [];
 
 let chartObj = null;
@@ -42,7 +45,7 @@ const DEFAULT_WORKBOOK_NAME = 'таблиця';
 const TEXT_COLOR_CLASSES = ['style-text-slate','style-text-red','style-text-orange','style-text-amber','style-text-green','style-text-teal','style-text-blue','style-text-indigo','style-text-purple','style-text-pink','style-text-brown'];
 const FILL_COLOR_CLASSES = ['style-bg-yellow','style-bg-green','style-bg-red','style-bg-blue','style-bg-indigo','style-bg-purple','style-bg-pink','style-bg-orange','style-bg-gray','style-bg-teal'];
 const ALIGN_CLASSES = ['style-align-left','style-align-center','style-align-right'];
-const NUMBER_FORMAT_CLASSES = ['style-num-int','style-num-fixed2','style-num-percent','style-num-currency-uah'];
+const NUMBER_FORMAT_CLASSES = ['style-num-int','style-num-fixed2','style-num-percent','style-num-currency-uah','style-num-date','style-num-datetime'];
 
 let workbookName = DEFAULT_WORKBOOK_NAME;
 let currentZoom = 100;

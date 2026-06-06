@@ -34,6 +34,8 @@ function formatDisplayValue(value, td) {
   if (classes?.contains('style-num-fixed2')) return num.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (classes?.contains('style-num-percent')) return `${(num * 100).toLocaleString('uk-UA', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}%`;
   if (classes?.contains('style-num-currency-uah')) return num.toLocaleString('uk-UA', { style: 'currency', currency: 'UAH', maximumFractionDigits: 2 });
+  if (classes?.contains('style-num-date')) return serialToDateString(num, false);
+  if (classes?.contains('style-num-datetime')) return serialToDateString(num, true);
   return raw;
 }
 

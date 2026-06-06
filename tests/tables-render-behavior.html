@@ -98,6 +98,54 @@
       tdF1.classList.add('style-align-left');
       checks.push(['explicit align overrides type', alignOf('F1') === 'left']);
 
+      // ---- Умовне форматування (Хвиля 2.2) ----
+      const CF = win.TablesConditionalFormatting;
+      checks.push(['cond matches helper (lt)', CF.condRuleMatches({ op: 'lt', v1: 4 }, 2) === true]);
+      checks.push(['cond rejects helper (lt)', CF.condRuleMatches({ op: 'lt', v1: 4 }, 9) === false]);
+      checks.push(['cond between helper', CF.condRuleMatches({ op: 'between', v1: 4, v2: 6 }, 5) === true]);
+
+      setCell('H1', '2');
+      setCell('H2', '9');
+      CF.addRule({ range: [7, 1, 7, 2], op: 'lt', v1: 4, v2: null, fill: '#fee2e2' });
+      win.TablesCalculation.recalculateAll();
+      const bgOf = id => win.getComputedStyle(doc.querySelector('td[data-id="' + id + '"]')).backgroundColor;
+      checks.push(['cond fill applies to H1 (<4)', bgOf('H1') === 'rgb(254, 226, 226)']);
+      checks.push(['cond fill skips H2 (>=4)', bgOf('H2') !== 'rgb(254, 226, 226)']);
+      CF.clearCondRules();
+
+      // Повний UI-потік: вибір клітинки → модалка → кнопка «Додати правило»
+      fire(doc.querySelector('td[data-id="H3"]'), 'mousedown');
+      fire(doc, 'mouseup');
+      setCell('H3', '1');
+      CF.openCondFormatModal();
+      doc.getElementById('condOp').value = 'lt';
+      doc.getElementById('condV1').value = '4';
+      doc.getElementById('condAddBtn').click();
+      win.TablesCalculation.recalculateAll();
+      checks.push(['cond modal add-button applies', bgOf('H3') === 'rgb(254, 226, 226)']);
+      checks.push(['cond rule listed', !!doc.querySelector('#condRuleList .cond-rule-item')]);
+      CF.clearCondRules();
+
+      // ---- Фільтр за стовпцем (Хвиля 2.3) ----
+      const FL = win.TablesFilter;
+      checks.push(['filter matches gt', FL.filterMatches({ op: 'gt', v1: 5 }, '10') === true]);
+      checks.push(['filter contains text', FL.filterMatches({ op: 'contains', v1: 'ан' }, 'Іванов') === true]);
+      checks.push(['filter excludes empty', FL.filterMatches({ op: 'gt', v1: 0 }, '') === false]);
+
+      setCell('J1', '3'); setCell('J2', '8'); setCell('J3', '1');
+      fire(doc.querySelector('td[data-id="J1"]'), 'mousedown');
+      fire(doc, 'mouseup');
+      FL.openFilterModal();
+      doc.getElementById('filterOp').value = 'ge';
+      doc.getElementById('filterV1').value = '5';
+      doc.getElementById('filterApplyBtn').click();
+      const trDisplay = id => doc.querySelector('td[data-id="' + id + '"]').closest('tr').style.display;
+      checks.push(['filter hides J1 (3<5)', trDisplay('J1') === 'none']);
+      checks.push(['filter shows J2 (8>=5)', trDisplay('J2') === '']);
+      checks.push(['filter hides J3 (1<5)', trDisplay('J3') === 'none']);
+      FL.clearRowFilter();
+      checks.push(['clear filter shows J1 again', trDisplay('J1') === '']);
+
       const failures = checks.filter(([, ok]) => !ok).map(([name]) => name);
       result.className = failures.length ? 'fail' : 'pass';
       result.textContent = checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} ${name}`).join('\n') +

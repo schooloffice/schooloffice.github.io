@@ -7,7 +7,8 @@ const STORAGE_KEYS = {
   meta: 'kom_meta',
   data: 'kom_data',
   widths: 'kom_widths',
-  styles: 'kom_styles'
+  styles: 'kom_styles',
+  cond: 'kom_cond'
 };
 
 const STORAGE_WARN_BYTES = 3 * 1024 * 1024;
@@ -59,6 +60,9 @@ function loadStateFromStorage() {
 
   const s = safeParseJSON(safeGetItem(STORAGE_KEYS.styles), null);
   if (s) cellStyles = s;
+
+  const cf = safeParseJSON(safeGetItem(STORAGE_KEYS.cond), null);
+  condRules = Array.isArray(cf) ? cf : [];
 }
 
 function estimateStorageSize(obj) {
@@ -70,7 +74,8 @@ function persistStateToStorage() {
     meta: { rows: ROWS, cols: COL_COUNT },
     data: cellData,
     widths: colWidths,
-    styles: cellStyles
+    styles: cellStyles,
+    cond: condRules
   };
   const totalBytes = estimateStorageSize(payload);
 
@@ -83,6 +88,7 @@ function persistStateToStorage() {
   safeSetItem(STORAGE_KEYS.data, JSON.stringify(payload.data));
   safeSetItem(STORAGE_KEYS.widths, JSON.stringify(payload.widths));
   safeSetItem(STORAGE_KEYS.styles, JSON.stringify(payload.styles));
+  safeSetItem(STORAGE_KEYS.cond, JSON.stringify(payload.cond));
 
   if (totalBytes > STORAGE_WARN_BYTES) {
     window.dispatchEvent(new CustomEvent('storage-warning', { detail: { bytes: totalBytes } }));
