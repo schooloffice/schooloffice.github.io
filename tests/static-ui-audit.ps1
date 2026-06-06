@@ -812,7 +812,7 @@ if (Test-Path $tablesFormulaFunctionsPath) {
   $tablesFormulaFunctions = Get-Content -Raw -Encoding UTF8 $tablesFormulaFunctionsPath
   Assert-True ($tablesFormulaFunctions -match 'window\.TablesFormulaFunctions\s*=') "tables/js/formula-functions.js: should expose a stable TablesFormulaFunctions namespace"
   Assert-True ($tablesFormulaFunctions -match 'const FORMULA_FUNCTIONS\s*=') "tables/js/formula-functions.js: should own the FORMULA_FUNCTIONS registry"
-  foreach ($formulaFunction in @('SUM', 'AVERAGE', 'COUNT', 'IF', 'ROUND', 'MOD')) {
+  foreach ($formulaFunction in @('SUM', 'AVERAGE', 'COUNT', 'IF', 'ROUND', 'MOD', 'COUNTIF', 'SUMIF', 'AVERAGEIF')) {
     Assert-True ($tablesFormulaFunctions -match "(?m)^\s*$formulaFunction\s*:") "tables/js/formula-functions.js: registry should define $formulaFunction"
   }
 }

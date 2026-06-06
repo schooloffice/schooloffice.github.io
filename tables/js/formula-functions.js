@@ -17,6 +17,53 @@ function numericValues(argNodes, ctx) {
   return ctx.collectValues(argNodes).filter(isFormulaNumber);
 }
 
+function valueToNumberOrNull(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (s === '') return null;
+  const n = Number(s.replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+}
+
+// Будує предикат для критерію COUNTIF/SUMIF/AVERAGEIF.
+// Критерій — число (точна рівність) або рядок: "текст", ">5", "<=10", "<>3"…
+function makeCriteriaPredicate(criteria) {
+  if (typeof criteria === 'number') {
+    return v => valueToNumberOrNull(v) === criteria;
+  }
+
+  const s = String(criteria ?? '').trim();
+  const m = /^(>=|<=|<>|>|<|=)?\s*([\s\S]*)$/.exec(s);
+  const op = m[1] || '=';
+  const rhs = m[2];
+  const rhsNum = valueToNumberOrNull(rhs);
+  const rhsText = String(rhs).toLowerCase();
+
+  return (v) => {
+    const vn = valueToNumberOrNull(v);
+    if (rhsNum !== null && vn !== null) {
+      switch (op) {
+        case '=': return vn === rhsNum;
+        case '<>': return vn !== rhsNum;
+        case '>': return vn > rhsNum;
+        case '<': return vn < rhsNum;
+        case '>=': return vn >= rhsNum;
+        case '<=': return vn <= rhsNum;
+      }
+    }
+    const vs = String(v ?? '').trim().toLowerCase();
+    switch (op) {
+      case '<>': return vs !== rhsText;
+      case '>': return vs > rhsText;
+      case '<': return vs < rhsText;
+      case '>=': return vs >= rhsText;
+      case '<=': return vs <= rhsText;
+      default: return vs === rhsText;
+    }
+  };
+}
+
 const FORMULA_FUNCTIONS = {
   // Агрегатні (ігнорують текст і порожні клітинки, як у Excel)
   SUM: (a, ctx) => numericValues(a, ctx).reduce((x, y) => x + y, 0),
@@ -36,6 +83,39 @@ const FORMULA_FUNCTIONS = {
   COUNT: (a, ctx) => ctx.collectValues(a).filter(isFormulaNumber).length,
   COUNTA: (a, ctx) => ctx.collectValues(a)
     .filter(v => v !== null && !(typeof v === 'string' && v.trim() === '')).length,
+
+  // Умовні (для журналів/відомостей)
+  COUNTIF: (a, ctx) => {
+    const range = ctx.collectValues([a[0]]);
+    const pred = makeCriteriaPredicate(ctx.evalScalar(a[1]));
+    return range.filter(pred).length;
+  },
+  SUMIF: (a, ctx) => {
+    const range = ctx.collectValues([a[0]]);
+    const pred = makeCriteriaPredicate(ctx.evalScalar(a[1]));
+    const sumRange = a.length > 2 ? ctx.collectValues([a[2]]) : range;
+    let sum = 0;
+    for (let i = 0; i < range.length; i++) {
+      if (!pred(range[i])) continue;
+      const n = valueToNumberOrNull(sumRange[i]);
+      if (n !== null) sum += n;
+    }
+    return sum;
+  },
+  AVERAGEIF: (a, ctx) => {
+    const range = ctx.collectValues([a[0]]);
+    const pred = makeCriteriaPredicate(ctx.evalScalar(a[1]));
+    const avgRange = a.length > 2 ? ctx.collectValues([a[2]]) : range;
+    let sum = 0;
+    let count = 0;
+    for (let i = 0; i < range.length; i++) {
+      if (!pred(range[i])) continue;
+      const n = valueToNumberOrNull(avgRange[i]);
+      if (n !== null) { sum += n; count++; }
+    }
+    if (count === 0) throw formulaError(FORMULA_ERRORS.DIV0);
+    return sum / count;
+  },
 
   // Логічні (короткозамкнені)
   IF: (a, ctx) => {

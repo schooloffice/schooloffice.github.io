@@ -85,6 +85,11 @@
         assertEqual('string equality in IF', evaluateFormula('IF(C1="текст",1,0)'), 1),
         assertEqual('lazy IF skips error branch', evaluateFormula('IF(B1=5,42,100/0)'), 42),
         assertEqual('AVERAGE ignores text', evaluateFormula('AVERAGE(A1:C1)'), 7.5),
+        // Wave 2.1: умовні функції
+        assertEqual('COUNTIF greater', evaluateFormula('COUNTIF(A1:A3,">15")'), 2),
+        assertEqual('COUNTIF exact', evaluateFormula('COUNTIF(A1:A3,10)'), 1),
+        assertEqual('SUMIF range', evaluateFormula('SUMIF(A1:A3,">=10")'), 60),
+        assertEqual('AVERAGEIF range', evaluateFormula('AVERAGEIF(A1:A3,">=20")'), 25),
         // shiftFormulaRefs: тепер через токенайзер, поважає $ і рядки
         assertEqual('shift relative refs', shiftFormulaRefs('=A1+B2', { rowAt: 1, rowDelta: 1 }), '=A2+B3'),
         assertEqual('shift keeps absolute', shiftFormulaRefs('=$A$1+B2', { rowAt: 1, rowDelta: 1 }), '=$A$1+B3'),
@@ -149,6 +154,12 @@
       applyAutoFill({ cMin: 0, cMax: 0, rMin: 8, rMax: 9 }, { cMin: 0, cMax: 0, rMin: 6, rMax: 9 });
       checks.push(assertEqual('autofill up series A7', cellData.A7, '2'));
       checks.push(assertEqual('autofill up series A6', cellData.A6, '1'));
+
+      // Wave 2.1: SUMIF/COUNTIF з текстовим критерієм і окремим sum_range
+      cellData = { A1: 'Іванов', A2: 'Петров', A3: 'Іванов', B1: '10', B2: '20', B3: '30' };
+      checks.push(assertEqual('COUNTIF text criterion', evaluateFormula('COUNTIF(A1:A3,"Іванов")'), 2));
+      checks.push(assertEqual('SUMIF with sum_range', evaluateFormula('SUMIF(A1:A3,"Іванов",B1:B3)'), 40));
+      checks.push(assertEqual('AVERAGEIF with avg_range', evaluateFormula('AVERAGEIF(A1:A3,"Іванов",B1:B3)'), 20));
 
       // Selection stats must ignore empty cells (Number('') === 0 regression)
       cellData = { A1: '10', A2: '20', A3: '30', B1: '-5', B3: '-2' };
