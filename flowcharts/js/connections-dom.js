@@ -19,6 +19,7 @@
     pointAlongPolyline,
     onSelectConnection,
     onDuplicateConnection,
+    isPanGesture,
   } = {}) {
     function getConnectionLabelText(conn) {
       return core?.resolveConnectionLabel ? core.resolveConnectionLabel(conn) : '';
@@ -192,6 +193,7 @@
       svgLayer.insertBefore(hitPath, firstHandleGroup);
 
       hitPath.addEventListener('pointerdown', (event) => {
+        if (isPanGesture?.(event)) return; // let middle-button / Space-drag pan
         if (state.connDrag) return;
         event.stopPropagation();
         onSelectConnection?.(connId);
@@ -199,7 +201,7 @@
 
       if (!state.connections.find(conn => conn.id === connId)) {
         const routeMode = routeModes.includes(forcedRouteMode) ? forcedRouteMode : 'auto';
-        state.connections.push({ id: connId, from: fromEl.id, to: toEl.id, type: connType, routeMode, label: null });
+        state.connections.push({ id: connId, from: fromEl.id, to: toEl.id, type: connType, routeMode, label: null, isCustom: false, waypoints: [] });
       }
 
       updateConnection(connId);

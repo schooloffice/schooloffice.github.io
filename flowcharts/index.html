@@ -46,6 +46,8 @@
         <button class="menu-item" data-action="open-project" role="menuitem"><span><i
               class="fa-solid fa-folder-open fa-fw"></i> Відкрити JSON…</span><span
             class="shortcut">Ctrl+O</span></button>
+        <button class="menu-item" data-action="open-templates" role="menuitem"><span><i
+              class="fa-solid fa-shapes fa-fw"></i> Шаблони схем…</span></button>
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="save-project" role="menuitem"><span><i
               class="fa-solid fa-file-arrow-down fa-fw"></i> Зберегти проєкт JSON</span><span
@@ -71,6 +73,9 @@
               class="fa-solid fa-trash fa-fw"></i> Видалити вибране</span><span class="shortcut">Delete</span></button>
         <button class="menu-item" data-action="clear-canvas" role="menuitem"><span><i
               class="fa-solid fa-broom fa-fw"></i> Очистити полотно</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="validate-diagram" role="menuitem"><span><i
+              class="fa-solid fa-clipboard-check fa-fw"></i> Перевірити схему</span></button>
       </div>
     </div>
 
@@ -106,6 +111,9 @@
         <button class="menu-item" data-action="zoom-150" role="menuitem"><span><i
               class="fa-solid fa-magnifying-glass-plus fa-fw"></i> Масштаб 150%</span></button>
         <div class="menu-sep"></div>
+        <button class="menu-item" data-action="fit-diagram" role="menuitem"><span><i
+              class="fa-solid fa-maximize fa-fw"></i> Вмістити всю схему</span><span
+            class="shortcut">Shift+1</span></button>
         <button class="menu-item" data-action="toggle-grid" role="menuitem"><span><i
               class="fa-solid fa-border-all fa-fw"></i> Прив'язка до сітки</span><span
             class="shortcut">G</span></button>
@@ -189,6 +197,8 @@
       <button id="zoom-in" class="tb-btn" aria-label="Збільшити" title="Збільшити">+</button>
       <button id="zoom-reset" class="tb-btn" aria-label="Скинути масштаб" title="Скинути масштаб"><i
           class="fa-solid fa-expand"></i></button>
+      <button id="fit-button" class="tb-btn" type="button" data-action="fit-diagram" aria-label="Вмістити всю схему"
+        title="Вмістити всю схему (Shift+1)"><i class="fa-solid fa-maximize"></i></button>
     </div>
 
     <button id="clear-button" class="visually-hidden" type="button" aria-label="Очистити полотно"
@@ -329,6 +339,26 @@
     </div>
   </div>
 
+  <div id="validation-panel" class="help-panel validation-panel" role="dialog" aria-label="Перевірка схеми" hidden>
+    <div class="help-panel-head">
+      <h3><i class="fa-solid fa-clipboard-check"></i> Перевірка схеми</h3>
+      <button id="validation-close" class="help-close-btn" aria-label="Закрити перевірку"><i
+          class="fa-solid fa-xmark"></i></button>
+    </div>
+    <p id="validation-summary" class="validation-summary" aria-live="polite"></p>
+    <div id="validation-list" class="validation-list"></div>
+  </div>
+
+  <div id="templates-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="templates-modal-title">
+    <div class="modal-content modal-content-wide">
+      <button id="close-templates" class="modal-close-btn" aria-label="Закрити"><i
+          class="fa-solid fa-xmark"></i></button>
+      <h2 id="templates-modal-title"><i class="fa-solid fa-shapes"></i> Шаблони схем</h2>
+      <p>Обери заготовку — вона замінить поточну схему. Кожен шаблон можна редагувати далі.</p>
+      <div id="templates-grid" class="templates-grid" role="list"></div>
+    </div>
+  </div>
+
   <div id="help-panel" class="help-panel" role="dialog" aria-modal="true" aria-label="Довідка" hidden>
     <div class="help-panel-head">
       <h3><i class="fa-solid fa-graduation-cap"></i> Як користуватись</h3>
@@ -339,6 +369,8 @@
   </div>
 
   <script src="js/core.js"></script>
+  <script src="js/obstacle-routing.js"></script>
+  <script src="js/templates-data.js"></script>
   <script src="js/project-io.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/autosave.js"></script>
@@ -347,6 +379,7 @@
   <script src="js/status.js"></script>
   <script src="js/colors.js"></script>
   <script src="js/connection-selection.js"></script>
+  <script src="js/connection-waypoints.js"></script>
   <script src="js/shape-selection.js"></script>
   <script src="js/shape-deletion.js"></script>
   <script src="js/shape-text.js"></script>
@@ -355,8 +388,11 @@
   <script src="js/viewport.js"></script>
   <script src="js/keyboard-shortcuts.js"></script>
   <script src="js/history.js"></script>
+  <script src="js/validation.js"></script>
+  <script src="js/templates.js"></script>
   <script src="js/menu-actions.js"></script>
   <script src="js/flow-actions.js"></script>
+  <script src="js/palette-dnd.js"></script>
   <script src="js/title.js"></script>
   <script src="js/shape-geometry.js"></script>
   <script src="js/shape-placement.js"></script>

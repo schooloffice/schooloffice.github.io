@@ -31,6 +31,9 @@
       connectionModal,
       saveTitleModal,
       deleteSelected,
+      fitDiagram,
+      closeValidationPanel,
+      templatesModal,
     } = options || {};
 
     const isMacPlatform = detectMacPlatform();
@@ -79,14 +82,24 @@
         }
         return;
       }
+      // Shift+1 (also fires as '!') fits the whole diagram into view.
+      if (!mod && event.shiftKey && (key === '1' || event.key === '!')) {
+        if (!isTextInputActive()) {
+          event.preventDefault();
+          fitDiagram?.();
+        }
+        return;
+      }
 
       if (event.key === 'Escape') {
         closeMenus?.();
         if (helpPanel && !helpPanel.hidden) toggleHelp?.(false);
+        closeValidationPanel?.();
         closeModal?.(textModal);
         closeModal?.(connectionModal);
         closeModal?.(document.getElementById('message-modal'));
         closeModal?.(saveTitleModal);
+        closeModal?.(templatesModal);
         if (state) {
           state.pendingConn = null;
           state.activeShape = null;

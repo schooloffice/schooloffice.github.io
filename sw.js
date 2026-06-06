@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v7';
+const CACHE_VERSION = 'office-plus-v8';
 const PRECACHE_NAME = `${CACHE_VERSION}-precache`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const MAX_RUNTIME_ENTRIES = 80;
@@ -13,6 +13,7 @@ const CORE_ASSETS = [
   './flowcharts/js/autosave.js',
   './flowcharts/js/colors.js',
   './flowcharts/js/connection-selection.js',
+  './flowcharts/js/connection-waypoints.js',
   './flowcharts/js/connections-dom.js',
   './flowcharts/js/core.js',
   './flowcharts/js/editor.js',
@@ -23,9 +24,14 @@ const CORE_ASSETS = [
   './flowcharts/js/keyboard-shortcuts.js',
   './flowcharts/js/menu-actions.js',
   './flowcharts/js/modals.js',
+  './flowcharts/js/obstacle-routing.js',
+  './flowcharts/js/palette-dnd.js',
   './flowcharts/js/project-io.js',
   './flowcharts/js/routing.js',
   './flowcharts/js/runtime.js',
+  './flowcharts/js/templates.js',
+  './flowcharts/js/templates-data.js',
+  './flowcharts/js/validation.js',
   './flowcharts/js/shape-geometry.js',
   './flowcharts/js/shape-interactions.js',
   './flowcharts/js/shape-factory.js',

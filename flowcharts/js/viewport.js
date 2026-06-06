@@ -20,6 +20,8 @@
     let isPanning = false;
     let panStart = { x: 0, y: 0 };
     let panScroll = { left: 0, top: 0 };
+    let spaceHeld = false;
+    let panViaModifier = false;
 
     function setZoom(newScale) {
       if (!state || !canvas || !canvasContainer) return;
@@ -37,8 +39,43 @@
       scheduleRefresh?.();
     }
 
+    // Scale + scroll so the given content bounds fit inside the viewport.
+    // Fitting never zooms past 100% so small diagrams stay readable.
+    function fitToBounds(bounds, opts) {
+      if (!state || !canvas || !canvasContainer || !bounds || bounds.empty) return false;
+      const options = opts || {};
+      const padding = typeof options.padding === 'number' ? options.padding : 60;
+      const maxFitScale = typeof options.maxScale === 'number' ? options.maxScale : 1;
+      const rect = canvasContainer.getBoundingClientRect();
+      const contentWidth = Math.max(1, (bounds.maxX - bounds.minX));
+      const contentHeight = Math.max(1, (bounds.maxY - bounds.minY));
+      const availWidth = Math.max(1, rect.width - padding * 2);
+      const availHeight = Math.max(1, rect.height - padding * 2);
+
+      let scale = Math.min(availWidth / contentWidth, availHeight / contentHeight);
+      scale = Math.min(scale, maxFitScale);
+      scale = Math.max(state.minScale, Math.min(state.maxScale, scale));
+
+      state.scale = scale;
+      canvas.style.transform = `scale(${scale})`;
+      if (zoomLevelText) zoomLevelText.textContent = `${Math.round(scale * 100)}%`;
+
+      const centerX = (bounds.minX + bounds.maxX) / 2;
+      const centerY = (bounds.minY + bounds.maxY) / 2;
+      canvasContainer.scrollLeft = centerX * scale - rect.width / 2;
+      canvasContainer.scrollTop = centerY * scale - rect.height / 2;
+      scheduleRefresh?.();
+      return true;
+    }
+
     function isOnBackground(target) {
       return target === canvas || target === canvasContainer || target === svgLayer;
+    }
+
+    // True when this pointer event should pan rather than interact with a shape
+    // (middle button, or Space held). Shapes consult this to yield the gesture.
+    function isPanGesture(event) {
+      return event?.button === 1 || spaceHeld;
     }
 
     function clearSelectionForBackground() {
@@ -47,16 +84,31 @@
       updateConnectionBar?.();
     }
 
-    function onPanStart(event) {
-      if (event.button === 2) return;
-      if (!isOnBackground(event.target)) return;
-
-      clearSelectionForBackground();
+    function startPan(event) {
       isPanning = true;
       panStart = { x: event.clientX, y: event.clientY };
       panScroll = { left: canvasContainer.scrollLeft, top: canvasContainer.scrollTop };
       canvasContainer.setPointerCapture?.(event.pointerId);
       canvasContainer.style.cursor = 'grabbing';
+    }
+
+    function onPanStart(event) {
+      if (event.button === 2) return;
+
+      // Middle-button or Space+drag pans from anywhere without losing selection.
+      if (event.button === 1 || spaceHeld) {
+        panViaModifier = true;
+        startPan(event);
+        event.preventDefault();
+        return;
+      }
+
+      if (event.button !== 0) return;
+      if (!isOnBackground(event.target)) return;
+
+      panViaModifier = false;
+      clearSelectionForBackground();
+      startPan(event);
     }
 
     function onPanMove(event) {
@@ -70,7 +122,16 @@
     function stopPanning() {
       if (!isPanning) return;
       isPanning = false;
-      canvasContainer.style.cursor = 'default';
+      panViaModifier = false;
+      canvasContainer.style.cursor = spaceHeld ? 'grab' : 'default';
+    }
+
+    function shouldGrabSpace(event) {
+      if (event.code !== 'Space' && event.key !== ' ') return false;
+      const target = event.target;
+      const tag = target && target.tagName ? target.tagName.toLowerCase() : '';
+      if (tag === 'input' || tag === 'textarea' || (target && target.isContentEditable)) return false;
+      return true;
     }
 
     function bind() {
@@ -85,6 +146,17 @@
       canvasContainer?.addEventListener('pointermove', onPanMove);
       canvasContainer?.addEventListener('pointerup', stopPanning);
       canvasContainer?.addEventListener('pointercancel', stopPanning);
+      window.addEventListener('keydown', (event) => {
+        if (!shouldGrabSpace(event)) return;
+        spaceHeld = true;
+        if (!isPanning) canvasContainer.style.cursor = 'grab';
+        event.preventDefault();
+      });
+      window.addEventListener('keyup', (event) => {
+        if (event.code !== 'Space' && event.key !== ' ') return;
+        spaceHeld = false;
+        if (!isPanning) canvasContainer.style.cursor = 'default';
+      });
       svgLayer?.addEventListener('pointerdown', (event) => {
         if ((event.target instanceof SVGElement) && event.target.classList.contains('conn-hit')) return;
         if (!isOnBackground(event.target)) return;
@@ -94,7 +166,9 @@
 
     return {
       setZoom,
+      fitToBounds,
       isOnBackground,
+      isPanGesture,
       bind,
     };
   }

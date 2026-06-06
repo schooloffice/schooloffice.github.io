@@ -35,6 +35,9 @@
       deleteSelected,
       setZoom,
       showMessageModal,
+      validateDiagram,
+      fitDiagram,
+      openTemplates,
     } = options || {};
 
     function triggerShapeButton(type) {
@@ -96,6 +99,15 @@
           break;
         case 'toggle-grid':
           snapToggleButton?.click();
+          break;
+        case 'validate-diagram':
+          validateDiagram?.();
+          break;
+        case 'fit-diagram':
+          fitDiagram?.();
+          break;
+        case 'open-templates':
+          openTemplates?.();
           break;
         case 'help-panel':
           toggleHelp(true);

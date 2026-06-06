@@ -9,6 +9,8 @@
     decisionConnOutset = 2,
     domShapeToBox,
     decisionVertexDistance,
+    obstacleRouter,
+    onSmartRouteFailure,
   } = {}) {
     function getShape(shapeId) {
       return state?.shapes?.find(shape => shape.id === shapeId) || null;
@@ -340,9 +342,142 @@
       return byConnId;
     }
 
+    function offsetAlongSide(point, side, distance) {
+      if (side === 'left') return { x: point.x - distance, y: point.y };
+      if (side === 'right') return { x: point.x + distance, y: point.y };
+      if (side === 'top') return { x: point.x, y: point.y - distance };
+      return { x: point.x, y: point.y + distance };
+    }
+
+    function dedupePoints(points) {
+      const out = [];
+      points.forEach((point) => {
+        const last = out[out.length - 1];
+        if (!last || Math.abs(last.x - point.x) > 0.5 || Math.abs(last.y - point.y) > 0.5) {
+          out.push({ x: point.x, y: point.y });
+        }
+      });
+      return out;
+    }
+
+    function computeSmartConnection(fromEl, toEl, conn) {
+      if (!obstacleRouter?.routeAroundObstacles) return null;
+      const fromData = getShape(fromEl.id);
+      const connType = conn?.type || null;
+
+      let exitSide;
+      let entrySide;
+      if (fromData?.type === 'decision' && (connType === 'yes' || connType === 'no')) {
+        // Honour the Yes/No exit sides even with obstacle-aware routing.
+        exitSide = connType === 'yes' ? 'left' : 'right';
+      } else {
+        const sides = chooseSides(fromEl, toEl, 'auto');
+        exitSide = sides.exit;
+        entrySide = sides.entry;
+      }
+      const fromPt = getEdgePoints(fromEl)[exitSide];
+      if (!entrySide) entrySide = chooseExitSideToPoint(toEl, fromPt, 'auto');
+      const toPt = getEdgePoints(toEl)[entrySide];
+
+      // Step out from the source and into the target along their sides so the
+      // arrow can never double back through its own block, and route A* between
+      // those stubs with ALL blocks (incl. source/target) treated as obstacles.
+      const lead = 30;
+      const leadOut = offsetAlongSide(fromPt, exitSide, lead);
+      const leadIn = offsetAlongSide(toPt, entrySide, lead);
+      const obstacles = (state?.shapes || [])
+        .map(shape => document.getElementById(shape.id))
+        .filter(Boolean)
+        .map(el => {
+          const box = domShapeToBox(el);
+          // A diamond's connection tips stick out beyond its bounding box, so
+          // grow decision obstacles to the diamond extent — otherwise an arrow
+          // can clip the condition shape near its centre line.
+          if (box.type === 'decision' && decisionVertexDistance) {
+            const over = Math.max(0, decisionVertexDistance(el) - box.width / 2);
+            return { left: box.left - over, top: box.top - over, width: box.width + over * 2, height: box.height + over * 2 };
+          }
+          return box;
+        });
+
+      const routed = obstacleRouter.routeAroundObstacles(
+        { x: leadOut.x, y: leadOut.y },
+        { x: leadIn.x, y: leadIn.y },
+        obstacles,
+        { margin: 24 }
+      );
+      if (!routed || routed.length < 2) return null;
+
+      let pts = dedupePoints([fromPt, leadOut, ...routed, leadIn, toPt]);
+      if (obstacleRouter.simplify) pts = obstacleRouter.simplify(pts);
+      if (pts.length < 2) return null;
+      pts[pts.length - 1].side = entrySide;
+      return { d: pointsToPathD(pts), pts };
+    }
+
+    // Orthogonal elbow between two points. `axis` decides whether the first
+    // sub-segment is horizontal ('h') or vertical ('v'); returns [] when the
+    // points already share a row/column.
+    function orthogonalElbow(prev, cur, axis) {
+      const dx = Math.abs(prev.x - cur.x);
+      const dy = Math.abs(prev.y - cur.y);
+      if (dx <= 0.5 || dy <= 0.5) return [];
+      return axis === 'h' ? [{ x: cur.x, y: prev.y }] : [{ x: prev.x, y: cur.y }];
+    }
+
+    function computeCustomConnection(fromEl, toEl, conn) {
+      const wps = conn.waypoints.filter(p => p && Number.isFinite(p.x) && Number.isFinite(p.y));
+      if (!wps.length) return null;
+      const exit = chooseExitSideToPoint(fromEl, wps[0], 'auto');
+      const fromPt = getEdgePoints(fromEl)[exit];
+      const entry = chooseExitSideToPoint(toEl, wps[wps.length - 1], 'auto');
+      const toPt = getEdgePoints(toEl)[entry];
+      const guide = [
+        { x: fromPt.x, y: fromPt.y },
+        ...wps.map(p => ({ x: p.x, y: p.y })),
+        { x: toPt.x, y: toPt.y },
+      ];
+
+      // Orient the first leg to leave along the exit side and the last leg to
+      // arrive along the entry side, so the arrow meets blocks squarely rather
+      // than sliding in along an edge. Middle legs default to horizontal-first.
+      const pts = [{ x: guide[0].x, y: guide[0].y }];
+      const last = guide.length - 1;
+      for (let i = 1; i <= last; i++) {
+        const prev = pts[pts.length - 1];
+        const cur = guide[i];
+        let axis = 'h';
+        if (i === 1) axis = (exit === 'left' || exit === 'right') ? 'h' : 'v';
+        else if (i === last) axis = (entry === 'left' || entry === 'right') ? 'v' : 'h';
+        orthogonalElbow(prev, cur, axis).forEach(elbow => pts.push(elbow));
+        pts.push({ x: cur.x, y: cur.y });
+      }
+      const orthoPts = dedupePoints(pts);
+      orthoPts[orthoPts.length - 1].side = entry;
+      return { d: pointsToPathD(orthoPts), pts: orthoPts };
+    }
+
     function computeConnectionGeometry(fromEl, toEl, conn, mergeContext) {
       const connType = conn?.type || null;
       const fromData = getShape(fromEl.id);
+
+      // Strategy priority is intentional: a manual route is the user's explicit
+      // geometry; smart is the explicitly selected obstacle-aware mode; decision
+      // branch semantics precede shared fan-in merging; default routing is last.
+      // custom -> smart -> decision -> merge -> default
+      if (conn?.isCustom && Array.isArray(conn.waypoints) && conn.waypoints.length) {
+        const custom = computeCustomConnection(fromEl, toEl, conn);
+        if (custom) return custom;
+      }
+
+      // Smart routing is checked before the decision Yes/No branch so that an
+      // explicitly chosen "Розумний обхід" also applies to decision outputs.
+      if (conn?.routeMode === 'smart') {
+        const smart = computeSmartConnection(fromEl, toEl, conn);
+        if (smart) return smart;
+        onSmartRouteFailure?.(conn);
+        // fall through to default routing when no clear obstacle-aware path
+      }
 
       if (fromData?.type === 'decision') {
         if (connType === 'yes') return computeDecisionConnection(fromEl, toEl, 'left');

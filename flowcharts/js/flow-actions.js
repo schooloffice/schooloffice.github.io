@@ -46,6 +46,25 @@
       return newEl;
     }
 
+    // Same creation path as addShape, but drops the block at explicit canvas
+    // coordinates (used by palette drag-and-drop). left/top are expected to be
+    // already snapped/clamped by the caller.
+    function addShapeAt(type, left, top) {
+      if (!type || !state) return null;
+      state.lastShapeType = type;
+      saveSnapshot?.();
+      const newEl = createShape?.(type, null, null, left, top);
+      if (!newEl) return null;
+
+      const base = getBaseColor?.(type);
+      if (base) newEl.style.backgroundColor = base;
+      const shape = state.shapes.find((item) => item.id === newEl.id);
+      if (shape && base) shape.color = base;
+      selectShape?.(newEl);
+      scheduleRefresh?.();
+      return newEl;
+    }
+
     function finishDecisionConnection(kind) {
       if (!state?.pendingConn) return;
       const { fromEl, toEl } = state.pendingConn;
@@ -82,6 +101,7 @@
     return {
       updateSnapButton,
       addShape,
+      addShapeAt,
       finishDecisionConnection,
       cancelDecisionConnection,
       bind,

@@ -13,6 +13,7 @@
     getShapeData,
     onDirectConnect,
     onDecisionConnect,
+    isPanGesture,
   } = {}) {
     const handleGroups = {};
 
@@ -46,6 +47,7 @@
 
     function onHandlePointerDown(event) {
       if (event.button !== 0 && event.pointerType === 'mouse') return;
+      if (isPanGesture?.(event)) return; // let middle-button / Space-drag pan
       event.preventDefault();
       event.stopPropagation();
 

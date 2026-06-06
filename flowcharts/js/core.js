@@ -16,13 +16,14 @@
     'connector': '#546e7a',
   };
 
-  const ROUTE_MODES = ['auto', 'vertical', 'horizontal', 'bypass-left', 'bypass-right'];
+  const ROUTE_MODES = ['auto', 'vertical', 'horizontal', 'bypass-left', 'bypass-right', 'smart'];
   const ROUTE_MODE_LABELS = {
     auto: 'Авто',
     vertical: 'Вертикально',
     horizontal: 'Горизонтально',
     'bypass-left': 'Обхід ліворуч',
     'bypass-right': 'Обхід праворуч',
+    smart: 'Розумний обхід',
   };
   const PROJECT_LIMITS = {
     maxShapes: 500,
@@ -30,6 +31,7 @@
     maxCoord: 4000,
     maxText: 200,
     maxLabel: 40,
+    maxWaypoints: 24,
   };
   const ALLOWED_SHAPE_TYPES = new Set(Object.keys(DEFAULT_BASE_COLORS));
   const SHAPE_ID_RE = /^shape-\d+$/;
@@ -468,6 +470,153 @@
     return { pts, exit: safeSide, entry };
   }
 
+  const SHAPE_TYPE_LABELS = {
+    'start-end': 'Початок / Кінець',
+    'process': 'Дія',
+    'decision': 'Умова',
+    'input-output': 'Ввід / Вивід',
+    'subroutine': 'Підпрограма',
+    'connector': 'З\'єднувач',
+  };
+
+  function isStartShape(shape) {
+    return shape && shape.type === 'start-end'
+      && String(shape.textRaw || '').trim().toLowerCase() === 'початок';
+  }
+
+  function isEndShape(shape) {
+    return shape && shape.type === 'start-end'
+      && String(shape.textRaw || '').trim().toLowerCase() === 'кінець';
+  }
+
+  function shapeLabel(shape) {
+    const text = String(shape?.textRaw || '').trim();
+    if (text) return text;
+    return SHAPE_TYPE_LABELS[shape?.type] || 'Блок';
+  }
+
+  // Pure static analysis of a diagram. Returns a flat, ordered list of issues
+  // ({ level: 'error' | 'warning' | 'info', code, message, shapeId? }).
+  // No DOM access — fully unit-testable in Node and in the browser smoke test.
+  function validateDiagram(project) {
+    const shapes = Array.isArray(project?.shapes) ? project.shapes : [];
+    const connections = Array.isArray(project?.connections) ? project.connections : [];
+    const issues = [];
+    const add = (level, code, message, shapeId) => {
+      issues.push(shapeId ? { level, code, message, shapeId } : { level, code, message });
+    };
+
+    if (shapes.length === 0) {
+      add('info', 'empty', 'Схема порожня — додай хоча б один блок.');
+      return issues;
+    }
+
+    const byId = new Map(shapes.map((shape) => [shape.id, shape]));
+    const starts = shapes.filter(isStartShape);
+    const ends = shapes.filter(isEndShape);
+
+    // --- Start / end blocks ---
+    if (starts.length === 0) {
+      add('error', 'no-start', 'Немає блоку «Початок».');
+    } else if (starts.length > 1) {
+      starts.forEach((shape) => add('error', 'multiple-start', 'Кілька блоків «Початок» — має бути один.', shape.id));
+    }
+    if (ends.length === 0) {
+      add('warning', 'no-end', 'Немає блоку «Кінець».');
+    }
+
+    // --- Connection maps ---
+    const outgoing = new Map();
+    const incoming = new Map();
+    const pairSeen = new Map();
+    shapes.forEach((shape) => {
+      outgoing.set(shape.id, []);
+      incoming.set(shape.id, []);
+    });
+    connections.forEach((conn) => {
+      if (outgoing.has(conn.from)) outgoing.get(conn.from).push(conn);
+      if (incoming.has(conn.to)) incoming.get(conn.to).push(conn);
+      const pairKey = `${conn.from}|${conn.to}|${conn.type || ''}`;
+      pairSeen.set(pairKey, (pairSeen.get(pairKey) || 0) + 1);
+    });
+
+    // --- Duplicate connections ---
+    const reportedPairs = new Set();
+    connections.forEach((conn) => {
+      const pairKey = `${conn.from}|${conn.to}|${conn.type || ''}`;
+      if (pairSeen.get(pairKey) > 1 && !reportedPairs.has(pairKey)) {
+        reportedPairs.add(pairKey);
+        const fromShape = byId.get(conn.from);
+        const toShape = byId.get(conn.to);
+        add('warning', 'duplicate-connection',
+          `Дубльована стрілка: «${shapeLabel(fromShape)}» → «${shapeLabel(toShape)}».`, conn.from);
+      }
+    });
+
+    // --- Per-shape structural checks ---
+    shapes.forEach((shape) => {
+      const outs = outgoing.get(shape.id) || [];
+      const ins = incoming.get(shape.id) || [];
+
+      if (!isStartShape(shape) && ins.length === 0) {
+        add('warning', 'no-incoming', `Блок «${shapeLabel(shape)}» не має жодної стрілки-входу.`, shape.id);
+      }
+      if (!isEndShape(shape) && outs.length === 0) {
+        add('warning', 'no-outgoing', `Блок «${shapeLabel(shape)}» не має жодної стрілки-виходу.`, shape.id);
+      }
+
+      if (shape.type === 'decision') {
+        const hasYes = outs.some((conn) => conn.type === 'yes');
+        const hasNo = outs.some((conn) => conn.type === 'no');
+        if (!hasYes) add('warning', 'decision-no-yes', `Умова «${shapeLabel(shape)}» не має гілки «Так».`, shape.id);
+        if (!hasNo) add('warning', 'decision-no-no', `Умова «${shapeLabel(shape)}» не має гілки «Ні».`, shape.id);
+      }
+    });
+
+    // --- Reachability from the single start block ---
+    if (starts.length === 1) {
+      const startId = starts[0].id;
+      const reached = new Set([startId]);
+      const queue = [startId];
+      while (queue.length) {
+        const current = queue.shift();
+        (outgoing.get(current) || []).forEach((conn) => {
+          if (!reached.has(conn.to) && byId.has(conn.to)) {
+            reached.add(conn.to);
+            queue.push(conn.to);
+          }
+        });
+      }
+      shapes.forEach((shape) => {
+        if (!reached.has(shape.id)) {
+          add('warning', 'unreachable', `Блок «${shapeLabel(shape)}» недосяжний від «Початок».`, shape.id);
+        }
+      });
+    }
+
+    return issues;
+  }
+
+  // Grow a {minX,minY,maxX,maxY} box to include every given point. Used so the
+  // diagram bounds (fit-to-view, PNG export) cover arrow routes — manual
+  // waypoints, smart detours and bypass loops — not just the block rectangles.
+  function expandBoundsWithPoints(bounds, points) {
+    const box = {
+      minX: bounds?.minX ?? Infinity,
+      minY: bounds?.minY ?? Infinity,
+      maxX: bounds?.maxX ?? -Infinity,
+      maxY: bounds?.maxY ?? -Infinity,
+    };
+    (points || []).forEach((point) => {
+      if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+      box.minX = Math.min(box.minX, point.x);
+      box.minY = Math.min(box.minY, point.y);
+      box.maxX = Math.max(box.maxX, point.x);
+      box.maxY = Math.max(box.maxY, point.y);
+    });
+    return box;
+  }
+
   function serializeProject(state, positionsById) {
     const positions = positionsById || {};
     return {
@@ -495,6 +644,13 @@
         type: conn.type ?? null,
         routeMode: ROUTE_MODES.includes(conn.routeMode) ? conn.routeMode : 'auto',
         label: conn.label ?? null,
+        isCustom: !!conn.isCustom && Array.isArray(conn.waypoints) && conn.waypoints.length > 0,
+        waypoints: Array.isArray(conn.waypoints)
+          ? conn.waypoints.slice(0, PROJECT_LIMITS.maxWaypoints).map((point) => ({
+            x: Number(point?.x) || 0,
+            y: Number(point?.y) || 0,
+          }))
+          : [],
       })),
     };
   }
@@ -521,14 +677,25 @@
     }).filter((shape) => shape.id);
 
     const knownShapeIds = new Set(parsedShapes.map((shape) => shape.id));
-    const parsedConnections = connections.map((conn) => ({
-      id: CONN_ID_RE.test(String(conn.id || '')) ? String(conn.id) : '',
-      from: SHAPE_ID_RE.test(String(conn.from || '')) ? String(conn.from) : '',
-      to: SHAPE_ID_RE.test(String(conn.to || '')) ? String(conn.to) : '',
-      type: conn.type === 'yes' || conn.type === 'no' ? conn.type : null,
-      routeMode: ROUTE_MODES.includes(conn.routeMode) ? conn.routeMode : 'auto',
-      label: conn.label === null || conn.label === undefined ? null : normalizeText(conn.label, PROJECT_LIMITS.maxLabel),
-    })).filter((conn) => {
+    const parsedConnections = connections.map((conn) => {
+      const waypoints = Array.isArray(conn.waypoints)
+        ? conn.waypoints.slice(0, PROJECT_LIMITS.maxWaypoints)
+          .map((point) => ({
+            x: clampNumber(point?.x, 0, PROJECT_LIMITS.maxCoord),
+            y: clampNumber(point?.y, 0, PROJECT_LIMITS.maxCoord),
+          }))
+        : [];
+      return {
+        id: CONN_ID_RE.test(String(conn.id || '')) ? String(conn.id) : '',
+        from: SHAPE_ID_RE.test(String(conn.from || '')) ? String(conn.from) : '',
+        to: SHAPE_ID_RE.test(String(conn.to || '')) ? String(conn.to) : '',
+        type: conn.type === 'yes' || conn.type === 'no' ? conn.type : null,
+        routeMode: ROUTE_MODES.includes(conn.routeMode) ? conn.routeMode : 'auto',
+        label: conn.label === null || conn.label === undefined ? null : normalizeText(conn.label, PROJECT_LIMITS.maxLabel),
+        isCustom: !!conn.isCustom && waypoints.length > 0,
+        waypoints,
+      };
+    }).filter((conn) => {
       return conn.id && conn.from && conn.to && knownShapeIds.has(conn.from) && knownShapeIds.has(conn.to);
     });
 
@@ -564,6 +731,11 @@
     serializeProject,
     chooseSides,
     smartWrapText,
+    validateDiagram,
+    isStartShape,
+    isEndShape,
+    shapeLabel,
+    expandBoundsWithPoints,
   };
 }));
 

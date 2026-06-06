@@ -39,7 +39,10 @@
 
       return {
         shapes: shapeSnap,
-        connections: state.connections.map((conn) => ({ ...conn })),
+        connections: state.connections.map((conn) => ({
+          ...conn,
+          waypoints: Array.isArray(conn.waypoints) ? conn.waypoints.map((point) => ({ x: point.x, y: point.y })) : [],
+        })),
         baseColors: { ...state.baseColors },
         diagramTitle: state.diagramTitle,
         shapeCounter: state.shapeCounter,
@@ -105,7 +108,12 @@
             if (fromEl && toEl) {
               connectShapes?.(fromEl, toEl, conn.type || null, conn.id, true, conn.routeMode || 'auto');
               const restoredConn = state.connections.find((item) => item.id === conn.id);
-              if (restoredConn) restoredConn.label = conn.label ?? null;
+              if (restoredConn) {
+                restoredConn.label = conn.label ?? null;
+                restoredConn.routeMode = conn.routeMode || 'auto';
+                restoredConn.isCustom = !!conn.isCustom && Array.isArray(conn.waypoints) && conn.waypoints.length > 0;
+                restoredConn.waypoints = Array.isArray(conn.waypoints) ? conn.waypoints.map((point) => ({ x: point.x, y: point.y })) : [];
+              }
             }
           });
           scheduleRefresh?.();

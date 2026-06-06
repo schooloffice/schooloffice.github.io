@@ -62,6 +62,12 @@
         'FlowchartsHandles',
         'FlowchartsRouting',
         'FlowchartsConnectionsDom',
+        'FlowchartsValidation',
+        'FlowchartsTemplates',
+        'FlowchartsTemplatesData',
+        'FlowchartsPaletteDnd',
+        'FlowchartsObstacleRouting',
+        'FlowchartsConnectionWaypoints',
         'FlowchartsApp'
       ];
 
@@ -585,6 +591,534 @@
       flowYesButton.click();
       addCheck(checks, 'flow actions snap and add shape', flowState.snapEnabled === false && flowSnapButton.getAttribute('aria-pressed') === 'false' && flowCreatedType === 'decision' && flowSelected?.id === 'flow-created-shape');
       addCheck(checks, 'flow actions decision connection', flowConnectionKind === 'yes' && flowState.pendingConn === null && flowSnapshots === 2 && flowRefreshes === 1 && flowClosedModal === 1);
+
+      // ===== core.validateDiagram (pure logic) =====
+      const core = win.FlowchartCore;
+      addCheck(checks, 'core exposes validateDiagram', typeof core?.validateDiagram === 'function');
+      if (core?.validateDiagram) {
+        const goodDiagram = {
+          shapes: [
+            { id: 'shape-1', type: 'start-end', textRaw: 'Початок' },
+            { id: 'shape-2', type: 'process', textRaw: 'Дія' },
+            { id: 'shape-3', type: 'start-end', textRaw: 'Кінець' },
+          ],
+          connections: [
+            { id: 'conn-shape-1-shape-2', from: 'shape-1', to: 'shape-2', type: null },
+            { id: 'conn-shape-2-shape-3', from: 'shape-2', to: 'shape-3', type: null },
+          ],
+        };
+        addCheck(checks, 'validateDiagram passes a clean diagram', core.validateDiagram(goodDiagram).length === 0);
+
+        const badDiagram = {
+          shapes: [
+            { id: 'shape-1', type: 'process', textRaw: 'A' },
+            { id: 'shape-2', type: 'decision', textRaw: 'x>0?' },
+            { id: 'shape-9', type: 'process', textRaw: 'Loner' },
+          ],
+          connections: [
+            { id: 'conn-shape-1-shape-2', from: 'shape-1', to: 'shape-2', type: null },
+          ],
+        };
+        const badCodes = core.validateDiagram(badDiagram).map(issue => issue.code);
+        addCheck(checks, 'validateDiagram flags missing start', badCodes.includes('no-start'));
+        addCheck(checks, 'validateDiagram flags decision branches', badCodes.includes('decision-no-yes') && badCodes.includes('decision-no-no'));
+        addCheck(checks, 'validateDiagram flags isolated block', badCodes.includes('no-incoming') && badCodes.includes('no-outgoing'));
+        addCheck(checks, 'validateDiagram empty diagram is info', core.validateDiagram({ shapes: [], connections: [] })[0]?.level === 'info');
+      }
+
+      // ===== validation controller (panel rendering) =====
+      const validationPanel = doc.createElement('div');
+      validationPanel.hidden = true;
+      const validationList = doc.createElement('div');
+      const validationSummary = doc.createElement('p');
+      let focusedShapeId = null;
+      const validationState = {
+        shapes: [
+          { id: 'shape-1', type: 'process', textRaw: 'A' },
+          { id: 'shape-2', type: 'process', textRaw: 'B' },
+        ],
+        connections: [],
+      };
+      const validationController = win.FlowchartsValidation?.createValidationController?.({
+        core,
+        panel: validationPanel,
+        listEl: validationList,
+        summaryEl: validationSummary,
+        getDiagram: () => validationState,
+        focusShape: (id) => { focusedShapeId = id; },
+      });
+      addCheck(checks, 'validation controller factory', !!validationController);
+      const validationIssues = validationController?.runValidation?.();
+      addCheck(checks, 'validation run renders issue rows', validationList.querySelectorAll('.validation-issue').length === (validationIssues?.length || 0) && validationList.children.length > 0);
+      addCheck(checks, 'validation run reveals panel', validationPanel.hidden === false);
+      const firstIssueButton = validationList.querySelector('button.validation-issue');
+      firstIssueButton?.click();
+      addCheck(checks, 'validation issue focuses shape', !!firstIssueButton && focusedShapeId === firstIssueButton.dataset.shapeId);
+      validationController?.close?.();
+      addCheck(checks, 'validation close hides panel', validationPanel.hidden === true);
+      const okSummary = validationController?.summarize?.([]);
+      addCheck(checks, 'validation summarize ok state', okSummary?.ok === true);
+
+      // ===== templates data + controller =====
+      const templatesData = win.FlowchartsTemplatesData?.TEMPLATES;
+      addCheck(checks, 'templates data present', Array.isArray(templatesData) && templatesData.length >= 6);
+      let allTemplatesValid = true;
+      let allTemplatesClean = true;
+      (templatesData || []).forEach(template => {
+        try {
+          const built = template.build();
+          const parsed = core.parseProject(built);
+          if (parsed.shapes.length !== built.shapes.length || parsed.connections.length !== built.connections.length) allTemplatesValid = false;
+          const issues = core.validateDiagram(parsed).filter(issue => issue.level !== 'info');
+          if (issues.length > 0) allTemplatesClean = false;
+        } catch (error) {
+          allTemplatesValid = false;
+        }
+      });
+      addCheck(checks, 'templates parse without data loss', allTemplatesValid);
+      addCheck(checks, 'templates pass their own validation', allTemplatesClean);
+
+      const templatesGrid = doc.createElement('div');
+      const templatesModal = doc.createElement('div');
+      let loadedTemplateData = null;
+      let templatesModalClosed = 0;
+      const templatesController = win.FlowchartsTemplates?.createTemplatesController?.({
+        templates: templatesData,
+        gridEl: templatesGrid,
+        modal: templatesModal,
+        openModal: (modal) => modal.classList.add('active'),
+        closeModal: (modal) => { modal.classList.remove('active'); templatesModalClosed += 1; },
+        loadTemplate: (data) => { loadedTemplateData = data; },
+      });
+      addCheck(checks, 'templates controller factory', !!templatesController);
+      templatesController?.open?.();
+      addCheck(checks, 'templates render cards', templatesGrid.querySelectorAll('.template-card').length === (templatesData?.length || 0));
+      templatesGrid.querySelector('.template-card')?.click();
+      addCheck(checks, 'templates card loads data and closes', !!loadedTemplateData && Array.isArray(loadedTemplateData.shapes) && templatesModalClosed >= 1);
+
+      // ===== palette drag-and-drop =====
+      const pdContainer = doc.createElement('div');
+      doc.body.appendChild(pdContainer);
+      pdContainer.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 300, width: 400, height: 300 });
+      const pdCanvas = doc.createElement('div');
+      let pdAdds = 0;
+      let pdLastAdd = null;
+      const paletteDnd = win.FlowchartsPaletteDnd?.createPaletteDragController?.({
+        shapeButtons: [],
+        canvas: pdCanvas,
+        canvasContainer: pdContainer,
+        clientToCanvas: (x, y) => ({ x, y }),
+        snapToGrid: (value) => Math.round(value / 20) * 20,
+        getShapeSizeHint: () => ({ w: 150, h: 84 }),
+        addShapeAt: (type, left, top) => { pdAdds += 1; pdLastAdd = { type, left, top }; },
+        document: doc,
+      });
+      addCheck(checks, 'palette dnd factory', !!paletteDnd);
+      addCheck(checks, 'palette dnd detects inside/outside canvas', paletteDnd?.isInsideCanvas?.(100, 100) === true && paletteDnd?.isInsideCanvas?.(900, 100) === false);
+      const dropPos = paletteDnd?.computeDropPosition?.(200, 150, 'process');
+      addCheck(checks, 'palette dnd snaps drop position', !!dropPos && dropPos.left % 20 === 0 && dropPos.top % 20 === 0 && dropPos.left >= 0 && dropPos.top >= 0);
+      addCheck(checks, 'palette dnd rejects drop outside canvas', paletteDnd?.computeDropPosition?.(900, 150, 'process') === null);
+
+      const pdButton = doc.createElement('button');
+      pdButton.dataset.shape = 'process';
+      pdButton.innerHTML = '<span class="shape-button-text">Дія</span>';
+      doc.body.appendChild(pdButton);
+      let pdClickReached = 0;
+      const pdButtonController = win.FlowchartsPaletteDnd?.createPaletteDragController?.({
+        shapeButtons: [pdButton],
+        canvas: pdCanvas,
+        canvasContainer: pdContainer,
+        clientToCanvas: (x, y) => ({ x, y }),
+        snapToGrid: (value) => Math.round(value / 20) * 20,
+        getShapeSizeHint: () => ({ w: 150, h: 84 }),
+        addShapeAt: (type, left, top) => { pdAdds += 1; pdLastAdd = { type, left, top }; },
+        document: doc,
+      });
+      pdButtonController?.bind?.();
+      pdButton.addEventListener('click', () => { pdClickReached += 1; });
+      pdButton.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 50, clientX: 10, clientY: 10 }));
+      doc.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 50, clientX: 160, clientY: 140 }));
+      doc.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 50, clientX: 160, clientY: 140 }));
+      addCheck(checks, 'palette dnd drag creates one block at drop', pdAdds === 1 && pdLastAdd?.type === 'process');
+      pdButton.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+      addCheck(checks, 'palette dnd suppresses the click after a drag', pdClickReached === 0);
+      pdButton.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+      addCheck(checks, 'palette dnd lets a plain click through', pdClickReached === 1 && pdAdds === 1);
+
+      // Regression for the real-browser case: a drag whose trailing synthetic
+      // click never fires must NOT swallow the next, separate, intentional click.
+      pdButton.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 51, clientX: 10, clientY: 10 }));
+      doc.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 51, clientX: 160, clientY: 140 }));
+      doc.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 51, clientX: 160, clientY: 140 }));
+      // (no trailing click emitted, mimicking browsers that skip it after a drag)
+      pdButton.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 52, clientX: 5, clientY: 5 }));
+      doc.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 52, clientX: 5, clientY: 5 }));
+      pdButton.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+      addCheck(checks, 'palette dnd does not swallow a later click after a click-less drag', pdClickReached === 2 && pdAdds === 2);
+      pdContainer.remove();
+      pdButton.remove();
+
+      // ===== viewport fitToBounds =====
+      const fitCanvas = doc.createElement('div');
+      const fitContainer = doc.createElement('div');
+      const fitSvg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      doc.body.appendChild(fitContainer);
+      fitContainer.appendChild(fitCanvas);
+      fitContainer.appendChild(fitSvg);
+      fitContainer.getBoundingClientRect = () => ({ width: 400, height: 300, left: 0, top: 0, right: 400, bottom: 300 });
+      const fitState = { scale: 1, minScale: 0.2, maxScale: 3.5, scaleStep: 0.1 };
+      const fitZoomText = doc.createElement('span');
+      const fitViewport = win.FlowchartsViewport?.createViewportController?.({
+        state: fitState,
+        canvas: fitCanvas,
+        canvasContainer: fitContainer,
+        svgLayer: fitSvg,
+        zoomLevelText: fitZoomText,
+        scheduleRefresh: () => {},
+        deselectAll: () => {},
+        clearConnectionSelection: () => {},
+        updateConnectionBar: () => {},
+      });
+      addCheck(checks, 'viewport exposes fitToBounds', typeof fitViewport?.fitToBounds === 'function');
+      const fitted = fitViewport?.fitToBounds?.({ minX: 0, minY: 0, maxX: 2000, maxY: 2000, empty: false });
+      addCheck(checks, 'fitToBounds scales large content down', fitted === true && fitState.scale < 1 && fitState.scale >= fitState.minScale);
+      fitState.scale = 1;
+      const smallFit = fitViewport?.fitToBounds?.({ minX: 0, minY: 0, maxX: 100, maxY: 100, empty: false });
+      addCheck(checks, 'fitToBounds never zooms past 100%', smallFit === true && fitState.scale <= 1);
+      addCheck(checks, 'fitToBounds ignores empty bounds', fitViewport?.fitToBounds?.({ empty: true }) === false);
+      fitContainer.remove();
+
+      // ===== viewport pan from non-background (middle button / Space) =====
+      const panCanvas = doc.createElement('div');
+      const panContainer = doc.createElement('div');
+      const panSvg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      doc.body.appendChild(panContainer);
+      panContainer.appendChild(panCanvas);
+      panContainer.appendChild(panSvg);
+      const panChild = doc.createElement('div'); // stands in for a shape (NOT background)
+      panCanvas.appendChild(panChild);
+      Object.assign(panContainer.style, { width: '200px', height: '100px', overflow: 'scroll' });
+      Object.assign(panCanvas.style, { width: '800px', height: '600px' });
+      Object.assign(panChild.style, { width: '60px', height: '40px' });
+      panContainer.getBoundingClientRect = () => ({ width: 200, height: 100, left: 0, top: 0, right: 200, bottom: 100 });
+      panContainer.scrollLeft = 40;
+      panContainer.scrollTop = 30;
+      const panState = { scale: 1, minScale: 0.5, maxScale: 2, scaleStep: 0.25 };
+      const panViewport = win.FlowchartsViewport?.createViewportController?.({
+        state: panState,
+        canvas: panCanvas,
+        canvasContainer: panContainer,
+        svgLayer: panSvg,
+        zoomLevelText: doc.createElement('span'),
+        scheduleRefresh: () => {},
+        deselectAll: () => {},
+        clearConnectionSelection: () => {},
+        updateConnectionBar: () => {},
+      });
+      addCheck(checks, 'viewport isPanGesture true for middle button', panViewport?.isPanGesture?.({ button: 1 }) === true);
+      addCheck(checks, 'viewport isPanGesture false for plain left button', panViewport?.isPanGesture?.({ button: 0 }) === false);
+      panViewport?.bind?.();
+      panChild.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, button: 1, clientX: 100, clientY: 100, pointerId: 60 }));
+      panContainer.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, clientX: 70, clientY: 80, pointerId: 60 }));
+      panContainer.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 60 }));
+      addCheck(checks, 'viewport middle-button pans from a non-background target', panContainer.scrollLeft === 70 && panContainer.scrollTop === 50);
+      panContainer.scrollLeft = 40;
+      panContainer.scrollTop = 30;
+      win.dispatchEvent(new win.KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }));
+      panChild.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 100, pointerId: 61 }));
+      panContainer.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, clientX: 70, clientY: 80, pointerId: 61 }));
+      panContainer.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 61 }));
+      win.dispatchEvent(new win.KeyboardEvent('keyup', { key: ' ', code: 'Space', bubbles: true }));
+      addCheck(checks, 'viewport Space+drag pans from a non-background target', panContainer.scrollLeft === 70 && panContainer.scrollTop === 50);
+      panContainer.remove();
+
+      // ===== A* obstacle routing (pure) =====
+      const obstacleRouting = win.FlowchartsObstacleRouting;
+      addCheck(checks, 'obstacle routing exposes routeAroundObstacles', typeof obstacleRouting?.routeAroundObstacles === 'function');
+      if (obstacleRouting?.routeAroundObstacles) {
+        const straight = obstacleRouting.routeAroundObstacles({ x: 100, y: 0 }, { x: 100, y: 300 }, [], { margin: 24 });
+        addCheck(checks, 'obstacle routing straight path when clear', Array.isArray(straight) && straight.length === 2);
+        const detour = obstacleRouting.routeAroundObstacles({ x: 100, y: 0 }, { x: 100, y: 300 }, [{ left: 60, top: 100, width: 80, height: 80 }], { margin: 24 });
+        addCheck(checks, 'obstacle routing detours around a block', Array.isArray(detour) && detour.length > 2 && detour[0].x === 100 && detour[detour.length - 1].y === 300);
+
+        // A large visibility grid must degrade to a safe outer route, never to
+        // an obstacle-crossing default connection.
+        const manyObstacles = Array.from({ length: 30 }, (_, index) => ({
+          left: 100 + index * 34,
+          top: 100 + index * 27,
+          width: 20,
+          height: 20,
+        }));
+        const largeRoute = obstacleRouting.routeAroundObstacles(
+          { x: 0, y: 0 },
+          { x: 1400, y: 1100 },
+          manyObstacles,
+          { margin: 24, maxNodes: 100 }
+        );
+        const inflatedMany = manyObstacles.map(rect => ({
+          left: rect.left - 24,
+          top: rect.top - 24,
+          right: rect.left + rect.width + 24,
+          bottom: rect.top + rect.height + 24,
+        }));
+        let largeRouteCrosses = false;
+        if (largeRoute) {
+          for (let i = 1; i < largeRoute.length; i++) {
+            if (inflatedMany.some(rect => obstacleRouting.segmentHitsRect(
+              largeRoute[i - 1].x,
+              largeRoute[i - 1].y,
+              largeRoute[i].x,
+              largeRoute[i].y,
+              rect
+            ))) largeRouteCrosses = true;
+          }
+        }
+        addCheck(checks, 'obstacle routing keeps a safe route when detailed grid exceeds its budget', Array.isArray(largeRoute) && largeRoute.length >= 2 && !largeRouteCrosses);
+      }
+
+      // ===== routing smart + custom integration =====
+      const smokeShapeGeometry = win.FlowchartsShapeGeometry?.createShapeGeometry?.({ state: { shapes: [] } });
+      const routingState = {
+        shapes: [
+          { id: from.id, type: 'process' },
+          { id: to.id, type: 'process' },
+        ],
+        connections: [],
+      };
+      const smartRouting = win.FlowchartsRouting?.createRouting?.({
+        core,
+        state: routingState,
+        routeModes: core.ROUTE_MODES,
+        domShapeToBox: smokeShapeGeometry?.domShapeToBox,
+        decisionVertexDistance: smokeShapeGeometry?.decisionVertexDistance,
+        obstacleRouter: obstacleRouting,
+      });
+      const smartConn = { id: 'smart-conn', from: from.id, to: to.id, type: null, routeMode: 'smart', isCustom: false, waypoints: [] };
+      const smartGeo = smartRouting?.computeConnectionGeometry?.(from, to, smartConn, {});
+      addCheck(checks, 'routing smart mode produces a path', !!smartGeo && Array.isArray(smartGeo.pts) && smartGeo.pts.length >= 2 && !!smartGeo.d);
+      const customConn = { id: 'custom-conn', from: from.id, to: to.id, type: null, routeMode: 'auto', isCustom: true, waypoints: [{ x: 200, y: 50 }] };
+      const customGeo = smartRouting?.computeConnectionGeometry?.(from, to, customConn, {});
+      addCheck(checks, 'routing custom waypoints honoured', !!customGeo && customGeo.pts.some(point => point.x === 200 && point.y === 50));
+
+      // Strategy priority contract: custom -> smart -> decision -> merge -> default.
+      const fakeMerge = {
+        'custom-priority': { isMerged: true, isPrimary: true, entrySide: 'top', junction: { x: 999, y: 999 }, targetPt: { x: 999, y: 1050 } },
+        'smart-priority': { isMerged: true, isPrimary: true, entrySide: 'top', junction: { x: 999, y: 999 }, targetPt: { x: 999, y: 1050 } },
+      };
+      const customPriorityConn = { id: 'custom-priority', from: from.id, to: to.id, type: null, routeMode: 'smart', isCustom: true, waypoints: [{ x: 222, y: 111 }] };
+      const customPriorityGeo = smartRouting?.computeConnectionGeometry?.(from, to, customPriorityConn, fakeMerge);
+      addCheck(checks, 'routing priority keeps custom geometry ahead of smart and merge', !!customPriorityGeo && customPriorityGeo.pts.some(point => point.x === 222 && point.y === 111) && !customPriorityGeo.pts.some(point => point.x === 999));
+      const smartPriorityConn = { id: 'smart-priority', from: from.id, to: to.id, type: null, routeMode: 'smart', isCustom: false, waypoints: [] };
+      const smartPriorityGeo = smartRouting?.computeConnectionGeometry?.(from, to, smartPriorityConn, fakeMerge);
+      addCheck(checks, 'routing priority keeps smart geometry ahead of merge', !!smartPriorityGeo && !smartPriorityGeo.pts.some(point => point.x === 999));
+
+      let smartFailureWarnings = 0;
+      const failingSmartRouting = win.FlowchartsRouting?.createRouting?.({
+        core,
+        state: routingState,
+        routeModes: core.ROUTE_MODES,
+        domShapeToBox: smokeShapeGeometry?.domShapeToBox,
+        decisionVertexDistance: smokeShapeGeometry?.decisionVertexDistance,
+        obstacleRouter: { routeAroundObstacles: () => null },
+        onSmartRouteFailure: () => { smartFailureWarnings += 1; },
+      });
+      const failedSmartGeo = failingSmartRouting?.computeConnectionGeometry?.(from, to, smartConn, {});
+      addCheck(checks, 'smart routing reports an explicit warning before default fallback', smartFailureWarnings === 1 && !!failedSmartGeo?.d);
+
+      // #4: a manually-routed arrow must stay orthogonal even with a diagonal waypoint.
+      const orthoConn = { id: 'ortho-conn', from: from.id, to: to.id, type: null, routeMode: 'auto', isCustom: true, waypoints: [{ x: 333, y: 177 }] };
+      const orthoGeo = smartRouting?.computeConnectionGeometry?.(from, to, orthoConn, {});
+      let allOrthogonal = !!orthoGeo && orthoGeo.pts.length >= 2;
+      if (orthoGeo) {
+        for (let i = 1; i < orthoGeo.pts.length; i++) {
+          const a = orthoGeo.pts[i - 1];
+          const b = orthoGeo.pts[i];
+          if (Math.abs(a.x - b.x) > 0.5 && Math.abs(a.y - b.y) > 0.5) allOrthogonal = false;
+        }
+      }
+      addCheck(checks, 'custom waypoint path stays orthogonal (no diagonals)', allOrthogonal);
+      addCheck(checks, 'custom waypoint path passes through the guide point', !!orthoGeo && orthoGeo.pts.some(p => Math.abs(p.x - 333) < 0.6 && Math.abs(p.y - 177) < 0.6));
+
+      // #3: the final leg must arrive along the entry side. A waypoint to the
+      // left of the target gives a left entry, so the last segment is horizontal.
+      const entryConn = { id: 'entry-conn', from: from.id, to: to.id, type: null, routeMode: 'auto', isCustom: true, waypoints: [{ x: 120, y: 200 }] };
+      const entryGeo = smartRouting?.computeConnectionGeometry?.(from, to, entryConn, {});
+      const ep = entryGeo ? entryGeo.pts : [];
+      addCheck(checks, 'custom path final leg matches a left entry (horizontal)', ep.length >= 2 && Math.abs(ep[ep.length - 1].y - ep[ep.length - 2].y) < 0.6);
+
+      // #3: smart routing must also apply to decision Yes/No branches, and the
+      // arrow must leave outward (never double back through the diamond) even
+      // when the target sits on the far side of the exit.
+      const decisionEl = doc.createElement('div');
+      decisionEl.id = 'dec-smart';
+      decisionEl.className = 'shape decision';
+      Object.assign(decisionEl.style, { position: 'absolute', left: '400px', top: '40px', width: '120px', height: '120px' });
+      doc.body.appendChild(decisionEl);
+      // Target placed to the RIGHT, while the Yes branch exits LEFT — the case
+      // that previously let the arrow cut straight back through the condition.
+      const rightTarget = doc.createElement('div');
+      rightTarget.id = 'dec-target';
+      rightTarget.className = 'shape process';
+      Object.assign(rightTarget.style, { position: 'absolute', left: '650px', top: '60px', width: '120px', height: '70px' });
+      doc.body.appendChild(rightTarget);
+      const decisionRoutingState = {
+        shapes: [{ id: decisionEl.id, type: 'decision' }, { id: rightTarget.id, type: 'process' }],
+        connections: [],
+      };
+      const decisionRouting = win.FlowchartsRouting?.createRouting?.({
+        core,
+        state: decisionRoutingState,
+        routeModes: core.ROUTE_MODES,
+        domShapeToBox: smokeShapeGeometry?.domShapeToBox,
+        decisionVertexDistance: smokeShapeGeometry?.decisionVertexDistance,
+        obstacleRouter: obstacleRouting,
+      });
+      const decisionConn = { id: 'dec-conn', from: decisionEl.id, to: rightTarget.id, type: 'yes', routeMode: 'smart', isCustom: false, waypoints: [] };
+      const decisionGeo = decisionRouting?.computeConnectionGeometry?.(decisionEl, rightTarget, decisionConn, {});
+      addCheck(checks, 'smart routing applies to decision Yes branch', !!decisionGeo && Array.isArray(decisionGeo.pts) && decisionGeo.pts.length >= 2);
+      addCheck(checks, 'smart decision Yes exits from the left side', !!decisionGeo && decisionGeo.pts[0].x < (400 + 60));
+      addCheck(checks, 'smart decision Yes first segment leaves leftward (no reverse through block)', !!decisionGeo && decisionGeo.pts[1].x < decisionGeo.pts[0].x + 0.5);
+      // No segment may pass through the condition block itself.
+      const decInflated = { left: 400 - 24, top: 40 - 24, right: 520 + 24, bottom: 160 + 24 };
+      let crossesCondition = false;
+      if (decisionGeo) {
+        for (let i = 1; i < decisionGeo.pts.length; i++) {
+          if (obstacleRouting.segmentHitsRect(decisionGeo.pts[i - 1].x, decisionGeo.pts[i - 1].y, decisionGeo.pts[i].x, decisionGeo.pts[i].y, decInflated)) crossesCondition = true;
+        }
+      }
+      addCheck(checks, 'smart decision arrow does not cross its own condition block', !crossesCondition);
+      decisionEl.remove();
+      rightTarget.remove();
+
+      // #2: a connection hit area must yield a pan gesture instead of selecting.
+      const cdSvg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      doc.body.appendChild(cdSvg);
+      const cdState = { shapes: [{ id: from.id, type: 'process' }, { id: to.id, type: 'process' }], connections: [], selectedConnId: null, connDrag: null };
+      const cdRouting = win.FlowchartsRouting?.createRouting?.({
+        core,
+        state: cdState,
+        routeModes: core.ROUTE_MODES,
+        domShapeToBox: smokeShapeGeometry?.domShapeToBox,
+        decisionVertexDistance: smokeShapeGeometry?.decisionVertexDistance,
+      });
+      let cdSelected = null;
+      let cdPan = false;
+      const cdDom = win.FlowchartsConnectionsDom?.createConnectionsDom?.({
+        core,
+        state: cdState,
+        svgLayer: cdSvg,
+        routeModes: core.ROUTE_MODES,
+        buildMergeContext: cdRouting?.buildMergeContext,
+        computeConnectionGeometry: cdRouting?.computeConnectionGeometry,
+        pointAlongPolyline: cdRouting?.pointAlongPolyline,
+        onSelectConnection: (id) => { cdSelected = id; },
+        isPanGesture: () => cdPan,
+      });
+      cdDom?.connectShapes?.(from, to, null);
+      const cdHit = cdSvg.querySelector('.conn-hit');
+      cdPan = true;
+      cdHit?.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 80 }));
+      addCheck(checks, 'connection hit yields to a pan gesture', !!cdHit && cdSelected === null);
+      cdPan = false;
+      cdHit?.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 81 }));
+      addCheck(checks, 'connection hit selects when not panning', cdSelected !== null);
+      cdSvg.remove();
+
+      // #5: bounds helper must include arbitrary route points, not just blocks.
+      addCheck(checks, 'core.expandBoundsWithPoints grows the box', (() => {
+        const box = core.expandBoundsWithPoints({ minX: 0, minY: 0, maxX: 10, maxY: 10 }, [{ x: -5, y: 0 }, { x: 50, y: 80 }]);
+        return box.minX === -5 && box.maxX === 50 && box.maxY === 80;
+      })());
+
+      // ===== connection waypoints controller =====
+      const wpSvg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      doc.body.appendChild(wpSvg);
+      const wpState = { connections: [{ id: 'wc', from: 'a', to: 'b', isCustom: false, waypoints: [] }], connDrag: null };
+      let wpUpdated = 0;
+      const waypointsCtrl = win.FlowchartsConnectionWaypoints?.createConnectionWaypointsController?.({
+        svgLayer: wpSvg,
+        state: wpState,
+        clientToCanvas: (x, y) => ({ x, y }),
+        snapToGrid: (value) => value,
+        getConnectionPath: () => [{ x: 0, y: 0 }, { x: 50, y: 50 }, { x: 100, y: 0 }],
+        updateConnection: () => { wpUpdated += 1; },
+        saveSnapshot: () => {},
+        scheduleRefresh: () => {},
+        document: doc,
+      });
+      addCheck(checks, 'waypoints controller factory', !!waypointsCtrl);
+      waypointsCtrl?.showForConnection?.('wc');
+      addCheck(checks, 'waypoints render node and ghost handles', wpSvg.querySelectorAll('.wp-node').length === 1 && wpSvg.querySelectorAll('.wp-ghost').length === 2);
+      addCheck(checks, 'waypoints currentInterior from auto path', waypointsCtrl?.currentInterior?.('wc').length === 1);
+      wpState.connections[0].isCustom = true;
+      wpState.connections[0].waypoints = [{ x: 10, y: 10 }, { x: 20, y: 20 }];
+      waypointsCtrl?.resetConnection?.('wc');
+      addCheck(checks, 'waypoints reset clears custom route', wpState.connections[0].isCustom === false && wpState.connections[0].waypoints.length === 0 && wpUpdated >= 1);
+      waypointsCtrl?.clear?.();
+      addCheck(checks, 'waypoints clear removes handle group', !wpSvg.querySelector('#waypoint-handles'));
+      wpSvg.remove();
+
+      // #2: a pan gesture must not start a waypoint drag.
+      const wpPanSvg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      doc.body.appendChild(wpPanSvg);
+      let wpSaveCalls = 0;
+      let wpPanActive = false;
+      const wpPanCtrl = win.FlowchartsConnectionWaypoints?.createConnectionWaypointsController?.({
+        svgLayer: wpPanSvg,
+        state: { connections: [{ id: 'wp2', from: 'a', to: 'b', isCustom: false, waypoints: [] }], connDrag: null },
+        clientToCanvas: (x, y) => ({ x, y }),
+        snapToGrid: (value) => value,
+        getConnectionPath: () => [{ x: 0, y: 0 }, { x: 50, y: 50 }, { x: 100, y: 0 }],
+        updateConnection: () => {},
+        saveSnapshot: () => { wpSaveCalls += 1; },
+        scheduleRefresh: () => {},
+        isPanGesture: () => wpPanActive,
+        document: doc,
+      });
+      wpPanCtrl?.showForConnection?.('wp2');
+      const wpPanNode = wpPanSvg.querySelector('.wp-node');
+      wpPanActive = true;
+      wpPanNode?.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 70 }));
+      addCheck(checks, 'waypoint drag yields to a pan gesture', !!wpPanNode && wpSaveCalls === 0);
+      wpPanActive = false;
+      wpPanNode?.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 71 }));
+      doc.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 71 }));
+      addCheck(checks, 'waypoint drag starts when not panning', wpSaveCalls === 1);
+      wpPanSvg.remove();
+
+      // ===== connection selection callbacks + custom reset =====
+      let cbSel = 0;
+      let cbClr = 0;
+      let cbRoute = 0;
+      const cbState = { connections: [{ id: 'cbc', from: 'x', to: 'y', routeMode: 'auto', isCustom: true, waypoints: [{ x: 1, y: 1 }] }], selectedConnId: null };
+      const cbPath = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+      cbPath.id = 'cbc';
+      svg.appendChild(cbPath);
+      const selectionCb = win.FlowchartsConnectionSelection?.createConnectionSelectionController?.({
+        state: cbState,
+        routeModes: ['auto', 'vertical'],
+        routeModeLabels: { auto: 'Авто', vertical: 'Вертикально' },
+        selectionStateEl: doc.createElement('div'),
+        routeButton: doc.createElement('button'),
+        labelButton: doc.createElement('button'),
+        editShapeButton: doc.createElement('button'),
+        deleteButton: doc.createElement('button'),
+        saveSnapshot: () => {},
+        updateConnection: () => {},
+        deselectAll: () => {},
+        hideAllHandles: () => {},
+        openModal: () => {},
+        closeModal: () => {},
+        onSelect: () => { cbSel += 1; },
+        onClear: () => { cbClr += 1; },
+        onRouteChange: () => { cbRoute += 1; },
+      });
+      selectionCb?.selectConnection?.('cbc');
+      addCheck(checks, 'connection selection onSelect callback fires', cbSel === 1);
+      selectionCb?.cycleSelectedConnectionRouteMode?.();
+      addCheck(checks, 'connection cycle resets custom route first', cbState.connections[0].isCustom === false && cbState.connections[0].waypoints.length === 0 && cbRoute >= 1);
+      selectionCb?.clearConnectionSelection?.();
+      addCheck(checks, 'connection selection onClear callback fires', cbClr >= 1);
 
       svg.remove();
       from.remove();

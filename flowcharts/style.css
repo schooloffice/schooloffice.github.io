@@ -763,6 +763,108 @@ button { cursor: pointer; }
 .help-step-link a { color: var(--accent-dark); font-weight: 800; text-decoration: none; }
 .help-step-link a:hover { text-decoration: underline; }
 
+/* ===== Перевірка схеми ===== */
+.validation-panel { max-width: 460px; }
+.validation-summary {
+  margin: 0 0 .9rem;
+  font-size: .98rem;
+  font-weight: 800;
+  color: var(--slate);
+}
+.validation-summary.is-ok { color: #15803d; }
+.validation-list { display: grid; gap: .55rem; }
+.validation-issue {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  align-items: start;
+  gap: .65rem;
+  width: 100%;
+  text-align: left;
+  padding: .7rem .8rem;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: .7rem;
+  background: #fff;
+  font-size: .92rem;
+  line-height: 1.45;
+  color: var(--ink, #162033);
+  font-family: inherit;
+}
+button.validation-issue { cursor: pointer; }
+button.validation-issue:hover { background: #f8fafc; }
+button.validation-issue:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.validation-issue-icon { margin-top: .1rem; }
+.validation-issue-error { border-left-color: #dc2626; }
+.validation-issue-error .validation-issue-icon { color: #dc2626; }
+.validation-issue-warning { border-left-color: #f59e0b; }
+.validation-issue-warning .validation-issue-icon { color: #d97706; }
+.validation-issue-info { border-left-color: #2563eb; }
+.validation-issue-info .validation-issue-icon { color: #2563eb; }
+
+/* ===== Галерея шаблонів ===== */
+.modal-content-wide { max-width: 640px; width: min(92vw, 640px); }
+.templates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: .75rem;
+  margin-top: 1rem;
+  max-height: 60vh;
+  overflow: auto;
+}
+.template-card {
+  display: grid;
+  gap: .35rem;
+  padding: .9rem;
+  border: 1px solid var(--border);
+  border-radius: .85rem;
+  background: #faf8ff;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+.template-card:hover { border-color: var(--accent); background: #f3effc; }
+.template-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.template-card-title { font-weight: 800; color: var(--accent-dark); font-size: .98rem; }
+.template-card-desc { font-size: .85rem; color: var(--slate); line-height: 1.4; }
+
+/* ===== Drag-and-drop із палітри ===== */
+.shape-button.is-dragging { opacity: .55; }
+.palette-drag-preview {
+  position: fixed;
+  z-index: 2000;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  opacity: .75;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .25);
+  border: 2px dashed rgba(255, 255, 255, .85);
+}
+.palette-drag-preview.over-canvas { opacity: .9; }
+
+/* ===== Ручне редагування сегментів стрілки ===== */
+.wp-node {
+  fill: #fff;
+  stroke: #e11d48;
+  stroke-width: 2.5;
+  cursor: grab;
+}
+.wp-node:hover { fill: #ffe4ec; }
+.wp-node:active { cursor: grabbing; }
+.wp-ghost {
+  fill: #e11d48;
+  opacity: .28;
+  cursor: copy;
+}
+.wp-ghost:hover { opacity: .6; }
+
+/* короткочасне підсвічування знайденого блока */
+.shape.shape-flash {
+  animation: shapeFlash 1.4s ease-out;
+}
+@keyframes shapeFlash {
+  0%, 40% { box-shadow: 0 0 0 4px rgba(225, 29, 72, .55); }
+  100% { box-shadow: 0 0 0 0 rgba(225, 29, 72, 0); }
+}
+
 @media (max-width: 980px) {
   :root { --sidebar-w: 220px; }
 }

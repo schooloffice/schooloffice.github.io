@@ -54,6 +54,9 @@
       hideAllHandles,
       openModal,
       closeModal,
+      onSelect,
+      onClear,
+      onRouteChange,
     } = options || {};
 
     const modes = Array.isArray(routeModes) && routeModes.length ? routeModes : ['auto'];
@@ -72,6 +75,7 @@
         }
       }
       if (state) state.selectedConnId = null;
+      onClear?.();
       if (updateBar) updateConnectionBar();
     }
 
@@ -95,6 +99,7 @@
         path.setAttribute('marker-end', 'url(#arrowhead-selected)');
       }
       updateConnectionBar();
+      onSelect?.(connId);
     }
 
     function updateConnectionBar() {
@@ -146,12 +151,24 @@
       const conn = state.connections.find((item) => item.id === state.selectedConnId);
       if (!conn) return;
 
+      // A manually-routed arrow first snaps back to automatic routing.
+      if (conn.isCustom) {
+        saveSnapshot?.();
+        conn.isCustom = false;
+        conn.waypoints = [];
+        updateConnection?.(conn.id);
+        updateConnectionBar();
+        onRouteChange?.(conn.id);
+        return;
+      }
+
       const current = modes.includes(conn.routeMode) ? conn.routeMode : 'auto';
       const next = modes[(modes.indexOf(current) + 1) % modes.length];
       saveSnapshot?.();
       conn.routeMode = next;
       updateConnection?.(conn.id);
       updateConnectionBar();
+      onRouteChange?.(conn.id);
     }
 
     function editSelectedConnectionLabel() {

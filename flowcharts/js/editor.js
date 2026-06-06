@@ -59,6 +59,15 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
   const helpPanel = document.getElementById('help-panel');
   const helpClose = document.getElementById('help-close');
 
+  const fitButton = document.getElementById('fit-button');
+  const validationPanel = document.getElementById('validation-panel');
+  const validationList = document.getElementById('validation-list');
+  const validationSummary = document.getElementById('validation-summary');
+  const validationClose = document.getElementById('validation-close');
+  const templatesModal = document.getElementById('templates-modal');
+  const templatesGrid = document.getElementById('templates-grid');
+  const closeTemplatesBtn = document.getElementById('close-templates');
+
   // topUndoBtn / topSaveBtn are now the main undo/save buttons — no delegation needed
 
   const zoomInBtn = document.getElementById('zoom-in');
@@ -178,6 +187,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
   };
   ROUTE_MODE_LABELS['bypass-left'] = ROUTE_MODE_LABELS['bypass-left'] || 'Обхід ліворуч';
   ROUTE_MODE_LABELS['bypass-right'] = ROUTE_MODE_LABELS['bypass-right'] || 'Обхід праворуч';
+  ROUTE_MODE_LABELS['smart'] = ROUTE_MODE_LABELS['smart'] || 'Розумний обхід';
   const MERGE_LEAD = 34;
   const GRID_SIZE = 20;
   const AUTOSAVE_STORAGE_KEY = 'flowchart-designer-2-autosave';
@@ -190,6 +200,10 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
   let undo = () => {};
   let redo = () => {};
   let updateHistoryButtons = () => {};
+  // Set once the viewport exists; lets arrows/handles/waypoints yield a
+  // middle-button or Space-drag to the container so panning works over them.
+  let panGestureCheck = () => false;
+  const warnedSmartRouteIds = new Set();
 
 
   const openModal = UI.openModal || ((modal) => modal?.classList.add('active'));
@@ -318,6 +332,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     clientToCanvas,
     findShapeAt,
     getShapeData: (shapeId) => state.shapes.find(shape => shape.id === shapeId),
+    isPanGesture: (event) => panGestureCheck(event),
     onDecisionConnect: ({ fromEl, toEl }) => {
       state.pendingConn = { fromEl, toEl };
       openModal(connectionModal);
@@ -343,6 +358,12 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     decisionConnOutset: DECISION_CONN_OUTSET,
     domShapeToBox,
     decisionVertexDistance,
+    obstacleRouter: window.FlowchartsObstacleRouting || null,
+    onSmartRouteFailure: (conn) => {
+      if (!conn?.id || warnedSmartRouteIds.has(conn.id)) return;
+      warnedSmartRouteIds.add(conn.id);
+      window.OfficeUI?.updateStatus?.('Розумний обхід не знайдено: використано звичайний маршрут.', 'secondary');
+    },
   }) || {};
   const buildMergeContext = routing.buildMergeContext || (() => ({}));
   const computeConnectionGeometry = routing.computeConnectionGeometry || (() => ({ d: '', pts: [] }));
@@ -358,6 +379,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     pointAlongPolyline,
     onSelectConnection: (connId) => selectConnection(connId),
     onDuplicateConnection: () => showMessageModal('Ці фігури вже з\'єднані!'),
+    isPanGesture: (event) => panGestureCheck(event),
   }) || {};
   const removeConnectionDom = connectionsDom.removeConnectionDom || (() => {});
   const updateConnection = connectionsDom.updateConnection || (() => {});
@@ -373,6 +395,33 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
   let cycleSelectedConnectionRouteMode = () => {};
   let selectShape = () => {};
   let deselectAll = () => {};
+
+  // ================= MANUAL WAYPOINTS =================
+  function getConnectionPath(connId, mergeContext) {
+    const conn = state.connections.find((c) => c.id === connId);
+    if (!conn) return [];
+    const fromEl = document.getElementById(conn.from);
+    const toEl = document.getElementById(conn.to);
+    if (!fromEl || !toEl) return [];
+    const ctx = mergeContext || buildMergeContext();
+    return computeConnectionGeometry(fromEl, toEl, conn, ctx).pts || [];
+  }
+
+  const waypointsApi = window.FlowchartsConnectionWaypoints || {};
+  const connectionWaypoints = waypointsApi.createConnectionWaypointsController?.({
+    svgLayer,
+    state,
+    clientToCanvas,
+    snapToGrid,
+    getConnectionPath,
+    updateConnection,
+    saveSnapshot: (...args) => saveSnapshot(...args),
+    scheduleRefresh,
+    isPanGesture: (event) => panGestureCheck(event),
+  }) || {};
+  const showWaypointHandles = connectionWaypoints.showForConnection || (() => {});
+  const clearWaypointHandles = connectionWaypoints.clear || (() => {});
+  const refreshWaypointHandles = connectionWaypoints.refresh || (() => {});
 
   // ================= SELECT CONNECTION =================
   const connectionSelection = connectionSelectionApi.createConnectionSelectionController?.({
@@ -390,6 +439,9 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     hideAllHandles,
     openModal,
     closeModal,
+    onSelect: (connId) => showWaypointHandles(connId),
+    onClear: () => clearWaypointHandles(),
+    onRouteChange: (connId) => showWaypointHandles(connId),
   }) || {};
   clearConnectionSelection = connectionSelection.clearConnectionSelection || clearConnectionSelection;
   selectConnection = connectionSelection.selectConnection || selectConnection;
@@ -480,6 +532,9 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
   function onShapePointerDown(e) {
     if (e.target.classList.contains('conn-handle')) return;
     if (e.button === 2) return;
+    // Yield middle-button / Space-drag to the container so panning works even
+    // when the press starts on a shape.
+    if (viewport.isPanGesture?.(e)) return;
     e.stopPropagation();
 
     clearConnectionSelection();
@@ -550,8 +605,37 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     updateConnectionBar,
   }) || {};
   const setZoom = viewport.setZoom || (() => {});
+  const fitToBounds = viewport.fitToBounds || (() => false);
   const isOnBackground = viewport.isOnBackground || ((target) => target === canvas || target === canvasContainer || target === svgLayer);
+  panGestureCheck = viewport.isPanGesture || panGestureCheck;
   viewport.bind?.();
+
+  // ================= FIT / FOCUS =================
+  function fitDiagram() {
+    if (state.shapes.length === 0) {
+      showMessageModal('Спочатку додай хоча б один блок.');
+      return;
+    }
+    const bounds = computeShapesBounds();
+    if (bounds.empty) return;
+    fitToBounds(bounds);
+  }
+
+  function focusShape(shapeId) {
+    const el = document.getElementById(shapeId);
+    if (!el) return;
+    clearConnectionSelection();
+    selectShape(el);
+    const rect = canvasContainer.getBoundingClientRect();
+    const cx = (el.offsetLeft + el.offsetWidth / 2) * state.scale;
+    const cy = (el.offsetTop + el.offsetHeight / 2) * state.scale;
+    canvasContainer.scrollLeft = cx - rect.width / 2;
+    canvasContainer.scrollTop = cy - rect.height / 2;
+    el.classList.remove('shape-flash');
+    void el.offsetWidth; // restart the CSS animation
+    el.classList.add('shape-flash');
+    setTimeout(() => el.classList.remove('shape-flash'), 1500);
+  }
 
   // ================= FLOW ACTIONS =================
   const flowActions = flowActionsApi.createFlowActionsController?.({
@@ -571,7 +655,20 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     closeModal,
   }) || {};
   updateSnapButton = flowActions.updateSnapButton || updateSnapButton;
+  const addShapeAt = flowActions.addShapeAt || (() => null);
   flowActions.bind?.();
+
+  // ================= PALETTE DRAG-AND-DROP =================
+  const paletteDndApi = window.FlowchartsPaletteDnd || {};
+  paletteDndApi.createPaletteDragController?.({
+    shapeButtons: document.querySelectorAll('.shape-button'),
+    canvas,
+    canvasContainer,
+    clientToCanvas,
+    snapToGrid,
+    getShapeSizeHint,
+    addShapeAt,
+  })?.bind?.();
 
   // ================= DELETE / CLEAR =================
   const shapeDeletion = shapeDeletionApi.createShapeDeletionController?.({
@@ -641,6 +738,19 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
       minY = Math.min(minY, tTop);
       maxX = Math.max(maxX, tLeft + titleDisplay.offsetWidth);
       maxY = Math.max(maxY, tTop + titleDisplay.offsetHeight);
+    }
+
+    // Include arrow routes (manual waypoints, smart detours, bypass loops) so
+    // they are never clipped when fitting or exporting. The merge context is
+    // built once here rather than per connection to keep this O(n) on big
+    // diagrams.
+    if (core?.expandBoundsWithPoints) {
+      let box = { minX, minY, maxX, maxY };
+      const mergeContext = buildMergeContext();
+      state.connections.forEach((conn) => {
+        box = core.expandBoundsWithPoints(box, getConnectionPath(conn.id, mergeContext));
+      });
+      minX = box.minX; minY = box.minY; maxX = box.maxX; maxY = box.maxY;
     }
 
     return { minX, minY, maxX, maxY, empty: false };
@@ -731,6 +841,52 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
 
   projectBridge?.bindProjectControls?.();
 
+  // ================= VALIDATION =================
+  const validationApi = window.FlowchartsValidation || {};
+  const validation = validationApi.createValidationController?.({
+    core,
+    panel: validationPanel,
+    listEl: validationList,
+    summaryEl: validationSummary,
+    closeButton: validationClose,
+    getDiagram: () => ({ shapes: state.shapes, connections: state.connections }),
+    focusShape,
+    openPanel: () => { if (validationPanel) validationPanel.hidden = false; },
+    closePanel: () => { if (validationPanel) validationPanel.hidden = true; },
+  }) || {};
+  validation.bind?.();
+  const validateDiagram = validation.runValidation || (() => {});
+
+  // ================= TEMPLATES =================
+  const templatesApi = window.FlowchartsTemplates || {};
+  const templatesDataApi = window.FlowchartsTemplatesData || {};
+  const templates = templatesApi.createTemplatesController?.({
+    templates: templatesDataApi.TEMPLATES || [],
+    gridEl: templatesGrid,
+    modal: templatesModal,
+    closeButton: closeTemplatesBtn,
+    openModal,
+    closeModal,
+    loadTemplate: (data) => {
+      try {
+        // A template is a fresh, unsaved document — not an opened file, so it is
+        // marked dirty (no "saved"/"opened" toast) and snapshotted for undo.
+        const parsed = core?.parseProject ? core.parseProject(data) : data;
+        saveSnapshot();
+        restoreSnapshot(parsed);
+        setDirty(true);
+        fitDiagram();
+      } catch (error) {
+        console.error(error);
+        showMessageModal(getImportErrorMessage(error));
+      }
+    },
+  }) || {};
+  templates.bind?.();
+  const openTemplates = templates.open || (() => {});
+
+  fitButton?.addEventListener('click', fitDiagram);
+
   // ================= MENUS / HELP =================
   const menuActions = menuActionsApi.createMenuActionsController?.({
     UI,
@@ -748,6 +904,9 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     deleteSelected,
     setZoom,
     showMessageModal,
+    validateDiagram,
+    fitDiagram,
+    openTemplates,
   }) || {};
   const toggleHelp = menuActions.toggleHelp || (() => {});
   const menuApi = menuActions.bind?.() || null;
@@ -774,6 +933,9 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     connectionModal,
     saveTitleModal,
     deleteSelected,
+    fitDiagram,
+    closeValidationPanel: () => validation.close?.(),
+    templatesModal,
   })?.bind?.();
 
   // ================= REFRESH LAYOUT =================
@@ -781,6 +943,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     state._refreshRaf = 0;
     state.connections.forEach(c => updateConnection(c.id));
     updateAllHandleGroups();
+    refreshWaypointHandles();
     scheduleTitleUpdate();
   }
   function scheduleRefresh() {
