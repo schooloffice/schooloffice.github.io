@@ -291,7 +291,7 @@ function dispatchUiAction(action) {
     case 'clear-fill': clearFillStyles(); break;
     case 'clear-text-color': clearTextColorStyles(); break;
     case 'func-sum': applyFunc('SUM'); break;
-    case 'func-avg': applyFunc('AVG'); break;
+    case 'func-avg': applyFunc('AVERAGE'); break;
     case 'func-max': applyFunc('MAX'); break;
     case 'func-min': applyFunc('MIN'); break;
     case 'func-count': applyFunc('COUNT'); break;
@@ -310,7 +310,8 @@ Ctrl+P — друк
 Ctrl+Z / Ctrl+Y — скасувати / повернути
 Delete — очистити виділені клітинки
 Enter / Tab — перехід між клітинками
-F2 — редагувати формулу в клітинці`); break;
+F2 — редагувати формулу в клітинці
+F4 — тип посилання у формулі: A1 → $A$1 → A$1 → $A1`); break;
     case 'about': showInfoModal('Про ПЛЮС Таблиці', `ПЛЮС Таблиці — шкільний табличний редактор у стилі Офіс ПЛЮС.
 
 У цій версії додано:

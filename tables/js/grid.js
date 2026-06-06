@@ -154,6 +154,7 @@ function rebuildGrid() {
         if (!isResizing) startSel(e, c, r, id);
       });
       td.addEventListener('mouseenter', () => {
+        if (isFilling) { updateFill(c, r); return; }
         if (!isResizing) updateSel(c, r);
       });
 
@@ -201,10 +202,11 @@ function rebuildGrid() {
       });
 
       inp.addEventListener('paste', (e) => {
-        // multi-cell paste (tabs/newlines) into grid
+        // Багатоклітинкова вставка (таби/переноси) або внутрішня вставка формул.
         const text = e.clipboardData?.getData('text/plain');
         if (!text) return;
-        if (text.includes('\t') || text.includes('\n') || text.includes('\r')) {
+        const multiCell = text.includes('\t') || text.includes('\n') || text.includes('\r');
+        if (multiCell || TablesClipboard.isInternalPaste(text)) {
           e.preventDefault();
           pasteToGrid(text, active.c, active.r);
         }
@@ -342,6 +344,7 @@ function renderSel() {
 
   updateSelectionStats();
   updateToolbarState();
+  positionFillHandle();
 }
 
 // ---- Keyboard / clipboard ----
@@ -427,4 +430,199 @@ function ensureGridSize(minRows, minCols) {
 
   setGridSize(needRows, needCols);
   rebuildGrid();
+}
+
+// ---- Autofill (маркер заповнення) ----
+let fillHandleEl = null;
+let fillPreviewCells = [];
+
+function rangeAsc(a, b) { const out = []; for (let i = a; i <= b; i++) out.push(i); return out; }
+function rangeDesc(a, b) { const out = []; for (let i = a; i >= b; i--) out.push(i); return out; }
+
+function isPlainNumberRaw(raw) {
+  const s = String(raw ?? '').trim();
+  if (s === '' || s.startsWith('=')) return false;
+  return Number.isFinite(Number(s.replace(',', '.')));
+}
+
+function formatFillNumber(n) {
+  if (!Number.isFinite(n)) return '';
+  return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(10)));
+}
+
+// Чисте обчислення значення для позиції seqIndex у послідовності заповнення.
+// seqIndex 0..len-1 — джерело; >= len — цільові клітинки.
+// Числова доріжка → арифметична прогресія; інакше — повтор зразка (для формул
+// зсув посилань робить уже застосунок за patternIndex).
+function computeFillRaw(sourceRaws, seqIndex) {
+  const src = sourceRaws.map(v => String(v ?? ''));
+  const len = src.length;
+  if (len === 0) return { type: 'pattern', patternIndex: 0, raw: '' };
+
+  if (src.every(isPlainNumberRaw)) {
+    const vals = src.map(s => Number(s.replace(',', '.')));
+    const step = len >= 2 ? vals[len - 1] - vals[len - 2] : 0;
+    const value = vals[len - 1] + step * (seqIndex - (len - 1));
+    return { type: 'num', raw: formatFillNumber(value) };
+  }
+
+  const patternIndex = ((seqIndex % len) + len) % len;
+  return { type: 'pattern', patternIndex, raw: src[patternIndex] };
+}
+
+function fillLane(sourceRaws, sourceIds, targetIds, sourcePositions, targetPositions, axisRow) {
+  const len = sourceRaws.length;
+  for (let t = 0; t < targetIds.length; t++) {
+    const seqIndex = len + t;
+    const res = computeFillRaw(sourceRaws, seqIndex);
+    const targetId = targetIds[t];
+
+    let raw;
+    if (res.type === 'num') {
+      raw = res.raw;
+    } else if (String(res.raw).startsWith('=')) {
+      const delta = targetPositions[t] - sourcePositions[res.patternIndex];
+      raw = axisRow ? offsetFormulaRefs(res.raw, delta, 0) : offsetFormulaRefs(res.raw, 0, delta);
+    } else {
+      raw = res.raw;
+    }
+
+    if (raw === '' || raw == null) delete cellData[targetId];
+    else cellData[targetId] = raw;
+
+    // Формат теж тягнемо за зразком
+    const styleSrcId = sourceIds[seqIndex % len];
+    const style = cellStyles[styleSrcId];
+    if (style) cellStyles[targetId] = style;
+    else delete cellStyles[targetId];
+  }
+}
+
+// Застосовує автозаповнення з src-діапазону в розширений target (рівно один напрям).
+function applyAutoFill(src, target) {
+  let axis, dir;
+  if (target.rMax > src.rMax) { axis = 'v'; dir = 1; }
+  else if (target.rMin < src.rMin) { axis = 'v'; dir = -1; }
+  else if (target.cMax > src.cMax) { axis = 'h'; dir = 1; }
+  else if (target.cMin < src.cMin) { axis = 'h'; dir = -1; }
+  else return false;
+
+  if (axis === 'v') {
+    const srcRows = dir === 1 ? rangeAsc(src.rMin, src.rMax) : rangeDesc(src.rMax, src.rMin);
+    const tgtRows = dir === 1 ? rangeAsc(src.rMax + 1, target.rMax) : rangeDesc(src.rMin - 1, target.rMin);
+    for (let c = src.cMin; c <= src.cMax; c++) {
+      fillLane(
+        srcRows.map(r => cellData[getCellId(c, r)]),
+        srcRows.map(r => getCellId(c, r)),
+        tgtRows.map(r => getCellId(c, r)),
+        srcRows, tgtRows, true
+      );
+    }
+  } else {
+    const srcCols = dir === 1 ? rangeAsc(src.cMin, src.cMax) : rangeDesc(src.cMax, src.cMin);
+    const tgtCols = dir === 1 ? rangeAsc(src.cMax + 1, target.cMax) : rangeDesc(src.cMin - 1, target.cMin);
+    for (let r = src.rMin; r <= src.rMax; r++) {
+      fillLane(
+        srcCols.map(c => cellData[getCellId(c, r)]),
+        srcCols.map(c => getCellId(c, r)),
+        tgtCols.map(c => getCellId(c, r)),
+        srcCols, tgtCols, false
+      );
+    }
+  }
+  return true;
+}
+
+function positionFillHandle() {
+  if (!gridWrap) return;
+  if (!fillHandleEl) {
+    fillHandleEl = document.createElement('div');
+    fillHandleEl.className = 'fill-handle';
+    fillHandleEl.title = 'Перетягни, щоб заповнити';
+    fillHandleEl.addEventListener('mousedown', startFill);
+    gridWrap.appendChild(fillHandleEl);
+  }
+
+  const b = getBounds();
+  const td = cellTd[b.rMax]?.[b.cMax];
+  if (!td) { fillHandleEl.style.display = 'none'; return; }
+
+  const cellRect = td.getBoundingClientRect();
+  const wrapRect = gridWrap.getBoundingClientRect();
+  fillHandleEl.style.display = 'block';
+  fillHandleEl.style.left = (cellRect.right - wrapRect.left + gridWrap.scrollLeft) + 'px';
+  fillHandleEl.style.top = (cellRect.bottom - wrapRect.top + gridWrap.scrollTop) + 'px';
+}
+
+function startFill(e) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const b = getBounds();
+  fillSource = { cMin: b.cMin, cMax: b.cMax, rMin: b.rMin, rMax: b.rMax };
+  fillTarget = { ...fillSource };
+  isFilling = true;
+}
+
+function updateFill(c, r) {
+  if (!isFilling || !fillSource) return;
+  const s = fillSource;
+  const vOver = r > s.rMax ? r - s.rMax : (r < s.rMin ? s.rMin - r : 0);
+  const hOver = c > s.cMax ? c - s.cMax : (c < s.cMin ? s.cMin - c : 0);
+
+  if (vOver === 0 && hOver === 0) {
+    fillTarget = { ...s };
+  } else if (vOver >= hOver) {
+    fillTarget = {
+      cMin: s.cMin, cMax: s.cMax,
+      rMin: r < s.rMin ? r : s.rMin,
+      rMax: r > s.rMax ? r : s.rMax
+    };
+  } else {
+    fillTarget = {
+      rMin: s.rMin, rMax: s.rMax,
+      cMin: c < s.cMin ? c : s.cMin,
+      cMax: c > s.cMax ? c : s.cMax
+    };
+  }
+  renderFillPreview();
+}
+
+function renderFillPreview() {
+  for (const td of fillPreviewCells) td.classList.remove('fill-preview');
+  fillPreviewCells = [];
+  if (!fillTarget || !fillSource) return;
+
+  const t = fillTarget;
+  const s = fillSource;
+  for (let r = t.rMin; r <= t.rMax; r++) {
+    for (let c = t.cMin; c <= t.cMax; c++) {
+      if (r >= s.rMin && r <= s.rMax && c >= s.cMin && c <= s.cMax) continue;
+      const td = cellTd[r]?.[c];
+      if (td) { td.classList.add('fill-preview'); fillPreviewCells.push(td); }
+    }
+  }
+}
+
+function finishFill() {
+  if (!isFilling) return;
+  isFilling = false;
+
+  for (const td of fillPreviewCells) td.classList.remove('fill-preview');
+  fillPreviewCells = [];
+
+  const did = fillTarget && applyAutoFill(fillSource, fillTarget);
+  if (did) {
+    selStart = { c: fillTarget.cMin, r: fillTarget.rMin };
+    selEnd = { c: fillTarget.cMax, r: fillTarget.rMax };
+    setActive(active.c, active.r, activeId, { keepSelection: true });
+    recalculateAll();
+    persistStateToStorage();
+    setDirty(true);
+    saveToHistory();
+    renderSel();
+  }
+
+  fillSource = null;
+  fillTarget = null;
 }

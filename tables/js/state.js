@@ -8,6 +8,11 @@ let isSelecting = false;
 let isResizing = false;
 let resizeCol = null;
 
+// Autofill (маркер заповнення)
+let isFilling = false;
+let fillSource = null; // {cMin,cMax,rMin,rMax}
+let fillTarget = null; // {cMin,cMax,rMin,rMax}
+
 let markedCells = [];
 
 let chartObj = null;

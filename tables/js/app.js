@@ -66,6 +66,7 @@ function initTablesEditor() {
   // global mouse
   document.addEventListener('mouseup', () => {
     isSelecting = false;
+    if (isFilling) finishFill();
     if (isResizing) {
       isResizing = false;
       resizeCol = null;
@@ -119,6 +120,18 @@ function initTablesEditor() {
   // keyboard shortcuts
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeHeaderContextMenu();
+
+    // F4 — перемкнути тип посилання (A1 → $A$1 → A$1 → $A1) у формулі
+    if (e.key === 'F4') {
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.id === 'formulaBar' || activeEl.classList?.contains('cell-input'))) {
+        if (TablesFormulaBar.cycleReferenceType(activeEl)) {
+          e.preventDefault();
+          return;
+        }
+      }
+    }
+
     // Undo/redo
     if (e.ctrlKey || e.metaKey) {
       if (e.key.toLowerCase() === 'z' && !e.shiftKey) {

@@ -51,6 +51,53 @@
         ['active cell visible', activeCell === 'A1']
       ];
 
+      // ---- Autofill drag wiring (end-to-end через реальний grid) ----
+      const fire = (el, type, opts) =>
+        el.dispatchEvent(new win.MouseEvent(type, Object.assign({ bubbles: true, button: 0 }, opts)));
+      const setCell = (id, val) => {
+        const inp = doc.getElementById('inp_' + id);
+        inp.value = val;
+        inp.dispatchEvent(new win.Event('input', { bubbles: true }));
+      };
+
+      setCell('A1', '1');
+      setCell('A2', '2');
+
+      // Виділити A1:A2
+      fire(doc.querySelector('td[data-id="A1"]'), 'mousedown');
+      fire(doc.querySelector('td[data-id="A2"]'), 'mouseenter');
+      fire(doc, 'mouseup');
+
+      const handle = doc.querySelector('.fill-handle');
+      const handleVisible = !!handle && handle.style.display === 'block';
+
+      // Перетягнути маркер до A5
+      if (handle) {
+        fire(handle, 'mousedown');
+        fire(doc.querySelector('td[data-id="A5"]'), 'mouseenter');
+        fire(doc, 'mouseup');
+      }
+      await wait(50);
+
+      checks.push(['fill handle appears for selection', handleVisible]);
+      checks.push(['autofill drag fills A3', doc.getElementById('inp_A3')?.value === '3']);
+      checks.push(['autofill drag fills A4', doc.getElementById('inp_A4')?.value === '4']);
+      checks.push(['autofill drag fills A5', doc.getElementById('inp_A5')?.value === '5']);
+
+      // ---- Вирівнювання за типом даних (Хвиля 1.4) ----
+      setCell('F1', '42');
+      setCell('G1', 'привіт');
+      win.TablesCalculation.recalculateAll();
+      const tdF1 = doc.querySelector('td[data-id="F1"]');
+      const tdG1 = doc.querySelector('td[data-id="G1"]');
+      const alignOf = id => win.getComputedStyle(doc.getElementById('inp_' + id)).textAlign;
+      checks.push(['number cell typed', tdF1.classList.contains('cell-type-number')]);
+      checks.push(['text cell typed', tdG1.classList.contains('cell-type-text')]);
+      checks.push(['number aligns right by default', alignOf('F1') === 'right']);
+      checks.push(['text aligns left by default', alignOf('G1') === 'left']);
+      tdF1.classList.add('style-align-left');
+      checks.push(['explicit align overrides type', alignOf('F1') === 'left']);
+
       const failures = checks.filter(([, ok]) => !ok).map(([name]) => name);
       result.className = failures.length ? 'fail' : 'pass';
       result.textContent = checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} ${name}`).join('\n') +

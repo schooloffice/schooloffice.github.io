@@ -1,103 +1,195 @@
 'use strict';
 
-// ---- Formula parser primitives ----
-function safeMathEval(expr) {
-  const src = String(expr || '').trim();
+// ---- Formula tokenizer + parser → AST ----
+// Замість послідовних String.replace будуємо дерево розбору. Це дає коректне
+// вкладення функцій, абсолютні посилання ($A$1) і однозначні коди помилок.
+//
+// Вузли AST:
+//   { type:'num', value }
+//   { type:'str', value }
+//   { type:'ref', col, row, colAbs, rowAbs }   // col — індекс із 0
+//   { type:'range', start:refNode, end:refNode }
+//   { type:'unary', op:'-'|'+'|'%post', operand }
+//   { type:'binary', op, left, right }
+//   { type:'call', name, args:[node] }
+
+function tokenizeFormula(src) {
+  const s = String(src || '');
+  const n = s.length;
+  const tokens = [];
+  let i = 0;
+
+  const isDigit = ch => ch >= '0' && ch <= '9';
+  const isLetter = ch => (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+
+  while (i < n) {
+    const ch = s[i];
+
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') { i++; continue; }
+
+    // Рядковий літерал "..."
+    if (ch === '"') {
+      let j = i + 1;
+      let str = '';
+      while (j < n && s[j] !== '"') { str += s[j]; j++; }
+      if (j >= n) throw new Error('Unterminated string');
+      tokens.push({ type: 'str', value: str });
+      i = j + 1;
+      continue;
+    }
+
+    // Число
+    if (isDigit(ch) || (ch === '.' && isDigit(s[i + 1]))) {
+      let j = i;
+      while (j < n && isDigit(s[j])) j++;
+      if (s[j] === '.') { j++; while (j < n && isDigit(s[j])) j++; }
+      tokens.push({ type: 'num', value: parseFloat(s.slice(i, j)), text: s.slice(i, j) });
+      i = j;
+      continue;
+    }
+
+    // Посилання на клітинку (можливо з $) — букви, за якими йдуть цифри
+    if (ch === '$' || isLetter(ch)) {
+      const refMatch = /^(\$?)([A-Za-z]+)(\$?)(\d+)/.exec(s.slice(i));
+      if (refMatch) {
+        tokens.push({
+          type: 'ref',
+          col: colToIndex(refMatch[2]),
+          row: parseInt(refMatch[4], 10),
+          colAbs: refMatch[1] === '$',
+          rowAbs: refMatch[3] === '$'
+        });
+        i += refMatch[0].length;
+        continue;
+      }
+      if (!isLetter(ch)) throw new Error('Unexpected character: ' + ch);
+      // Назва (функція або ідентифікатор)
+      let j = i;
+      while (j < n && (isLetter(s[j]) || s[j] === '_')) j++;
+      tokens.push({ type: 'name', value: s.slice(i, j).toUpperCase() });
+      i = j;
+      continue;
+    }
+
+    // Двознакові оператори порівняння
+    const two = s.slice(i, i + 2);
+    if (two === '>=' || two === '<=' || two === '<>' || two === '!=') {
+      tokens.push({ type: 'op', value: two === '!=' ? '<>' : two });
+      i += 2;
+      continue;
+    }
+
+    // Однознакові оператори / пунктуація
+    if ('+-*/(),;:%<>='.includes(ch)) {
+      tokens.push({ type: 'op', value: ch });
+      i++;
+      continue;
+    }
+
+    throw new Error('Unexpected character: ' + ch);
+  }
+
+  tokens.push({ type: 'eof' });
+  return tokens;
+}
+
+function parseFormula(src) {
+  const tokens = tokenizeFormula(src);
   let pos = 0;
+  const peek = () => tokens[pos];
+  const next = () => tokens[pos++];
+  const isOp = v => peek().type === 'op' && peek().value === v;
+  const eatOp = v => { if (isOp(v)) { pos++; return true; } return false; };
+  const expectOp = v => { if (!eatOp(v)) throw new Error('Expected ' + v); };
 
-  function peek() { return src[pos] || ''; }
-  function eat(ch) {
-    if (src[pos] === ch) { pos++; return true; }
-    return false;
-  }
-  function skipSpaces() { while (src[pos] === ' ') pos++; }
+  function parseExpr() { return parseComparison(); }
 
-  function parseExpr() {
-    return parseAddSub();
-  }
-
-  function parseAddSub() {
-    let left = parseMulDiv();
-    skipSpaces();
-    while (peek() === '+' || peek() === '-') {
-      const op = src[pos++];
-      const right = parseMulDiv();
-      left = op === '+' ? left + right : left - right;
-      skipSpaces();
+  function parseComparison() {
+    let left = parseAdditive();
+    while (peek().type === 'op' && ['=', '<>', '<', '>', '<=', '>='].includes(peek().value)) {
+      const op = next().value;
+      left = { type: 'binary', op, left, right: parseAdditive() };
     }
     return left;
   }
 
-  function parseMulDiv() {
+  function parseAdditive() {
+    let left = parseMultiplicative();
+    while (isOp('+') || isOp('-')) {
+      const op = next().value;
+      left = { type: 'binary', op, left, right: parseMultiplicative() };
+    }
+    return left;
+  }
+
+  function parseMultiplicative() {
     let left = parseUnary();
-    skipSpaces();
-    while (peek() === '*' || peek() === '/') {
-      const op = src[pos++];
-      const right = parseUnary();
-      if (op === '/' && right === 0) throw new Error('Division by zero');
-      left = op === '*' ? left * right : left / right;
-      skipSpaces();
+    while (isOp('*') || isOp('/')) {
+      const op = next().value;
+      left = { type: 'binary', op, left, right: parseUnary() };
     }
     return left;
   }
 
   function parseUnary() {
-    skipSpaces();
-    if (peek() === '-') { pos++; return -parseUnary(); }
-    if (peek() === '+') { pos++; return parseUnary(); }
-    return parsePrimary();
+    if (isOp('-') || isOp('+')) {
+      const op = next().value;
+      return { type: 'unary', op, operand: parseUnary() };
+    }
+    return parsePostfix();
+  }
+
+  function parsePostfix() {
+    let node = parsePrimary();
+    while (isOp('%')) { next(); node = { type: 'unary', op: '%post', operand: node }; }
+    return node;
   }
 
   function parsePrimary() {
-    skipSpaces();
-    if (peek() === '(') {
-      pos++;
-      const val = parseExpr();
-      skipSpaces();
-      if (!eat(')')) throw new Error('Missing closing parenthesis');
-      return val;
+    const t = peek();
+
+    if (t.type === 'num') { next(); return { type: 'num', value: t.value }; }
+    if (t.type === 'str') { next(); return { type: 'str', value: t.value }; }
+
+    if (isOp('(')) {
+      next();
+      const e = parseExpr();
+      expectOp(')');
+      return e;
     }
 
-    let numStr = '';
-    while (/[\d.]/.test(peek())) numStr += src[pos++];
-    if (numStr !== '') {
-      const n = parseFloat(numStr);
-      if (!isFinite(n)) throw new Error('Invalid number');
-      return n;
+    if (t.type === 'ref') {
+      next();
+      if (isOp(':')) {
+        next();
+        if (peek().type !== 'ref') throw new Error('Expected cell after :');
+        return { type: 'range', start: t, end: next() };
+      }
+      return t;
     }
-    throw new Error('Unknown character in formula: ' + (peek() || 'end of input'));
+
+    if (t.type === 'name') {
+      next();
+      if (isOp('(')) {
+        next();
+        const args = [];
+        if (!isOp(')')) {
+          args.push(parseExpr());
+          while (eatOp(',') || eatOp(';')) args.push(parseExpr());
+        }
+        expectOp(')');
+        return { type: 'call', name: t.value, args };
+      }
+      // Гола назва без "(" — невідомий ідентифікатор
+      throw formulaError(FORMULA_ERRORS.NAME);
+    }
+
+    throw new Error('Unexpected token');
   }
 
-  const result = parseExpr();
-  skipSpaces();
-  if (pos < src.length) throw new Error('Unexpected characters in formula');
-  return result;
+  const ast = parseExpr();
+  if (peek().type !== 'eof') throw new Error('Unexpected trailing tokens');
+  return ast;
 }
 
-function splitFormulaArgs(argsStr) {
-  const src = String(argsStr || '');
-  const parts = [];
-  let current = '';
-  let depth = 0;
-
-  for (let i = 0; i < src.length; i++) {
-    const ch = src[i];
-    if (ch === '(') depth++;
-    if (ch === ')') depth = Math.max(0, depth - 1);
-
-    if ((ch === ',' || ch === ';') && depth === 0) {
-      parts.push(current.trim());
-      current = '';
-      continue;
-    }
-    current += ch;
-  }
-
-  if (current.trim() || src.includes(',') || src.includes(';')) parts.push(current.trim());
-  return parts.filter((part, idx, arr) => part !== '' || (arr.length === 1 && idx === 0));
-}
-
-window.TablesFormulaParser = {
-  safeMathEval,
-  splitFormulaArgs
-};
+window.TablesFormulaParser = { parseFormula, tokenizeFormula };

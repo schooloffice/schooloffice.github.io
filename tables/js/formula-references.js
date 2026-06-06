@@ -1,65 +1,39 @@
 'use strict';
 
-// ---- Formula references and conditions ----
-function resolveExpressionValue(value) {
-  const src = String(value || '').trim();
-  if (src === '') return 0;
-  if (isCellReference(src)) return resolveValue(src);
-  if (!isNaN(src)) return parseFloat(src);
+// ---- Resolving cell / range values for the AST evaluator ----
+// Повертає типізоване значення клітинки: number | string | null(порожня).
+function getCellValueByIndex(col, row) {
+  if (col < 0 || col >= COL_COUNT || row < 1 || row > ROWS) return null;
 
-  const expanded = src
-    .replace(/(\d+(?:\.\d+)?)%/g, (m, n) => String(parseFloat(n) / 100))
-    .replace(/\b([A-Z]+)(\d+)\b/g, (m, c, r) => String(resolveValue(c + r)));
-  return safeMathEval(expanded);
-}
-
-function evaluateCondition(condition) {
-  const src = String(condition || '').trim();
-  if (src === '') return false;
-
-  const match = /^(.+?)(>=|<=|<>|!=|=|>|<)(.+)$/.exec(src);
-  if (!match) return resolveExpressionValue(src) !== 0;
-
-  const left = resolveExpressionValue(match[1]);
-  const op = match[2];
-  const right = resolveExpressionValue(match[3]);
-
-  if (op === '>=') return left >= right;
-  if (op === '<=') return left <= right;
-  if (op === '>') return left > right;
-  if (op === '<') return left < right;
-  if (op === '=') return left === right;
-  return left !== right;
-}
-
-function resolveValue(ref) {
-  const trimmed = String(ref || '').trim();
-  if (trimmed === '') return 0;
-
-  if (!isNaN(trimmed)) return parseFloat(trimmed);
-
-  const m = /^([A-Z]+)(\d+)$/.exec(trimmed.toUpperCase());
-  if (!m) return 0;
-
-  const cIdx = colToIndex(m[1]);
-  const rNum = parseInt(m[2], 10);
-  if (cIdx < 0 || cIdx >= COL_COUNT || rNum < 1 || rNum > ROWS) return 0;
-
-  const key = m[1] + rNum;
+  const key = indexToCol(col) + row;
   const raw = cellData[key];
-  if (raw === undefined || raw === null || raw === '') return 0;
+  if (raw === undefined || raw === null || String(raw) === '') return null;
 
-  if (String(raw).startsWith('=')) {
-    return evaluateFormula(String(raw).substring(1));
+  const s = String(raw);
+  if (s.startsWith('=')) {
+    // Вкладена формула: рахуємо через спільний рушій (calcDepth ловить цикли).
+    return evaluateFormula(s.substring(1));
   }
 
-  const normalized = String(raw).replace(',', '.');
-  const num = parseFloat(normalized);
-  return isNaN(num) ? 0 : num;
+  const norm = s.replace(',', '.').trim();
+  if (norm !== '' && Number.isFinite(Number(norm))) return Number(norm);
+  return s; // текст
 }
 
-window.TablesFormulaReferences = {
-  evaluateCondition,
-  resolveExpressionValue,
-  resolveValue
-};
+// Розгортає діапазон у плоский масив значень клітинок.
+function rangeToValues(startCol, startRow, endCol, endRow) {
+  const out = [];
+  const cMin = Math.min(startCol, endCol);
+  const cMax = Math.max(startCol, endCol);
+  const rMin = Math.min(startRow, endRow);
+  const rMax = Math.max(startRow, endRow);
+
+  for (let c = cMin; c <= cMax; c++) {
+    for (let r = rMin; r <= rMax; r++) {
+      out.push(getCellValueByIndex(c, r));
+    }
+  }
+  return out;
+}
+
+window.TablesFormulaReferences = { getCellValueByIndex, rangeToValues };

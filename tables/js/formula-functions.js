@@ -1,114 +1,78 @@
 'use strict';
 
-// ---- Spreadsheet function implementations ----
-function countNonEmptyArgs(args) {
-  return args.filter(arg => {
-    if (isCellReference(arg)) {
-      const raw = resolveRawCellValue(arg);
-      return raw !== undefined && raw !== null && String(raw).trim() !== '';
-    }
-    return String(arg || '').trim() !== '';
-  }).length;
+// ---- Function registry ----
+// Кожна функція отримує (argNodes, ctx). ctx надає:
+//   evalScalar(node)      — обчислити вузол у скаляр (number|string|null)
+//   toNumber(value)       — привести до числа (текст → #VALUE!)
+//   isTruthy(value)       — істинність умови
+//   num(node)             — toNumber(evalScalar(node))
+//   collectValues(nodes)  — плоский масив значень (діапазони розгорнуто)
+// Лінива природа IF/AND/OR/NOT збережена: гілки обчислюються лише за потреби.
+
+function isFormulaNumber(v) {
+  return typeof v === 'number' && Number.isFinite(v);
 }
 
-function countNumericArgs(args) {
-  return args.filter(arg => {
-    const src = String(arg || '').trim();
-    if (src === '') return false;
-
-    if (isCellReference(src)) {
-      const raw = resolveRawCellValue(src);
-      if (raw === undefined || raw === null || String(raw).trim() === '') return false;
-      if (String(raw).startsWith('=')) {
-        try {
-          return Number.isFinite(Number(evaluateFormula(String(raw).substring(1))));
-        } catch (_) {
-          return false;
-        }
-      }
-      return Number.isFinite(Number(String(raw).replace(',', '.')));
-    }
-
-    try {
-      return Number.isFinite(Number(resolveExpressionValue(src)));
-    } catch (_) {
-      return false;
-    }
-  }).length;
+function numericValues(argNodes, ctx) {
+  return ctx.collectValues(argNodes).filter(isFormulaNumber);
 }
 
-function evaluateLogicalFunction(func, args) {
-  const rawArgs = splitFormulaArgs(args);
-  if (rawArgs.length === 0) return '0';
-  if (func === 'AND') return rawArgs.every(evaluateCondition) ? '1' : '0';
-  return rawArgs.some(evaluateCondition) ? '1' : '0';
-}
+const FORMULA_FUNCTIONS = {
+  // Агрегатні (ігнорують текст і порожні клітинки, як у Excel)
+  SUM: (a, ctx) => numericValues(a, ctx).reduce((x, y) => x + y, 0),
+  AVERAGE: (a, ctx) => {
+    const v = numericValues(a, ctx);
+    return v.length ? v.reduce((x, y) => x + y, 0) / v.length : 0;
+  },
+  AVG: (a, ctx) => FORMULA_FUNCTIONS.AVERAGE(a, ctx), // аліас (deprecated)
+  MAX: (a, ctx) => { const v = numericValues(a, ctx); return v.length ? Math.max(...v) : 0; },
+  MIN: (a, ctx) => { const v = numericValues(a, ctx); return v.length ? Math.min(...v) : 0; },
+  MEDIAN: (a, ctx) => {
+    const v = numericValues(a, ctx).slice().sort((x, y) => x - y);
+    if (!v.length) return 0;
+    const m = Math.floor(v.length / 2);
+    return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+  },
+  COUNT: (a, ctx) => ctx.collectValues(a).filter(isFormulaNumber).length,
+  COUNTA: (a, ctx) => ctx.collectValues(a)
+    .filter(v => v !== null && !(typeof v === 'string' && v.trim() === '')).length,
 
-function evaluateNotFunction(args) {
-  return evaluateCondition(args) ? '0' : '1';
-}
+  // Логічні (короткозамкнені)
+  IF: (a, ctx) => {
+    const cond = ctx.isTruthy(ctx.evalScalar(a[0]));
+    if (cond) return a.length > 1 ? ctx.evalScalar(a[1]) : 1;
+    return a.length > 2 ? ctx.evalScalar(a[2]) : 0;
+  },
+  AND: (a, ctx) => a.every(n => ctx.isTruthy(ctx.evalScalar(n))) ? 1 : 0,
+  OR: (a, ctx) => a.some(n => ctx.isTruthy(ctx.evalScalar(n))) ? 1 : 0,
+  NOT: (a, ctx) => ctx.isTruthy(ctx.evalScalar(a[0])) ? 0 : 1,
 
-function evaluateIfFunction(args) {
-  const parts = splitFormulaArgs(args);
-  const condition = parts[0] ?? '0';
-  const whenTrue = parts[1] ?? '1';
-  const whenFalse = parts[2] ?? '0';
-  return String(resolveExpressionValue(evaluateCondition(condition) ? whenTrue : whenFalse));
-}
+  // Унарні математичні
+  ABS: (a, ctx) => Math.abs(ctx.num(a[0])),
+  INT: (a, ctx) => Math.floor(ctx.num(a[0])),
+  FLOOR: (a, ctx) => Math.floor(ctx.num(a[0])),
+  CEIL: (a, ctx) => Math.ceil(ctx.num(a[0])),
+  CEILING: (a, ctx) => Math.ceil(ctx.num(a[0])),
+  SQRT: (a, ctx) => {
+    const v = ctx.num(a[0]);
+    if (v < 0) throw formulaError(FORMULA_ERRORS.NUM);
+    return Math.sqrt(v);
+  },
 
-function evaluateAggregateFunction(func, args) {
-  const rawArgs = splitFormulaArgs(args);
-  const vals = rawArgs.map(a => resolveValue(a.trim())).filter(v => isFinite(v));
-  if (func === 'COUNT') return String(countNumericArgs(rawArgs));
-  if (func === 'COUNTA') return String(countNonEmptyArgs(rawArgs));
-  if (vals.length === 0) return '0';
-  if (func === 'SUM') return String(vals.reduce((a, b) => a + b, 0));
-  if (func === 'AVG') return String(vals.reduce((a, b) => a + b, 0) / vals.length);
-  if (func === 'MAX') return String(Math.max(...vals));
-  if (func === 'MIN') return String(Math.min(...vals));
-  if (func === 'MEDIAN') {
-    const sorted = [...vals].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    return String(sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2);
-  }
-  return '0';
-}
-
-function evaluateUnaryMathFunction(func, args) {
-  const val = resolveValue(splitFormulaArgs(args)[0]);
-  if (func === 'ABS') return String(Math.abs(val));
-  if (func === 'INT' || func === 'FLOOR') return String(Math.floor(val));
-  if (func === 'CEIL' || func === 'CEILING') return String(Math.ceil(val));
-  if (func === 'SQRT') {
-    if (val < 0) throw new Error('Square root of a negative number is not supported');
-    return String(Math.sqrt(val));
-  }
-  return '0';
-}
-
-function evaluateBinaryMathFunction(func, args) {
-  const parts = splitFormulaArgs(args);
-  const a = resolveValue(parts[0]);
-  const b = resolveValue(parts[1]);
-  if (func === 'MOD') {
-    if (b === 0) throw new Error('Division by zero');
-    return String(a % b);
-  }
-  if (func === 'ROUND') {
-    const digits = Number.isFinite(b) ? b : 0;
+  // Бінарні математичні
+  ROUND: (a, ctx) => {
+    const n = ctx.num(a[0]);
+    const digits = a.length > 1 ? ctx.num(a[1]) : 0;
     const factor = Math.pow(10, digits);
-    return String(Math.round(a * factor) / factor);
+    return Math.round(n * factor) / factor;
+  },
+  POW: (a, ctx) => Math.pow(ctx.num(a[0]), ctx.num(a[1])),
+  POWER: (a, ctx) => Math.pow(ctx.num(a[0]), ctx.num(a[1])),
+  MOD: (a, ctx) => {
+    const b = ctx.num(a[1]);
+    if (b === 0) throw formulaError(FORMULA_ERRORS.DIV0);
+    return ctx.num(a[0]) % b;
   }
-  return String(Math.pow(a, b));
-}
-
-window.TablesFormulaFunctions = {
-  countNonEmptyArgs,
-  countNumericArgs,
-  evaluateAggregateFunction,
-  evaluateBinaryMathFunction,
-  evaluateIfFunction,
-  evaluateLogicalFunction,
-  evaluateNotFunction,
-  evaluateUnaryMathFunction
 };
+
+window.TablesFormulaFunctions = { FORMULA_FUNCTIONS, isFormulaNumber };

@@ -793,7 +793,7 @@ $tablesFormulaParserPath = Join-Path $Root 'tables/js/formula-parser.js'
 if (Test-Path $tablesFormulaParserPath) {
   $tablesFormulaParser = Get-Content -Raw -Encoding UTF8 $tablesFormulaParserPath
   Assert-True ($tablesFormulaParser -match 'window\.TablesFormulaParser\s*=') "tables/js/formula-parser.js: should expose a stable TablesFormulaParser namespace"
-  foreach ($formulaParserFunction in @('safeMathEval', 'splitFormulaArgs')) {
+  foreach ($formulaParserFunction in @('tokenizeFormula', 'parseFormula')) {
     Assert-True ($tablesFormulaParser -match "function $formulaParserFunction\(") "tables/js/formula-parser.js: should own $formulaParserFunction"
   }
 }
@@ -802,7 +802,7 @@ $tablesFormulaReferencesPath = Join-Path $Root 'tables/js/formula-references.js'
 if (Test-Path $tablesFormulaReferencesPath) {
   $tablesFormulaReferences = Get-Content -Raw -Encoding UTF8 $tablesFormulaReferencesPath
   Assert-True ($tablesFormulaReferences -match 'window\.TablesFormulaReferences\s*=') "tables/js/formula-references.js: should expose a stable TablesFormulaReferences namespace"
-  foreach ($formulaReferenceFunction in @('evaluateCondition', 'resolveExpressionValue', 'resolveValue')) {
+  foreach ($formulaReferenceFunction in @('getCellValueByIndex', 'rangeToValues')) {
     Assert-True ($tablesFormulaReferences -match "function $formulaReferenceFunction\(") "tables/js/formula-references.js: should own $formulaReferenceFunction"
   }
 }
@@ -811,8 +811,9 @@ $tablesFormulaFunctionsPath = Join-Path $Root 'tables/js/formula-functions.js'
 if (Test-Path $tablesFormulaFunctionsPath) {
   $tablesFormulaFunctions = Get-Content -Raw -Encoding UTF8 $tablesFormulaFunctionsPath
   Assert-True ($tablesFormulaFunctions -match 'window\.TablesFormulaFunctions\s*=') "tables/js/formula-functions.js: should expose a stable TablesFormulaFunctions namespace"
-  foreach ($formulaFunction in @('evaluateAggregateFunction', 'evaluateBinaryMathFunction', 'evaluateIfFunction', 'evaluateLogicalFunction', 'evaluateUnaryMathFunction')) {
-    Assert-True ($tablesFormulaFunctions -match "function $formulaFunction\(") "tables/js/formula-functions.js: should own $formulaFunction"
+  Assert-True ($tablesFormulaFunctions -match 'const FORMULA_FUNCTIONS\s*=') "tables/js/formula-functions.js: should own the FORMULA_FUNCTIONS registry"
+  foreach ($formulaFunction in @('SUM', 'AVERAGE', 'COUNT', 'IF', 'ROUND', 'MOD')) {
+    Assert-True ($tablesFormulaFunctions -match "(?m)^\s*$formulaFunction\s*:") "tables/js/formula-functions.js: registry should define $formulaFunction"
   }
 }
 

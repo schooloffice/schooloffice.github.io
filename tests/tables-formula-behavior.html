@@ -24,6 +24,7 @@
   <script src="../tables/js/formula-engine.js"></script>
   <script src="../tables/js/core.js"></script>
   <script src="../tables/js/state.js"></script>
+  <script src="../tables/js/formula-bar.js"></script>
   <script src="../tables/js/grid.js"></script>
   <script src="../tables/js/clipboard.js"></script>
   <script src="../tables/js/cell-format-ui.js"></script>
@@ -33,6 +34,15 @@
     function assertEqual(name, actual, expected) {
       if (Object.is(actual, expected)) return `PASS ${name}`;
       throw new Error(`${name}: expected ${expected}, got ${actual}`);
+    }
+
+    function assertThrows(name, fn, expectedMessage) {
+      try {
+        fn();
+      } catch (e) {
+        return assertEqual(name, e && e.message, expectedMessage);
+      }
+      throw new Error(`${name}: expected throw ${expectedMessage}, but nothing was thrown`);
     }
 
     try {
@@ -51,7 +61,8 @@
 
       const checks = [
         assertEqual('SUM range', evaluateFormula('SUM(A1:A3)'), 60),
-        assertEqual('AVG range', evaluateFormula('AVG(A1:A3)'), 20),
+        assertEqual('AVERAGE range', evaluateFormula('AVERAGE(A1:A3)'), 20),
+        assertEqual('AVG alias still works', evaluateFormula('AVG(A1:A3)'), 20),
         assertEqual('COUNT range', evaluateFormula('COUNT(A1:C1)'), 2),
         assertEqual('COUNTA range', evaluateFormula('COUNTA(A1:C1)'), 3),
         assertEqual('IF comparison true', evaluateFormula('IF(A1>=10,1,0)'), 1),
@@ -64,12 +75,80 @@
         assertEqual('CEILING', evaluateFormula('CEILING(12.1)'), 13),
         assertEqual('percent literal', evaluateFormula('200*15%'), 30),
         assertEqual('cell formula reference', evaluateFormula('B2*2'), 30),
+        // AST-рушій: можливості, недоступні старому регексп-двигуну
+        assertEqual('absolute reference', evaluateFormula('$A$1+$B$1'), 15),
+        assertEqual('mixed reference', evaluateFormula('A$1+$B1'), 15),
+        assertEqual('nested same-name function', evaluateFormula('MAX(MAX(A1:A3),5)'), 30),
+        assertEqual('nested round+average', evaluateFormula('ROUND(AVERAGE(A1:A3),0)'), 20),
+        assertEqual('range plus scalar arg', evaluateFormula('SUM(A1:A3,B1)'), 65),
+        assertEqual('text cell result', evaluateFormula('C1'), 'текст'),
+        assertEqual('string equality in IF', evaluateFormula('IF(C1="текст",1,0)'), 1),
+        assertEqual('lazy IF skips error branch', evaluateFormula('IF(B1=5,42,100/0)'), 42),
+        assertEqual('AVERAGE ignores text', evaluateFormula('AVERAGE(A1:C1)'), 7.5),
+        // shiftFormulaRefs: тепер через токенайзер, поважає $ і рядки
+        assertEqual('shift relative refs', shiftFormulaRefs('=A1+B2', { rowAt: 1, rowDelta: 1 }), '=A2+B3'),
+        assertEqual('shift keeps absolute', shiftFormulaRefs('=$A$1+B2', { rowAt: 1, rowDelta: 1 }), '=$A$1+B3'),
+        assertEqual('shift mixed refs', shiftFormulaRefs('=A$1+$A1', { rowAt: 1, rowDelta: 1 }), '=A$1+$A2'),
+        assertEqual('shift columns', shiftFormulaRefs('=A1+B1', { colAt: 0, colDelta: 1 }), '=B1+C1'),
+        assertEqual('shift keeps absolute column', shiftFormulaRefs('=$A1+B1', { colAt: 0, colDelta: 1 }), '=$A1+C1'),
+        assertEqual('shift range', shiftFormulaRefs('=SUM(A1:A3)', { rowAt: 1, rowDelta: 1 }), '=SUM(A2:A4)'),
+        assertEqual('shift skips string literal', shiftFormulaRefs('=IF(A1="A1",1,0)', { rowAt: 1, rowDelta: 1 }), '=IF(A2="A1",1,0)'),
+        // F4 reference cycling: A1 → $A$1 → A$1 → $A1 → A1
+        assertEqual('F4 rel→abs', TablesFormulaBar.computeReferenceCycle('=A1', 3).value, '=$A$1'),
+        assertEqual('F4 abs→rowabs', TablesFormulaBar.computeReferenceCycle('=$A$1', 5).value, '=A$1'),
+        assertEqual('F4 rowabs→colabs', TablesFormulaBar.computeReferenceCycle('=A$1', 4).value, '=$A1'),
+        assertEqual('F4 colabs→rel', TablesFormulaBar.computeReferenceCycle('=$A1', 4).value, '=A1'),
+        assertEqual('F4 targets ref at caret', TablesFormulaBar.computeReferenceCycle('=A1+B2', 2).value, '=$A$1+B2'),
+        assertEqual('F4 ignores non-formula', TablesFormulaBar.computeReferenceCycle('A1', 2), null),
+        // offsetFormulaRefs: зсув усіх відносних посилань на дельту (для копіювання)
+        assertEqual('offset shifts relative', offsetFormulaRefs('=A1+$B$2', 2, 1), '=B3+$B$2'),
+        assertEqual('offset keeps absolute row', offsetFormulaRefs('=A$1', 2, 1), '=B$1'),
+        assertEqual('offset clamps to bounds', offsetFormulaRefs('=A1', -5, -5), '=A1'),
+        // computeFillRaw: числові серії та повтор зразка
+        assertEqual('fill series step 1', computeFillRaw(['1', '2'], 2).raw, '3'),
+        assertEqual('fill series continues', computeFillRaw(['1', '2'], 4).raw, '5'),
+        assertEqual('fill single number copies', computeFillRaw(['5'], 3).raw, '5'),
+        assertEqual('fill series step 2', computeFillRaw(['2', '4'], 2).raw, '6'),
+        assertEqual('fill text repeats', computeFillRaw(['Пн'], 2).raw, 'Пн'),
+        assertEqual('fill formula is pattern', computeFillRaw(['=A1'], 1).type, 'pattern'),
         assertEqual('clipboard TSV serialization', TablesClipboard.serializeSelectionToTsv(), '10\t5\n20\t=A1+B1')
       ];
 
       TablesClipboard.applyTsvToGridData('7\t8\n9\t10', 4, 4);
       checks.push(assertEqual('clipboard paste top-left', cellData.E4, '7'));
       checks.push(assertEqual('clipboard paste bottom-right', cellData.F5, '10'));
+
+      // Wave 1.2: внутрішнє копіювання зберігає формули і зсуває відносні посилання
+      cellData = { A1: '10', A2: '20', C1: '=A1+5', C2: '=$A$1+A2' };
+      selStart = { c: 2, r: 1 };
+      selEnd = { c: 2, r: 2 }; // C1:C2
+      TablesClipboard.copySelectionToClipboard();
+      const copiedFormulas = TablesClipboard.serializeSelectionToTsv();
+      checks.push(assertEqual('internal paste detected', TablesClipboard.isInternalPaste(copiedFormulas), true));
+      TablesClipboard.applyTsvToGridData(copiedFormulas, 3, 3); // вставка верхнім-лівим у D3
+      checks.push(assertEqual('copy shifts relative ref', cellData.D3, '=B3+5'));
+      checks.push(assertEqual('copy keeps absolute ref', cellData.D4, '=$A$1+B4'));
+
+      // Wave 1.3: автозаповнення (серії, формули, вгору)
+      cellData = { A1: '1', A2: '2' };
+      applyAutoFill({ cMin: 0, cMax: 0, rMin: 1, rMax: 2 }, { cMin: 0, cMax: 0, rMin: 1, rMax: 5 });
+      checks.push(assertEqual('autofill numeric series A3', cellData.A3, '3'));
+      checks.push(assertEqual('autofill numeric series A5', cellData.A5, '5'));
+
+      cellData = { D1: '=A1*2' };
+      applyAutoFill({ cMin: 3, cMax: 3, rMin: 1, rMax: 1 }, { cMin: 3, cMax: 3, rMin: 1, rMax: 3 });
+      checks.push(assertEqual('autofill formula down D2', cellData.D2, '=A2*2'));
+      checks.push(assertEqual('autofill formula down D3', cellData.D3, '=A3*2'));
+
+      cellData = { A5: '=A4' };
+      applyAutoFill({ cMin: 0, cMax: 0, rMin: 5, rMax: 5 }, { cMin: 0, cMax: 2, rMin: 5, rMax: 5 });
+      checks.push(assertEqual('autofill formula right B5', cellData.B5, '=B4'));
+      checks.push(assertEqual('autofill formula right C5', cellData.C5, '=C4'));
+
+      cellData = { A8: '3', A9: '4' };
+      applyAutoFill({ cMin: 0, cMax: 0, rMin: 8, rMax: 9 }, { cMin: 0, cMax: 0, rMin: 6, rMax: 9 });
+      checks.push(assertEqual('autofill up series A7', cellData.A7, '2'));
+      checks.push(assertEqual('autofill up series A6', cellData.A6, '1'));
 
       // Selection stats must ignore empty cells (Number('') === 0 regression)
       cellData = { A1: '10', A2: '20', A3: '30', B1: '-5', B3: '-2' };
@@ -89,6 +168,14 @@
       checks.push(assertEqual('stats max not zeroed by empty', statsB.max, -2));
       checks.push(assertEqual('stats min negative', statsB.min, -5));
       checks.push(assertEqual('stats countNumbers negatives', statsB.countNumbers, 2));
+
+      // Standard formula error codes (Excel/Sheets-сумісні)
+      cellData = { A1: '10', E1: '=E1' };
+      checks.push(assertThrows('error #DIV/0!', () => evaluateFormula('1/0'), '#DIV/0!'));
+      checks.push(assertThrows('error #DIV/0! via MOD', () => evaluateFormula('MOD(5,0)'), '#DIV/0!'));
+      checks.push(assertThrows('error #NAME?', () => evaluateFormula('FOO(1)'), '#NAME?'));
+      checks.push(assertThrows('error #NUM! sqrt', () => evaluateFormula('SQRT(-1)'), '#NUM!'));
+      checks.push(assertThrows('error #CIRC!', () => evaluateFormula('E1'), '#CIRC!'));
 
       result.className = 'pass';
       result.textContent = checks.join('\n') + '\n\nPASSED';
