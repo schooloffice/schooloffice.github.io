@@ -2,13 +2,25 @@
 
 ## Поточний стан
 
-Базовий shell, command adapter, toolbar/menu parity і file picker підключені.
-Локальна структура вже вирівняна до `flowcharts/js/core.js`, `flowcharts/js/ui.js`, `flowcharts/js/editor.js`, `flowcharts/js/app.js`, `flowcharts/js/runtime.js`.
-Частину колишнього монолітного `editor.js` винесено в локальні модулі: `autosave.js`, `modals.js`, `editor-utils.js`, `status.js`, `colors.js`, `connection-selection.js`, `shape-selection.js`, `shape-deletion.js`, `shape-text.js`, `shape-interactions.js`, `shape-factory.js`, `viewport.js`, `keyboard-shortcuts.js`, `history.js`, `menu-actions.js`, `flow-actions.js`, `title.js`, `shape-geometry.js`, `shape-placement.js`, `handles.js`, `routing.js`, `connections-dom.js`.
+Базова міграція до shared shell завершена: command adapter, toolbar/menu parity, file picker, modal/status контракти та офлайн-прекеш підключені.
 
-## Найближчий борг
+Редактор має модульну структуру й поведінковий browser smoke. Поточна функціональна база включає:
 
-- Перевірити ручний сценарій Help/About, open project, PNG save і JSON save.
-- Після кожного нового split-кроку оновлювати `flowcharts/index.html`, `sw.js` і static audit module-contract.
-- Вирівняти statusbar тексти.
-- Пізніше вирішити, чи залишати виняток `Ctrl+S = PNG`, чи перевести на єдину модель.
+- валідацію логіки схеми з переходом до проблемного блока;
+- локальні шаблони та drag-and-drop із палітри;
+- ручні waypoints, obstacle-aware `smart` routing і безпечний fallback для великих схем;
+- fit-to-view, zoom і панорамування середньою кнопкою або `Пробіл`+перетягування;
+- JSON round-trip, undo/redo маршрутів, PNG/print export та офлайн-режим.
+
+## Наступний фокус
+
+- Додати вирівнювання й рівномірний розподіл вибраних блоків.
+- Реалізувати простий контрольований auto-layout без заміни ручного редактора.
+- Після стабілізації layout розглянути Mermaid import/export обмеженої підмножини.
+- Провести ручний візуальний QA великих схем, print/PNG/JSON round-trip і touch-жестів.
+
+## Підтримка
+
+- Після додавання runtime-модуля синхронізувати `flowcharts/index.html`, `sw.js` і `tests/flowcharts-behavior.html`.
+- Зберігати контракт маршрутизації `custom → smart → decision → merge → default` або явно змінювати його разом із тестами.
+- Виняток `Ctrl+S = PNG` лишається свідомою локальною поведінкою; JSON save — toolbar Save і `Ctrl+Shift+S`.
