@@ -1,3 +1,7 @@
 tests/.browser-profile*/
 tests/.browser-smoke.*.stdout.txt
 tests/.browser-smoke.*.stderr.txt
+
+# Local Claude Code state (machine-specific)
+.claude/settings.local.json
+.claude/worktrees/
