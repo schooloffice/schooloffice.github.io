@@ -41,28 +41,48 @@ function Invoke-SmokePage {
     [string]$Name
   )
 
-  $dom = & $chromePath `
-    '--headless=new' `
-    '--disable-gpu' `
-    '--disable-crash-reporter' `
-    '--no-first-run' `
-    "--user-data-dir=$profilePath" `
-    '--virtual-time-budget=8000' `
-    '--dump-dom' `
-    $Url 2>$null | Out-String
+  $runId = [guid]::NewGuid().ToString()
+  $stdoutPath = Join-Path $PSScriptRoot ".browser-smoke.$runId.stdout.txt"
+  $stderrPath = Join-Path $PSScriptRoot ".browser-smoke.$runId.stderr.txt"
 
-  if ($dom -notmatch $PassPattern) {
-    throw "$Name failed.`n$dom"
+  try {
+    $chrome = Start-Process $chromePath -ArgumentList @(
+      '--headless=new',
+      '--disable-gpu',
+      '--disable-crash-reporter',
+      '--no-first-run',
+      "--user-data-dir=$profilePath",
+      "--disk-cache-dir=$cachePath",
+      '--virtual-time-budget=8000',
+      '--dump-dom',
+      $Url
+    ) -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+
+    $dom = Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue
+    $stderr = Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue
+
+    if ($chrome.ExitCode -ne 0) {
+      throw "$Name browser process failed with exit code $($chrome.ExitCode).`n$stderr"
+    }
+
+    if ($dom -notmatch $PassPattern) {
+      throw "$Name failed.`n$dom`n$stderr"
+    }
+
+    Write-Host "$Name passed."
+  } finally {
+    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
   }
-
-  Write-Host "$Name passed."
 }
 
 $chromePath = Get-ChromePath
 $server = $null
 $profilePath = Join-Path $PSScriptRoot ('.browser-profile-office-browser-smoke-' + [guid]::NewGuid().ToString())
+$cachePath = Join-Path $profilePath 'cache'
 
 try {
+  New-Item -ItemType Directory -Path $profilePath, $cachePath -Force | Out-Null
+
   $server = Start-Process powershell -ArgumentList @(
     '-NoProfile',
     '-ExecutionPolicy', 'Bypass',
