@@ -668,6 +668,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     snapToGrid,
     getShapeSizeHint,
     addShapeAt,
+    getBaseColor,
   })?.bind?.();
 
   // ================= DELETE / CLEAR =================

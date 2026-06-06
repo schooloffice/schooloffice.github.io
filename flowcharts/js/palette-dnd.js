@@ -12,6 +12,7 @@
       snapToGrid,
       getShapeSizeHint,
       addShapeAt,
+      getBaseColor,
       document: doc = (typeof document !== 'undefined' ? document : null),
     } = options || {};
 
@@ -37,15 +38,12 @@
 
     function makePreview(button, type) {
       if (!doc) return null;
-      const hint = getShapeSizeHint?.(type) || { w: 150, h: 84 };
+      // A neutral coloured chip — deliberately NOT the real .shape geometry,
+      // whose rotate/skew transforms would fight the cursor-follow transform.
       const preview = doc.createElement('div');
-      preview.className = `palette-drag-preview shape ${type}`;
-      preview.style.width = `${Math.min(hint.w, 150)}px`;
-      preview.style.height = `${Math.min(hint.h, 90)}px`;
-      const content = doc.createElement('div');
-      content.className = 'content';
-      content.textContent = button?.querySelector('.shape-button-text')?.textContent || '';
-      preview.appendChild(content);
+      preview.className = 'palette-drag-preview';
+      preview.style.backgroundColor = (getBaseColor && getBaseColor(type)) || '#3f51b5';
+      preview.textContent = button?.querySelector('.shape-button-text')?.textContent || '';
       doc.body.appendChild(preview);
       return preview;
     }

@@ -764,7 +764,15 @@ button { cursor: pointer; }
 .help-step-link a:hover { text-decoration: underline; }
 
 /* ===== Перевірка схеми ===== */
-.validation-panel { max-width: 460px; }
+.validation-panel {
+  inset: auto;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, 92vw);
+  max-width: 440px;
+  max-height: min(70vh, 520px);
+}
 .validation-summary {
   margin: 0 0 .9rem;
   font-size: .98rem;
@@ -834,11 +842,22 @@ button.validation-issue:focus-visible { outline: 2px solid var(--accent); outlin
   z-index: 2000;
   pointer-events: none;
   transform: translate(-50%, -50%);
-  opacity: .75;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, .25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 120px;
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 10px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  white-space: nowrap;
+  opacity: .8;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .28);
   border: 2px dashed rgba(255, 255, 255, .85);
 }
-.palette-drag-preview.over-canvas { opacity: .9; }
+.palette-drag-preview.over-canvas { opacity: .95; }
 
 /* ===== Ручне редагування сегментів стрілки ===== */
 .wp-node {
