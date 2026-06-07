@@ -149,7 +149,7 @@ export function createDefaultPresentation() {
     fileName: 'моя презентація',
     slides: [slide],
     currentSlideId: slide.id,
-    selectedElementId: null
+    selectedElementIds: []
   };
 }
 

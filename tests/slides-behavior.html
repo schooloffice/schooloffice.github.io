@@ -20,7 +20,7 @@
   <script type="module">
     import { normalizePresentation, parsePresentationText, slugify } from '../slides/js/project.js';
     import { LIMITS, SCHEMA_VERSION } from '../slides/js/constants.js';
-    import { loadDraft, saveDraft, clearDraft } from '../slides/js/storage.js';
+    import { chooseNewerDraftRecord, loadDraft, saveDraft, clearDraft } from '../slides/js/storage.js';
 
     const result = document.getElementById('result');
     const frame = document.getElementById('slidesFrame');
@@ -65,6 +65,10 @@
       let imageDraftRoundTrips = false;
       let quotaFailurePropagates = false;
       let storageRecoversAfterFailure = false;
+      let wrappedDraftLoads = false;
+      let legacyDraftLoads = false;
+      let clearWritesTombstone = false;
+      let equalTimestampTombstoneWins = false;
       try {
         await clearDraft();
         await saveDraft({ probe: 'idb-roundtrip' });
@@ -81,6 +85,14 @@
         const imageBack = await loadDraft();
         imageDraftRoundTrips = !!imageBack && imageBack.slides?.[0]?.elements?.[0]?.content === imageDraft.slides[0].elements[0].content;
         await clearDraft();
+
+        // При однаковому timestamp tombstone повинен перемогти живу чернетку.
+        const tieSavedAt = 123456789;
+        const chosenTie = chooseNewerDraftRecord(
+          { savedAt: tieSavedAt, payload: { probe: 'stale-idb' } },
+          { savedAt: tieSavedAt, payload: null }
+        );
+        equalTimestampTombstoneWins = chosenTie?.payload === null;
 
         // Детерміновано імітуємо quota failure, не заповнюючи диск. Помилка
         // повинна повернутися викликачеві, а наступне збереження — працювати.
@@ -105,6 +117,24 @@
         await saveDraft({ probe: 'after-quota-failure' });
         storageRecoversAfterFailure = (await loadDraft())?.probe === 'after-quota-failure';
         await clearDraft();
+
+        // Формат запису: новий загорнутий {savedAt,payload} і legacy незагорнута
+        // чернетка обидва коректно читаються (реконсиляція/зворотна сумісність).
+        localStorage.setItem('art_slides_v1', JSON.stringify({ savedAt: 5, payload: { probe: 'wrapped' } }));
+        wrappedDraftLoads = (await loadDraft())?.probe === 'wrapped';
+        await clearDraft();
+        localStorage.setItem('art_slides_v1', JSON.stringify({ probe: 'legacy', slides: [] }));
+        legacyDraftLoads = (await loadDraft())?.probe === 'legacy';
+        await clearDraft();
+
+        // Очищення, коли IDB прибрати не вдалося, лишає tombstone (payload=null),
+        // що приховує стару IDB-чернетку після reload; clearDraft звітує чесно.
+        await saveDraft({ probe: 'to-clear' });
+        const clearedReturn = await clearDraft();
+        const afterClear = await loadDraft();
+        const lsRaw = localStorage.getItem('art_slides_v1');
+        const lsRec = lsRaw ? JSON.parse(lsRaw) : null;
+        clearWritesTombstone = clearedReturn === true && afterClear === null && !!lsRec && lsRec.payload === null && typeof lsRec.savedAt === 'number';
       } catch {}
 
       await loadFrame('../slides/index.html');
@@ -149,7 +179,11 @@
         check('clear-draft removes the draft', clearDraftWorks),
         check('large image draft (data-url) round-trips', imageDraftRoundTrips),
         check('quota failure propagates without breaking the editor', quotaFailurePropagates),
-        check('draft storage recovers after quota failure', storageRecoversAfterFailure)
+        check('draft storage recovers after quota failure', storageRecoversAfterFailure),
+        check('wrapped draft record loads', wrappedDraftLoads),
+        check('legacy unwrapped draft still loads', legacyDraftLoads),
+        check('clear-draft leaves a tombstone (no resurrection)', clearWritesTombstone),
+        check('equal-timestamp tombstone wins over stale IDB draft', equalTimestampTombstoneWins)
       ];
 
       // Негативні/безпекові перевірки нормалізації імпорту (P0): ліміти, нейтралізація
@@ -271,6 +305,58 @@
       await waitFor(() => /Чернетку збережено/.test(doc.querySelector('#statusRight').textContent), 'autosave persists draft', 5000);
       checks.push(check('autosave reports draft (not file) saved', /Чернетку збережено/.test(doc.querySelector('#statusRight').textContent)));
       checks.push(check('autosave keeps the file marked dirty', doc.querySelector('#saveBadge').textContent.trim() === 'Є зміни'));
+
+      // Мультивибір: Ctrl+A обирає всі об'єкти, Delete видаляє всіх вибраних
+      // одним кроком історії, Undo повертає; shift-клік перемикає об'єкт у вибірці.
+      clickAction('insert-rect');
+      clickAction('insert-rect');
+      await waitFor(() => doc.querySelectorAll('#stage .shape-element').length >= 2, 'two shapes inserted');
+      const totalEls = doc.querySelectorAll('#stage .stage-element').length;
+      doc.activeElement?.blur?.();
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }));
+      await waitFor(() => doc.querySelectorAll('#stage .stage-element.selected').length === totalEls, 'Ctrl+A selects all');
+      checks.push(check('Ctrl+A selects all objects', totalEls >= 2 && doc.querySelectorAll('#stage .stage-element.selected').length === totalEls));
+
+      clickAction('delete-element');
+      await waitFor(() => doc.querySelectorAll('#stage .stage-element').length === 0, 'multi-delete removes all');
+      checks.push(check('delete removes all selected objects', doc.querySelectorAll('#stage .stage-element').length === 0));
+
+      clickAction('undo');
+      await waitFor(() => doc.querySelectorAll('#stage .stage-element').length === totalEls, 'undo restores multi-delete');
+      checks.push(check('one Undo restores multi-delete', doc.querySelectorAll('#stage .stage-element').length === totalEls));
+
+      const selectedBeforeToggle = doc.querySelectorAll('#stage .stage-element.selected').length;
+      const toggleWrap = Array.from(doc.querySelectorAll('#stage .stage-element')).find(w => !w.querySelector('.text-element'));
+      if (toggleWrap && selectedBeforeToggle >= 2) {
+        toggleWrap.dispatchEvent(new win.PointerEvent('pointerdown', { shiftKey: true, bubbles: true, pointerId: 11 }));
+        await waitFor(() => doc.querySelectorAll('#stage .stage-element.selected').length === selectedBeforeToggle - 1, 'shift-click toggles selection');
+        checks.push(check('shift-click toggles object in selection', doc.querySelectorAll('#stage .stage-element.selected').length === selectedBeforeToggle - 1));
+      }
+
+      // Рамка вибору (marquee): протягування через усю сцену обирає всі об'єкти.
+      const stageEl = doc.querySelector('#stage');
+      const r = stageEl.getBoundingClientRect();
+      stageEl.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 30, clientX: r.left + 2, clientY: r.top + 2 }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 30, clientX: r.right - 2, clientY: r.bottom - 2 }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 30, clientX: r.right - 2, clientY: r.bottom - 2 }));
+      await waitFor(() => doc.querySelectorAll('#stage .stage-element.selected').length === totalEls, 'marquee selects all');
+      checks.push(check('marquee selection covers intersecting objects', doc.querySelectorAll('#stage .stage-element.selected').length === totalEls));
+
+      // Мульти copy/paste: вибрати всі, копіювати, вставити — кількість подвоюється,
+      // вибраними стають нові копії.
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }));
+      await waitFor(() => doc.querySelectorAll('#stage .stage-element.selected').length === totalEls, 'reselect all for copy');
+      clickAction('copy');
+      clickAction('paste');
+      await waitFor(() => doc.querySelectorAll('#stage .stage-element').length === totalEls * 2, 'paste doubles count');
+      checks.push(check('multi copy/paste duplicates the selection', doc.querySelectorAll('#stage .stage-element').length === totalEls * 2));
+      checks.push(check('paste selects the new copies', doc.querySelectorAll('#stage .stage-element.selected').length === totalEls));
+
+      // Змішане форматування: вибірка з тексту й фігур пропонує режими кольору обох.
+      clickAction('color-panel');
+      await waitFor(() => doc.querySelectorAll('#colorModeButtons .color-mode-btn').length > 0, 'color modes rendered');
+      const modeLabels = Array.from(doc.querySelectorAll('#colorModeButtons .color-mode-btn')).map(b => b.textContent.trim());
+      checks.push(check('mixed selection offers text and shape color modes', modeLabels.includes('Текст') && modeLabels.includes('Заливка')));
 
       // Restore-after-reload: збережена чернетка має відновитися на старті
       // (hydration). Зберігаємо маркерну чернетку й перезавантажуємо редактор.

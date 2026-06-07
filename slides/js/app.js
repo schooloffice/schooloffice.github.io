@@ -12,12 +12,14 @@ import { renderStage as renderStageView, syncSelectionUi as syncStageSelectionUi
 import { renderSlideList as renderSlideListView } from './slide-list.js';
 import {
   bindStage as bindStageInteractions,
+  normalizeZIndexes,
   onElementPointerDown as handleElementPointerDown,
   onHandlePointerDown as handleHandlePointerDown,
+  onStageBackgroundPointerDown as handleStageBackgroundPointerDown,
   onStagePointerMove as handleStagePointerMove,
   onStagePointerUp as handleStagePointerUp
 } from './stage-interactions.js';
-import { state, applyPresentationData, getCurrentSlide, getCurrentSlideIndex, getSelectedElement, serializePresentation } from './state.js';
+import { state, applyPresentationData, getCurrentSlide, getCurrentSlideIndex, getSelectedElement, getSelectedElements, isSelected, serializePresentation } from './state.js';
 import { clearDraft, loadDraft, saveDraft } from './storage.js';
 import { createBasicSlideElements, createDefaultPresentation, createImageElement, createShapeElement, createSlide, createTemplateDefinition, createTextElement } from './templates.js';
 import { $, $$, clamp, debounce, deepClone, getTextFromContentEditable, readFileAsDataURL, readFileAsText } from './utils.js';
@@ -184,8 +186,15 @@ function renderFileName() {
 
 function renderStatus() {
   const index = getCurrentSlideIndex();
-  const selected = getSelectedElement();
-  dom.statusLeft.textContent = `Слайд ${index + 1} з ${state.slides.length}${selected ? ` • Об’єкт: ${describeElement(selected)}` : ''}`;
+  const selectedCount = getSelectedElements().length;
+  let suffix = '';
+  if (selectedCount === 1) {
+    const selected = getSelectedElement();
+    if (selected) suffix = ` • Об’єкт: ${describeElement(selected)}`;
+  } else if (selectedCount > 1) {
+    suffix = ` • Вибрано об’єктів: ${selectedCount}`;
+  }
+  dom.statusLeft.textContent = `Слайд ${index + 1} з ${state.slides.length}${suffix}`;
 }
 
 function describeElement(element) {
@@ -238,18 +247,28 @@ function renderStage() {
   });
 }
 
+// Представник для текстового форматування у вибірці: головний, якщо він текст,
+// інакше — перший вибраний текстовий блок. Тож формат доступний у змішаному
+// мультивиборі незалежно від того, що вибрано останнім.
+function getPrimaryTextElement() {
+  const primary = getSelectedElement();
+  if (primary?.type === 'text') return primary;
+  return getSelectedElements().find(element => element.type === 'text') || null;
+}
+
 function renderToolbarState() {
-  const selected = getSelectedElement();
-  dom.fontSizeSelect.value = String(selected?.style?.fontSize || FONT_SIZES[1]);
+  const textEl = getPrimaryTextElement();
+  const primary = getSelectedElement();
+  dom.fontSizeSelect.value = String(textEl?.style?.fontSize || primary?.style?.fontSize || FONT_SIZES[1]);
   $$('[data-action="bold"], [data-action="italic"], [data-action="underline"], [data-action="align-left"], [data-action="align-center"], [data-action="align-right"]').forEach(button => {
     button.classList.remove('active');
   });
 
-  if (selected?.type === 'text') {
-    if (selected.style.bold) $$('[data-action="bold"]').forEach(btn => btn.classList.add('active'));
-    if (selected.style.italic) $$('[data-action="italic"]').forEach(btn => btn.classList.add('active'));
-    if (selected.style.underline) $$('[data-action="underline"]').forEach(btn => btn.classList.add('active'));
-    $$(`[data-action="align-${selected.style.align || 'left'}"]`).forEach(btn => btn.classList.add('active'));
+  if (textEl) {
+    if (textEl.style.bold) $$('[data-action="bold"]').forEach(btn => btn.classList.add('active'));
+    if (textEl.style.italic) $$('[data-action="italic"]').forEach(btn => btn.classList.add('active'));
+    if (textEl.style.underline) $$('[data-action="underline"]').forEach(btn => btn.classList.add('active'));
+    $$(`[data-action="align-${textEl.style.align || 'left'}"]`).forEach(btn => btn.classList.add('active'));
   }
 }
 
@@ -257,22 +276,44 @@ function syncSelectionUi() {
   syncStageSelectionUi(elementDomMap);
 }
 
-function selectElement(id) {
-  state.selectedElementId = id;
+function setSelection(ids) {
+  state.selectedElementIds = Array.from(new Set(ids));
   syncSelectionUi();
   renderToolbarState();
   renderStatus();
+}
+
+function selectElement(id, additive = false) {
+  if (!id) {
+    setSelection([]);
+    return;
+  }
+  if (additive) {
+    const set = new Set(state.selectedElementIds);
+    if (set.has(id)) set.delete(id); else set.add(id);
+    setSelection([...set]);
+  } else {
+    setSelection([id]);
+  }
 }
 
 function clearSelection() {
-  state.selectedElementId = null;
-  syncSelectionUi();
-  renderToolbarState();
-  renderStatus();
+  setSelection([]);
+}
+
+function selectAllElements() {
+  const slide = getCurrentSlide();
+  if (!slide || !slide.elements.length) return;
+  setSelection(slide.elements.map(element => element.id));
+  setStatusRight(`Вибрано об’єктів: ${slide.elements.length}`);
+}
+
+function getCurrentElements() {
+  return getCurrentSlide()?.elements || [];
 }
 
 function onElementPointerDown(event, elementId) {
-  handleElementPointerDown(event, elementId, { elementDomMap, findElementById, selectElement, stage: dom.stage });
+  handleElementPointerDown(event, elementId, { elementDomMap, findElementById, selectElement, isSelected, getSelectedElements, stage: dom.stage });
 }
 
 function onHandlePointerDown(event, elementId, handle) {
@@ -280,7 +321,11 @@ function onHandlePointerDown(event, elementId, handle) {
 }
 
 function bindStage() {
-  bindStageInteractions(dom.stage, { clearSelection, onStagePointerMove, onStagePointerUp });
+  bindStageInteractions(dom.stage, { onStageBackgroundPointerDown, onStagePointerMove, onStagePointerUp });
+}
+
+function onStageBackgroundPointerDown(event) {
+  handleStageBackgroundPointerDown(event, { stage: dom.stage, getSelectionIds: () => state.selectedElementIds });
 }
 
 function onStagePointerMove(event) {
@@ -288,7 +333,7 @@ function onStagePointerMove(event) {
 }
 
 function onStagePointerUp(event) {
-  handleStagePointerUp(event, { elementDomMap, markDirty, renderSlideList });
+  handleStagePointerUp(event, { elementDomMap, markDirty, renderSlideList, setSelection, getCurrentElements, stage: dom.stage });
 }
 
 function bindMenus() {
@@ -368,10 +413,13 @@ function closeMenus() {
 }
 
 function getAvailableColorModes() {
-  const selected = getSelectedElement();
+  // Режими доступні за ВСІМА вибраними типами, а не лише за головним об'єктом.
+  const selected = getSelectedElements();
+  const hasText = selected.some(element => element.type === 'text');
+  const hasShape = selected.some(element => element.type === 'shape');
   const modes = [];
-  if (selected?.type === 'text') modes.push({ key: 'text', label: 'Текст' });
-  if (selected?.type === 'shape') {
+  if (hasText) modes.push({ key: 'text', label: 'Текст' });
+  if (hasShape) {
     modes.push({ key: 'fill', label: 'Заливка' });
     modes.push({ key: 'stroke', label: 'Контур' });
   }
@@ -525,6 +573,10 @@ function handleKeyboardShortcuts(event) {
     }
 
     if (!isTypingInText && !isTypingInInput) {
+      if (key === 'a') {
+        event.preventDefault();
+        selectAllElements();
+      }
       if (key === 'c') {
         event.preventDefault();
         copySelectedElement();
@@ -548,19 +600,30 @@ function handleKeyboardShortcuts(event) {
     }
 
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
-      const selected = getSelectedElement();
-      if (!selected) return;
+      const selected = getSelectedElements();
+      if (!selected.length) return;
       event.preventDefault();
-      pushHistory();
       const step = event.shiftKey ? 10 : 2;
-      if (event.key === 'ArrowUp') selected.y = clamp(selected.y - step, 0, STAGE_HEIGHT - selected.h);
-      if (event.key === 'ArrowDown') selected.y = clamp(selected.y + step, 0, STAGE_HEIGHT - selected.h);
-      if (event.key === 'ArrowLeft') selected.x = clamp(selected.x - step, 0, STAGE_WIDTH - selected.w);
-      if (event.key === 'ArrowRight') selected.x = clamp(selected.x + step, 0, STAGE_WIDTH - selected.w);
+      let dx = 0;
+      let dy = 0;
+      if (event.key === 'ArrowUp') dy = -step;
+      if (event.key === 'ArrowDown') dy = step;
+      if (event.key === 'ArrowLeft') dx = -step;
+      if (event.key === 'ArrowRight') dx = step;
+      // Спільний кламбінг, щоб уся група лишалась у межах слайда.
+      const minX = Math.min(...selected.map(el => el.x));
+      const maxRight = Math.max(...selected.map(el => el.x + el.w));
+      const minY = Math.min(...selected.map(el => el.y));
+      const maxBottom = Math.max(...selected.map(el => el.y + el.h));
+      dx = clamp(dx, -minX, STAGE_WIDTH - maxRight);
+      dy = clamp(dy, -minY, STAGE_HEIGHT - maxBottom);
+      if (dx === 0 && dy === 0) return;
+      pushHistory();
+      selected.forEach(el => { el.x += dx; el.y += dy; });
       renderStage();
       renderSlideList();
       renderStatus();
-      markDirty('Об’єкт переміщено');
+      markDirty(selected.length > 1 ? 'Об’єкти переміщено' : 'Об’єкт переміщено');
     }
   }
 }
@@ -709,7 +772,7 @@ function addSlide() {
   const slide = createSlide({ elements: createBasicSlideElements() });
   state.slides.push(slide);
   state.currentSlideId = slide.id;
-  state.selectedElementId = slide.elements[0]?.id || null;
+  state.selectedElementIds = slide.elements[0] ? [slide.elements[0].id] : [];
   renderAll();
   markDirty('Додано новий слайд');
   requestAnimationFrame(() => {
@@ -728,7 +791,7 @@ function duplicateSlide(slideId = state.currentSlideId) {
   clone.elements = clone.elements.map((element, elementIndex) => normalizeElement({ ...element, id: null }, elementIndex, { trusted: true }));
   state.slides.splice(index + 1, 0, clone);
   state.currentSlideId = clone.id;
-  state.selectedElementId = null;
+  state.selectedElementIds = [];
   renderAll();
   markDirty('Слайд дубльовано');
 }
@@ -753,7 +816,7 @@ function deleteSlide(slideId) {
   state.slides.splice(index, 1);
   const nextIndex = clamp(index, 0, state.slides.length - 1);
   state.currentSlideId = state.slides[nextIndex].id;
-  state.selectedElementId = null;
+  state.selectedElementIds = [];
   renderAll();
   markDirty('Слайд видалено');
 }
@@ -775,7 +838,7 @@ function addTextElement() {
   const slide = getCurrentSlide();
   const element = createTextElement({ z: slide.elements.length + 1 });
   slide.elements.push(element);
-  state.selectedElementId = element.id;
+  state.selectedElementIds = [element.id];
   renderAll();
   markDirty('Додано текст');
   requestAnimationFrame(() => {
@@ -829,7 +892,7 @@ function insertImage(src) {
   const slide = getCurrentSlide();
   const element = createImageElement(src, { z: slide.elements.length + 1 });
   slide.elements.push(element);
-  state.selectedElementId = element.id;
+  state.selectedElementIds = [element.id];
   renderAll();
   markDirty('Додано зображення');
 }
@@ -846,7 +909,7 @@ function addShape(kind) {
   base.x = clamp(base.x + (count % 4) * 24, 24, STAGE_WIDTH - base.w - 24);
   base.y = clamp(base.y + (count % 4) * 18, 24, STAGE_HEIGHT - base.h - 24);
   slide.elements.push(base);
-  state.selectedElementId = base.id;
+  state.selectedElementIds = [base.id];
   renderAll();
   markDirty(kind === 'triangle' ? 'Додано трикутник' : 'Додано фігуру');
 }
@@ -857,7 +920,7 @@ function applyTemplate(type) {
   const template = createTemplateDefinition(type);
   slide.background = template.background;
   slide.elements = template.elements.map((element, index) => normalizeElement({ ...element, z: index + 1 }, index, { trusted: true }));
-  state.selectedElementId = null;
+  state.selectedElementIds = [];
   renderAll();
   markDirty('Застосовано макет');
 }
@@ -869,10 +932,10 @@ function findElementById(elementId) {
 }
 
 function setSelectedTextStyle(partial) {
-  const selected = getSelectedElement();
-  if (!selected || selected.type !== 'text') return;
+  const targets = getSelectedElements().filter(element => element.type === 'text');
+  if (!targets.length) return;
   pushHistory();
-  Object.assign(selected.style, partial);
+  targets.forEach(element => Object.assign(element.style, partial));
   renderStage();
   renderToolbarState();
   renderSlideList();
@@ -880,9 +943,11 @@ function setSelectedTextStyle(partial) {
 }
 
 function toggleTextStyle(key) {
-  const selected = getSelectedElement();
-  if (!selected || selected.type !== 'text') return;
-  setSelectedTextStyle({ [key]: !selected.style[key] });
+  // Напрям перемикання визначаємо за представником тексту, застосовуємо до всіх
+  // вибраних текстових блоків (незалежно від того, що вибрано останнім).
+  const textEl = getPrimaryTextElement();
+  if (!textEl) return;
+  setSelectedTextStyle({ [key]: !textEl.style[key] });
 }
 
 function applyColor(color) {
@@ -897,12 +962,14 @@ function applyColor(color) {
     return;
   }
 
-  const selected = getSelectedElement();
-  if (!selected) return;
+  const targets = getSelectedElements();
+  if (!targets.length) return;
   pushHistory();
-  if (state.currentColorTarget === 'text' && selected.type === 'text') selected.style.color = color;
-  if (state.currentColorTarget === 'fill' && selected.type === 'shape') selected.style.fill = color;
-  if (state.currentColorTarget === 'stroke' && selected.type === 'shape') selected.style.stroke = color;
+  targets.forEach(element => {
+    if (state.currentColorTarget === 'text' && element.type === 'text') element.style.color = color;
+    if (state.currentColorTarget === 'fill' && element.type === 'shape') element.style.fill = color;
+    if (state.currentColorTarget === 'stroke' && element.type === 'shape') element.style.stroke = color;
+  });
   renderStage();
   renderSlideList();
   renderToolbarState();
@@ -911,58 +978,79 @@ function applyColor(color) {
 }
 
 function rotateSelected(delta) {
-  const selected = getSelectedElement();
-  if (!selected) return;
+  const targets = getSelectedElements();
+  if (!targets.length) return;
   pushHistory();
-  selected.rotation = (((selected.rotation || 0) + delta) % 360 + 360) % 360;
+  targets.forEach(element => {
+    element.rotation = (((element.rotation || 0) + delta) % 360 + 360) % 360;
+  });
   renderStage();
   renderSlideList();
   markDirty('Об’єкт повернуто');
 }
 
 function bringSelectedToFront() {
-  const selected = getSelectedElement();
-  if (!selected) return;
+  const targets = getSelectedElements().slice().sort((a, b) => (a.z || 0) - (b.z || 0));
+  if (!targets.length) return;
   pushHistory();
   const slide = getCurrentSlide();
-  selected.z = slide.elements.length + 1;
+  let z = slide.elements.length + 1;
+  // У порядку z — зберігаємо взаємний ВІЗУАЛЬНИЙ порядок вибраних об'єктів.
+  targets.forEach(element => { element.z = z++; });
   normalizeZIndexes();
   renderAll();
   markDirty('Змінено шар');
 }
 
 function sendSelectedToBack() {
-  const selected = getSelectedElement();
-  if (!selected) return;
+  const targets = getSelectedElements().slice().sort((a, b) => (a.z || 0) - (b.z || 0));
+  if (!targets.length) return;
   pushHistory();
-  selected.z = 0;
+  let z = -targets.length;
+  targets.forEach(element => { element.z = z++; });
   normalizeZIndexes();
   renderAll();
   markDirty('Змінено шар');
 }
 
 function copySelectedElement() {
-  const selected = getSelectedElement();
-  if (!selected) return;
-  state.clipboard = deepClone(selected);
-  setStatusRight('Об’єкт скопійовано');
+  // Сортуємо за z, щоб вставлені копії зберегли взаємний ВІЗУАЛЬНИЙ порядок
+  // накладання (масивний порядок після імпорту може не збігатися з z).
+  const targets = getSelectedElements().slice().sort((a, b) => (a.z || 0) - (b.z || 0));
+  if (!targets.length) return;
+  state.clipboard = targets.map(element => deepClone(element));
+  setStatusRight(targets.length > 1 ? `Скопійовано об’єктів: ${targets.length}` : 'Об’єкт скопійовано');
 }
 
 function pasteElement() {
-  if (!state.clipboard) return;
+  const items = Array.isArray(state.clipboard) ? state.clipboard : (state.clipboard ? [state.clipboard] : []);
+  if (!items.length) return;
   pushHistory();
   const slide = getCurrentSlide();
-  const copy = normalizeElement({
-    ...deepClone(state.clipboard),
-    id: null,
-    x: clamp(state.clipboard.x + 24, 0, STAGE_WIDTH - state.clipboard.w),
-    y: clamp(state.clipboard.y + 24, 0, STAGE_HEIGHT - state.clipboard.h),
-    z: slide.elements.length + 1
-  }, slide.elements.length, { trusted: true });
-  slide.elements.push(copy);
-  state.selectedElementId = copy.id;
+  // Спільне зміщення для всієї групи, обмежене так, щоб уся група лишалась у
+  // межах і ЗБЕРЕГЛА взаємне розташування (а не з'їжджалася біля країв).
+  const offset = 24;
+  const minX = Math.min(...items.map(item => item.x));
+  const maxRight = Math.max(...items.map(item => item.x + item.w));
+  const minY = Math.min(...items.map(item => item.y));
+  const maxBottom = Math.max(...items.map(item => item.y + item.h));
+  const dx = clamp(offset, -minX, STAGE_WIDTH - maxRight);
+  const dy = clamp(offset, -minY, STAGE_HEIGHT - maxBottom);
+  const newIds = [];
+  items.forEach(item => {
+    const copy = normalizeElement({
+      ...deepClone(item),
+      id: null,
+      x: item.x + dx,
+      y: item.y + dy,
+      z: slide.elements.length + 1
+    }, slide.elements.length, { trusted: true });
+    slide.elements.push(copy);
+    newIds.push(copy.id);
+  });
+  state.selectedElementIds = newIds;
   renderAll();
-  markDirty('Об’єкт вставлено');
+  markDirty(newIds.length > 1 ? 'Об’єкти вставлено' : 'Об’єкт вставлено');
 }
 
 function duplicateSelectedElement() {
@@ -971,15 +1059,16 @@ function duplicateSelectedElement() {
 }
 
 function deleteSelectedElement() {
-  const selected = getSelectedElement();
-  if (!selected) return;
+  const targets = getSelectedElements();
+  if (!targets.length) return;
   pushHistory();
   const slide = getCurrentSlide();
-  slide.elements = slide.elements.filter(element => element.id !== selected.id);
-  state.selectedElementId = null;
+  const ids = new Set(state.selectedElementIds);
+  slide.elements = slide.elements.filter(element => !ids.has(element.id));
+  state.selectedElementIds = [];
   normalizeZIndexes();
   renderAll();
-  markDirty('Об’єкт видалено');
+  markDirty(targets.length > 1 ? 'Об’єкти видалено' : 'Об’єкт видалено');
 }
 
 function handleExportPdf() {

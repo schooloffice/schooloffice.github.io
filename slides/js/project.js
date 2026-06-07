@@ -94,7 +94,7 @@ export function normalizePresentation(raw, { trusted = false } = {}) {
     fileName: typeof raw.fileName === 'string' && raw.fileName.trim() ? raw.fileName.trim().slice(0, 200) : DEFAULT_PRESENTATION_NAME,
     slides,
     currentSlideId: slides.some(slide => slide.id === raw.currentSlideId) ? raw.currentSlideId : slides[0].id,
-    selectedElementId: null
+    selectedElementIds: []
   };
 }
 

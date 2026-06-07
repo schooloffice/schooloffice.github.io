@@ -1,6 +1,6 @@
 import { DEFAULT_SHAPE_STYLE, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
 import { captureState, commitState } from './history.js';
-import { getCurrentSlide, state } from './state.js';
+import { getCurrentSlide, isSelected, state } from './state.js';
 import { getTextFromContentEditable } from './utils.js';
 
 export function renderStage({
@@ -39,7 +39,9 @@ export function renderStage({
 
 function renderElementNode(element, handlers) {
   const wrap = document.createElement('div');
-  wrap.className = `stage-element${element.id === state.selectedElementId ? ' selected' : ''}`;
+  const selected = isSelected(element.id);
+  const single = selected && state.selectedElementIds.length === 1;
+  wrap.className = `stage-element${selected ? ' selected' : ''}${single ? ' single-selected' : ''}`;
   wrap.dataset.id = element.id;
   wrap.style.left = `${element.x}px`;
   wrap.style.top = `${element.y}px`;
@@ -87,6 +89,13 @@ function createTextNode(element, { markDirty, renderSlideList, selectElement }) 
   let pendingSnapshot = null;
   textBox.addEventListener('pointerdown', event => {
     event.stopPropagation();
+    // Shift-клік додає/прибирає текстовий блок з мультивибору, не входячи в
+    // редагування.
+    if (event.shiftKey) {
+      event.preventDefault();
+      selectElement(element.id, true);
+      return;
+    }
     selectElement(element.id);
   });
   textBox.addEventListener('focus', () => {
@@ -180,7 +189,10 @@ function applyTextStylesToNode(node, element) {
 }
 
 export function syncSelectionUi(elementDomMap) {
+  const single = state.selectedElementIds.length === 1;
   elementDomMap.forEach((node, id) => {
-    node.classList.toggle('selected', id === state.selectedElementId);
+    const selected = isSelected(id);
+    node.classList.toggle('selected', selected);
+    node.classList.toggle('single-selected', selected && single);
   });
 }

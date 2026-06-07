@@ -531,8 +531,19 @@ button {
   pointer-events: none;
 }
 
-.stage-element.selected .resize-handles {
+/* Ручки зміни розміру лише для одиничного вибору; при множинному показуємо
+   тільки рамку виділення кожного об'єкта. */
+.stage-element.single-selected .resize-handles {
   display: block;
+}
+
+/* Рамка вибору (marquee) при перетягуванні на порожній області слайда. */
+.selection-marquee {
+  position: absolute;
+  border: 1px solid #2563eb;
+  background: rgba(37, 99, 235, 0.12);
+  pointer-events: none;
+  z-index: 9999;
 }
 
 .resize-handle {

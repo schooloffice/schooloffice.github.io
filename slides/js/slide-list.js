@@ -24,7 +24,7 @@ export function renderSlideList({
 
     card.addEventListener('click', () => {
       state.currentSlideId = slide.id;
-      state.selectedElementId = null;
+      state.selectedElementIds = [];
       closeColorPopover();
       renderAll();
       setStatusRight('Слайд вибрано');
