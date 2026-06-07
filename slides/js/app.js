@@ -1,4 +1,4 @@
-﻿import { COLOR_PALETTE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_SIZES, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
+﻿import { COLOR_PALETTE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_SIZES, LIMITS, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
 import { exportPresentationPdf, printPresentation, createSlideSnapshot } from './export.js';
 import { pushHistory, redo, resetHistory, undo } from './history.js';
 import {
@@ -128,7 +128,8 @@ function openImagePicker() {
 }
 
 function loadInitialState() {
-  const saved = normalizePresentation(loadDraft());
+  // Чернетка — власні дані редактора, тож довірена (зокрема зовнішні image URL).
+  const saved = normalizePresentation(loadDraft(), { trusted: true });
   const data = saved || createDefaultPresentation();
   applyPresentationData(data);
   resetHistory();
@@ -618,6 +619,19 @@ async function onProjectFileSelected() {
   const file = dom.projectFileInput.files?.[0];
   dom.projectFileInput.value = '';
   if (!file) return;
+  if (file.size > LIMITS.MAX_PROJECT_FILE_BYTES) {
+    showInfoModal('Файл завеликий', `Максимальний розмір файла презентації — ${Math.round(LIMITS.MAX_PROJECT_FILE_BYTES / (1024 * 1024))} МБ.`);
+    return;
+  }
+  // Повний знімок стану редагування для відкату: якщо застосування чи рендер
+  // імпорту зірветься (попри валідацію), повертаємо відкритий проєкт РАЗОМ з
+  // історією та статусом збереження, без втрат.
+  const previous = {
+    presentation: serializePresentation(),
+    undoStack: deepClone(state.undoStack),
+    redoStack: deepClone(state.redoStack),
+    unsavedChanges: state.unsavedChanges
+  };
   try {
     const text = await readFileAsText(file);
     const parsed = parsePresentationText(text);
@@ -629,6 +643,12 @@ async function onProjectFileSelected() {
     renderAll();
     setStatusRight('Файл відкрито');
   } catch {
+    applyPresentationData(previous.presentation);
+    state.undoStack = previous.undoStack;
+    state.redoStack = previous.redoStack;
+    state.unsavedChanges = previous.unsavedChanges;
+    updateDirtyUi();
+    renderAll();
     showInfoModal('Не вдалося відкрити файл', 'Перевірте, чи це файл презентації ПЛЮС Слайди у форматі JSON.');
   }
 }
@@ -654,7 +674,7 @@ function duplicateSlide(slideId = state.currentSlideId) {
   const original = state.slides[index];
   const clone = deepClone(original);
   clone.id = createSlide().id;
-  clone.elements = clone.elements.map((element, elementIndex) => normalizeElement({ ...element, id: null }, elementIndex));
+  clone.elements = clone.elements.map((element, elementIndex) => normalizeElement({ ...element, id: null }, elementIndex, { trusted: true }));
   state.slides.splice(index + 1, 0, clone);
   state.currentSlideId = clone.id;
   state.selectedElementId = null;
@@ -740,6 +760,10 @@ async function onImageFileSelected() {
   const file = dom.imageFileInput.files?.[0];
   dom.imageFileInput.value = '';
   if (!file) return;
+  if (file.size > LIMITS.MAX_IMAGE_FILE_BYTES) {
+    showInfoModal('Зображення завелике', `Максимальний розмір зображення — ${Math.round(LIMITS.MAX_IMAGE_FILE_BYTES / (1024 * 1024))} МБ.`);
+    return;
+  }
   try {
     const dataUrl = await readFileAsDataURL(file);
     insertImage(dataUrl);
@@ -781,7 +805,7 @@ function applyTemplate(type) {
   const slide = getCurrentSlide();
   const template = createTemplateDefinition(type);
   slide.background = template.background;
-  slide.elements = template.elements.map((element, index) => normalizeElement({ ...element, z: index + 1 }, index));
+  slide.elements = template.elements.map((element, index) => normalizeElement({ ...element, z: index + 1 }, index, { trusted: true }));
   state.selectedElementId = null;
   renderAll();
   markDirty('Застосовано макет');
@@ -883,7 +907,7 @@ function pasteElement() {
     x: clamp(state.clipboard.x + 24, 0, STAGE_WIDTH - state.clipboard.w),
     y: clamp(state.clipboard.y + 24, 0, STAGE_HEIGHT - state.clipboard.h),
     z: slide.elements.length + 1
-  }, slide.elements.length);
+  }, slide.elements.length, { trusted: true });
   slide.elements.push(copy);
   state.selectedElementId = copy.id;
   renderAll();

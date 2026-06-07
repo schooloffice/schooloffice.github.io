@@ -19,6 +19,7 @@
 
   <script type="module">
     import { normalizePresentation, parsePresentationText, slugify } from '../slides/js/project.js';
+    import { LIMITS } from '../slides/js/constants.js';
 
     const result = document.getElementById('result');
     const frame = document.getElementById('slidesFrame');
@@ -91,6 +92,55 @@
         check('project parse works', parsed?.slides?.[0]?.id === 's1'),
         check('slugify handles ukrainian', slugify('Моя презентація 1') === 'моя-презентація-1')
       ];
+
+      // Негативні/безпекові перевірки нормалізації імпорту (P0): ліміти, нейтралізація
+      // зовнішніх URL, кламбінг координат, відмова на пошкодженому/надмірному файлі.
+      const slidesOf = els => ({ slides: [{ id: 's', background: '#fff', elements: els }] });
+      const firstEl = data => normalizePresentation(data).slides[0].elements[0];
+      checks.push(check('import rejects non-object', normalizePresentation(null) === null && normalizePresentation(7) === null));
+      checks.push(check('import rejects empty slides', normalizePresentation({ slides: [] }) === null));
+      checks.push(check('import rejects too many slides', normalizePresentation({ slides: Array.from({ length: LIMITS.MAX_SLIDES + 1 }, (_, i) => ({ id: 's' + i, elements: [] })) }) === null));
+      checks.push(check('import rejects too many elements', normalizePresentation(slidesOf(Array.from({ length: LIMITS.MAX_ELEMENTS_PER_SLIDE + 1 }, () => ({ type: 'text', content: 'a' })))) === null));
+      checks.push(check('import neutralizes external image url', firstEl(slidesOf([{ type: 'image', content: 'https://evil.example/x.png' }])).content === ''));
+      checks.push(check('import keeps data image url', firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA' }])).content === 'data:image/png;base64,AAAA'));
+      checks.push(check('trusted import keeps external image url', normalizePresentation(slidesOf([{ type: 'image', content: 'https://ok.example/x.png' }]), { trusted: true }).slides[0].elements[0].content === 'https://ok.example/x.png'));
+      checks.push(check('import truncates over-long text', firstEl(slidesOf([{ type: 'text', content: 'x'.repeat(LIMITS.MAX_TEXT_LENGTH + 5000) }])).content.length === LIMITS.MAX_TEXT_LENGTH));
+      checks.push(check('import clamps wild coordinates', (() => {
+        const el = firstEl(slidesOf([{ type: 'text', content: 'a', x: 1e12, y: -1e12, w: 1e15, h: 5 }]));
+        return Number.isFinite(el.x) && Math.abs(el.x) <= LIMITS.MAX_COORD && el.w <= LIMITS.MAX_SIZE;
+      })()));
+      checks.push(check('corrupted json throws on parse', (() => { try { parsePresentationText('{bad'); return false; } catch { return true; } })()));
+      checks.push(check('import allowlists text align (selector-injection)', ['left', 'center', 'right'].includes(firstEl(slidesOf([{ type: 'text', content: 'a', style: { align: '"]' } }])).style.align)));
+      checks.push(check('import neutralizes css-url background', normalizePresentation({ slides: [{ id: 's', background: 'url(https://evil.example/x.png)', elements: [] }] }).slides[0].background === '#ffffff'));
+      checks.push(check('import keeps valid hex background', normalizePresentation({ slides: [{ id: 's', background: '#123456', elements: [] }] }).slides[0].background === '#123456'));
+      checks.push(check('import neutralizes css-url shape fill', firstEl(slidesOf([{ type: 'shape', shape: 'rect', style: { fill: 'url(https://evil.example/x.png)' } }])).style.fill !== 'url(https://evil.example/x.png)'));
+      checks.push(check('import handles null slide entries without throwing', (() => {
+        const n = normalizePresentation({ slides: [null, { id: 'ok', elements: [] }] });
+        return !!n && n.slides.length === 2 && typeof n.slides[0].id === 'string';
+      })()));
+      checks.push(check('import rejects too many total elements', normalizePresentation({ slides: Array.from({ length: 60 }, (_, i) => ({ id: 's' + i, elements: Array.from({ length: 90 }, () => ({ type: 'text', content: 'a' })) })) }) === null));
+      checks.push(check('import makes duplicate slide ids unique', (() => {
+        const n = normalizePresentation({ slides: [{ id: 'dup', elements: [] }, { id: 'dup', elements: [] }] });
+        return n.slides[0].id !== n.slides[1].id;
+      })()));
+      checks.push(check('import makes duplicate element ids unique', (() => {
+        const n = normalizePresentation(slidesOf([{ type: 'text', id: 'e', content: 'a' }, { type: 'text', id: 'e', content: 'b' }]));
+        return n.slides[0].elements[0].id !== n.slides[0].elements[1].id;
+      })()));
+      checks.push(check('import dedupes element ids across slides', (() => {
+        const n = normalizePresentation({ slides: [{ id: 's1', elements: [{ type: 'text', id: 'e', content: 'a' }] }, { id: 's2', elements: [{ type: 'text', id: 'e', content: 'b' }] }] });
+        return n.slides[0].elements[0].id !== n.slides[1].elements[0].id;
+      })()));
+      checks.push(check('import resolves currentSlideId after dedupe', (() => {
+        const n = normalizePresentation({ slides: [{ id: 'dup', elements: [] }, { id: 'dup', elements: [] }], currentSlideId: 'dup' });
+        return n.currentSlideId === n.slides[0].id && n.slides.some(s => s.id === n.currentSlideId);
+      })()));
+      checks.push(check('import resolves truncation-collision ids uniquely', (() => {
+        const longA = 'x'.repeat(70) + 'A';
+        const longB = 'x'.repeat(70) + 'B';
+        const n = normalizePresentation(slidesOf([{ type: 'text', id: longA, content: 'a' }, { type: 'text', id: longB, content: 'b' }]));
+        return n.slides[0].elements[0].id !== n.slides[0].elements[1].id;
+      })()));
 
       // Сценарій історії: фігура -> новий слайд -> один Undo має прибрати лише
       // слайд і зберегти раніше додану фігуру (регресія off-by-one в undo).
