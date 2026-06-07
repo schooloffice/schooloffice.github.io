@@ -1,4 +1,5 @@
 import { DEFAULT_SHAPE_STYLE, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
+import { captureState, commitState } from './history.js';
 import { getCurrentSlide, state } from './state.js';
 import { getTextFromContentEditable } from './utils.js';
 
@@ -80,11 +81,16 @@ function createTextNode(element, { markDirty, renderSlideList, selectElement }) 
   textBox.spellcheck = false;
   textBox.textContent = element.content || '';
   applyTextStylesToNode(textBox, element);
+  // Безперервне введення тексту коаліс­уємо в один крок історії. Пре-стан
+  // захоплюємо на focus — ДО очищення плейсхолдера, — а записуємо лише на
+  // першій реальній зміні, щоб undo повертав саме початковий стан поля.
+  let pendingSnapshot = null;
   textBox.addEventListener('pointerdown', event => {
     event.stopPropagation();
     selectElement(element.id);
   });
   textBox.addEventListener('focus', () => {
+    pendingSnapshot = captureState();
     selectElement(element.id);
     if (element.isPlaceholder) {
       element.content = '';
@@ -94,6 +100,10 @@ function createTextNode(element, { markDirty, renderSlideList, selectElement }) 
     }
   });
   textBox.addEventListener('input', () => {
+    if (pendingSnapshot) {
+      commitState(pendingSnapshot);
+      pendingSnapshot = null;
+    }
     const value = getTextFromContentEditable(textBox);
     element.content = value;
     element.isPlaceholder = false;

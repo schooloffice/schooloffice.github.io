@@ -29,11 +29,17 @@ const elementDomMap = new Map();
 
 let colorAnchorButton = null;
 
+// Автозбереження оновлює лише браузерну ЧЕРНЕТКУ — це не збереження файла.
+// Тому воно не чіпає `unsavedChanges` і бейдж збереження файла: незбережені
+// зміни лишаються незбереженими, доки користувач не завантажить файл.
 const autosave = debounce(() => {
-  saveDraft(serializePresentation());
-  state.unsavedChanges = false;
-  updateDirtyUi();
-  setStatusRight(`Автозбережено • ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  try {
+    saveDraft(serializePresentation());
+    setStatusRight(`Чернетку збережено • ${time}`);
+  } catch {
+    setStatusRight('Чернетку не збережено: бракує локального місця');
+  }
 }, 260);
 
 function setStatusRight(text) {
@@ -574,18 +580,14 @@ function dispatchAction(action, trigger = null) {
 
 function handleUndo() {
   if (!undo()) return;
-  state.unsavedChanges = false;
-  updateDirtyUi();
   renderAll();
-  setStatusRight('Скасовано');
+  markDirty('Скасовано');
 }
 
 function handleRedo() {
   if (!redo()) return;
-  state.unsavedChanges = false;
-  updateDirtyUi();
   renderAll();
-  setStatusRight('Повернуто');
+  markDirty('Повернуто');
 }
 
 function confirmNewProject() {

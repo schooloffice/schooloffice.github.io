@@ -15,7 +15,7 @@
 <body>
   <h1>Slides Behavior</h1>
   <pre id="result">Running...</pre>
-  <iframe id="slidesFrame" src="../slides/index.html"></iframe>
+  <iframe id="slidesFrame"></iframe>
 
   <script type="module">
     import { normalizePresentation, parsePresentationText, slugify } from '../slides/js/project.js';
@@ -51,6 +51,7 @@
           clearTimeout(timer);
           resolve();
         }, { once: true });
+        frame.src = '../slides/index.html';
       });
 
       const doc = frame.contentDocument;
@@ -91,12 +92,99 @@
         check('slugify handles ukrainian', slugify('Моя презентація 1') === 'моя-презентація-1')
       ];
 
+      // Сценарій історії: фігура -> новий слайд -> один Undo має прибрати лише
+      // слайд і зберегти раніше додану фігуру (регресія off-by-one в undo).
+      const countShapes = () => doc.querySelectorAll('#stage .shape-element').length;
+      const countSlides = () => doc.querySelectorAll('#slideList .slide-card').length;
+      const clickAction = action => {
+        const buttons = Array.from(doc.querySelectorAll(`[data-action="${action}"]`));
+        const button = buttons.find(node => !node.closest('.menu-dropdown')) || buttons[0];
+        if (!button) throw new Error(`action button missing: ${action}`);
+        button.click();
+      };
+
+      const shapesBefore = countShapes();
+      const slidesBefore = countSlides();
+
+      clickAction('insert-rect');
+      await waitFor(() => countShapes() === shapesBefore + 1, 'shape inserted');
+
+      clickAction('new-slide');
+      await waitFor(() => countSlides() === slidesBefore + 1, 'slide added');
+
+      clickAction('undo');
+      await waitFor(() => countSlides() === slidesBefore, 'undo removes the new slide');
+
+      checks.push(check('undo removes only the new slide', countSlides() === slidesBefore));
+      checks.push(check('undo keeps the earlier shape', countShapes() === shapesBefore + 1));
+
+      clickAction('redo');
+      await waitFor(() => countSlides() === slidesBefore + 1, 'redo restores the new slide');
+      checks.push(check('redo restores the new slide', countSlides() === slidesBefore + 1));
+
+      // Placeholder-регресія + коаліс­ція введення. Беремо body-плейсхолдер
+      // СВІЖОГО слайда (його, на відміну від заголовка, не авто-фокусить, тож
+      // він стабільно лишається placeholder незалежно від завантаженої
+      // презентації). Безперервне введення в одній сесії має скасовуватися
+      // ОДНИМ Undo і повертати саме плейсхолдер — і текст, і ознаку
+      // is-placeholder (стиль плейсхолдера).
+      clickAction('new-slide');
+      await wait(60); // дати rAF авто-фокус заголовка відпрацювати
+      await waitFor(() => doc.querySelectorAll('#stage .text-element.is-placeholder').length >= 1, 'fresh placeholder rendered');
+      const bodyPh = doc.querySelector('#stage .text-element.is-placeholder');
+      const originalPlaceholder = bodyPh.textContent;
+      const wasPlaceholder = bodyPh.classList.contains('is-placeholder');
+      bodyPh.focus();
+      ['П', 'Пр', 'При', 'Привіт'].forEach(value => {
+        bodyPh.textContent = value;
+        bodyPh.dispatchEvent(new win.InputEvent('input', { bubbles: true }));
+      });
+      bodyPh.blur();
+      await waitFor(() => {
+        const node = Array.from(doc.querySelectorAll('#stage .text-element')).find(n => n.textContent === 'Привіт');
+        return !!node;
+      }, 'placeholder typing applied');
+      clickAction('undo');
+      await waitFor(() => {
+        const node = Array.from(doc.querySelectorAll('#stage .text-element')).find(n => n.textContent === originalPlaceholder);
+        return !!node;
+      }, 'one Undo restores the placeholder text');
+      const restoredPh = Array.from(doc.querySelectorAll('#stage .text-element')).find(n => n.textContent === originalPlaceholder);
+      checks.push(check('continuous typing reverts in one Undo', wasPlaceholder && !!restoredPh));
+      checks.push(check('Undo restores original placeholder content', !!restoredPh && restoredPh.textContent === originalPlaceholder));
+      checks.push(check('Undo restores placeholder styling (is-placeholder)', !!restoredPh && restoredPh.classList.contains('is-placeholder')));
+
+      // Автозбереження ЧЕРНЕТКИ не повинно позначати ФАЙЛ як збережений: після
+      // паузи, довшої за autosave debounce, бейдж файла лишається "Є зміни".
+      await wait(350);
+      checks.push(check('autosave keeps the file marked dirty', doc.querySelector('#saveBadge').textContent.trim() === 'Є зміни'));
+      checks.push(check('autosave reports draft (not file) saved', /Чернетку збережено/.test(doc.querySelector('#statusRight').textContent)));
+
       result.className = 'pass';
       result.textContent = checks.join('\n') + '\n\nPASSED';
       document.body.dataset.slidesBehavior = 'passed';
     }
 
-    run().catch(error => {
+    // Guard: localStorage спільний для tests/ і slides/. Зберігаємо реальну
+    // чернетку користувача ДО тесту і ВІДНОВЛЮЄМО її у finally, тож запуск тесту
+    // (навіть у живому профілі) не знищує збережену презентацію.
+    async function runGuarded() {
+      const STORAGE_KEY = 'art_slides_v1';
+      let savedDraft = null;
+      try { savedDraft = localStorage.getItem(STORAGE_KEY); } catch {}
+      try {
+        try { localStorage.removeItem(STORAGE_KEY); } catch {}
+        await run();
+      } finally {
+        await wait(350); // дочекатися останнього autosave перед відновленням
+        try {
+          if (savedDraft === null) localStorage.removeItem(STORAGE_KEY);
+          else localStorage.setItem(STORAGE_KEY, savedDraft);
+        } catch {}
+      }
+    }
+
+    runGuarded().catch(error => {
       result.className = 'fail';
       result.textContent = String(error && error.stack || error);
       document.body.dataset.slidesBehavior = 'failed';

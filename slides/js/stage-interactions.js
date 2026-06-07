@@ -12,7 +12,8 @@ const pointer = {
   startY: 0,
   dragOffsetX: 0,
   dragOffsetY: 0,
-  startBox: null
+  startBox: null,
+  committed: false
 };
 
 export function getStagePoint(stage, clientX, clientY) {
@@ -34,7 +35,6 @@ export function onElementPointerDown(event, elementId, { elementDomMap, findElem
   const node = elementDomMap.get(elementId);
   if (!element || !node) return;
 
-  pushHistory();
   selectElement(elementId);
 
   const point = getStagePoint(stage, event.clientX, event.clientY);
@@ -43,6 +43,7 @@ export function onElementPointerDown(event, elementId, { elementDomMap, findElem
   pointer.pointerId = event.pointerId;
   pointer.dragOffsetX = point.x - element.x;
   pointer.dragOffsetY = point.y - element.y;
+  pointer.committed = false;
   node.classList.add('dragging');
   node.setPointerCapture(event.pointerId);
 }
@@ -54,7 +55,6 @@ export function onHandlePointerDown(event, elementId, handle, { elementDomMap, f
   const element = findElementById(elementId);
   if (!element) return;
 
-  pushHistory();
   selectElement(elementId);
 
   const point = getStagePoint(stage, event.clientX, event.clientY);
@@ -65,6 +65,7 @@ export function onHandlePointerDown(event, elementId, handle, { elementDomMap, f
   pointer.startX = point.x;
   pointer.startY = point.y;
   pointer.startBox = { x: element.x, y: element.y, w: element.w, h: element.h };
+  pointer.committed = false;
 
   const node = elementDomMap.get(elementId);
   node?.setPointerCapture(event.pointerId);
@@ -89,8 +90,12 @@ export function onStagePointerMove(event, { elementDomMap, findElementById, stag
   const point = getStagePoint(stage, event.clientX, event.clientY);
 
   if (pointer.mode === 'drag') {
-    element.x = clamp(point.x - pointer.dragOffsetX, 0, STAGE_WIDTH - element.w);
-    element.y = clamp(point.y - pointer.dragOffsetY, 0, STAGE_HEIGHT - element.h);
+    const nextX = clamp(point.x - pointer.dragOffsetX, 0, STAGE_WIDTH - element.w);
+    const nextY = clamp(point.y - pointer.dragOffsetY, 0, STAGE_HEIGHT - element.h);
+    if (nextX === element.x && nextY === element.y) return;
+    commitOnce();
+    element.x = nextX;
+    element.y = nextY;
     node.style.left = `${element.x}px`;
     node.style.top = `${element.y}px`;
     return;
@@ -113,6 +118,8 @@ export function onStagePointerMove(event, { elementDomMap, findElementById, stag
     x = clamp(x, 0, STAGE_WIDTH - w);
     y = clamp(y, 0, STAGE_HEIGHT - h);
 
+    if (x === element.x && y === element.y && w === element.w && h === element.h) return;
+    commitOnce();
     element.x = x;
     element.y = y;
     element.w = w;
@@ -129,14 +136,23 @@ export function onStagePointerUp(event, { elementDomMap, markDirty, renderSlideL
   if (pointer.mode === 'none' || pointer.pointerId !== event.pointerId) return;
   const node = elementDomMap.get(pointer.elementId);
   node?.classList.remove('dragging');
+  const changed = pointer.committed;
   pointer.mode = 'none';
   pointer.elementId = null;
   pointer.handle = null;
   pointer.pointerId = null;
   pointer.startBox = null;
+  pointer.committed = false;
+  if (!changed) return;
   normalizeZIndexes();
   renderSlideList();
   markDirty('Положення змінено');
+}
+
+function commitOnce() {
+  if (pointer.committed) return;
+  pushHistory();
+  pointer.committed = true;
 }
 
 function normalizeZIndexes() {
