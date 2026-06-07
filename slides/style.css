@@ -466,9 +466,18 @@ button {
   place-items: center;
 }
 
+/* Резервує місце під масштабований слайд, щоб робоча область коректно
+   прокручувалась при zoom > вікна. Розмір = логічний 960×540 × масштаб. */
+.stage-sizer {
+  width: calc(960px * var(--stage-zoom, 1));
+  height: calc(540px * var(--stage-zoom, 1));
+  position: relative;
+  flex: none;
+}
+
 .stage {
-  width: min(100%, 960px);
-  aspect-ratio: 16 / 9;
+  width: 960px;
+  height: 540px;
   background: #fff;
   border: 1px solid var(--border-strong);
   border-radius: .9rem;
@@ -476,6 +485,23 @@ button {
   position: relative;
   overflow: hidden;
   touch-action: none;
+  /* Масштаб лише візуальний: координати моделі лишаються в логічних 960×540. */
+  transform: scale(var(--stage-zoom, 1));
+  transform-origin: top left;
+}
+
+.zoom-badge {
+  min-width: 52px;
+  height: 30px;
+  padding: 0 .6rem;
+  border-radius: .38rem;
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface, #fff);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: .8rem;
 }
 
 .stage-element {

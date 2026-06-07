@@ -358,6 +358,55 @@
       const modeLabels = Array.from(doc.querySelectorAll('#colorModeButtons .color-mode-btn')).map(b => b.textContent.trim());
       checks.push(check('mixed selection offers text and shape color modes', modeLabels.includes('Текст') && modeLabels.includes('Заливка')));
 
+      // Zoom: масштаб змінює лише вигляд (CSS-змінна), не координати моделі.
+      const zoomBadge = doc.querySelector('#zoomLevel');
+      const sizer = doc.querySelector('#stageSizer');
+      clickAction('zoom-100');
+      await waitFor(() => zoomBadge.textContent.trim() === '100%', 'zoom resets to 100%');
+      checks.push(check('zoom reset shows 100%', zoomBadge.textContent.trim() === '100%' && sizer.style.getPropertyValue('--stage-zoom') === '1'));
+      const zoomEl = doc.querySelector('#stage .stage-element');
+      const leftBeforeZoom = zoomEl?.style.left;
+      clickAction('zoom-in');
+      await waitFor(() => parseFloat(sizer.style.getPropertyValue('--stage-zoom')) > 1, 'zoom-in increases scale');
+      checks.push(check('zoom-in increases the visual scale', parseFloat(sizer.style.getPropertyValue('--stage-zoom')) > 1));
+      checks.push(check('zoom does not move model coordinates', doc.querySelector('#stage .stage-element')?.style.left === leftBeforeZoom));
+
+      // Pointer-взаємодії при zoom != 100% мають переводити екранні координати
+      // назад у логічні координати слайда.
+      const zoomScale = parseFloat(sizer.style.getPropertyValue('--stage-zoom'));
+      const scaledShape = doc.querySelector('#stage .stage-element:has(.shape-element)');
+      const shapeRect = scaledShape.getBoundingClientRect();
+      const dragStartX = shapeRect.left + shapeRect.width / 2;
+      const dragStartY = shapeRect.top + shapeRect.height / 2;
+      const dragLeftBefore = parseFloat(scaledShape.style.left);
+      const dragTopBefore = parseFloat(scaledShape.style.top);
+      scaledShape.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 40, clientX: dragStartX, clientY: dragStartY }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 40, clientX: dragStartX + 24 * zoomScale, clientY: dragStartY + 18 * zoomScale }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 40, clientX: dragStartX + 24 * zoomScale, clientY: dragStartY + 18 * zoomScale }));
+      checks.push(check('drag at zoom preserves logical delta', Math.abs(parseFloat(scaledShape.style.left) - dragLeftBefore - 24) < 0.5 && Math.abs(parseFloat(scaledShape.style.top) - dragTopBefore - 18) < 0.5));
+
+      const resizeHandle = scaledShape.querySelector('.resize-handle.se');
+      const handleRect = resizeHandle.getBoundingClientRect();
+      const resizeStartX = handleRect.left + handleRect.width / 2;
+      const resizeStartY = handleRect.top + handleRect.height / 2;
+      const widthBeforeResize = parseFloat(scaledShape.style.width);
+      const heightBeforeResize = parseFloat(scaledShape.style.height);
+      resizeHandle.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 41, clientX: resizeStartX, clientY: resizeStartY }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 41, clientX: resizeStartX + 30 * zoomScale, clientY: resizeStartY + 20 * zoomScale }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 41, clientX: resizeStartX + 30 * zoomScale, clientY: resizeStartY + 20 * zoomScale }));
+      checks.push(check('resize at zoom preserves logical delta', Math.abs(parseFloat(scaledShape.style.width) - widthBeforeResize - 30) < 0.5 && Math.abs(parseFloat(scaledShape.style.height) - heightBeforeResize - 20) < 0.5));
+
+      const scaledStageRect = stageEl.getBoundingClientRect();
+      stageEl.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 42, clientX: scaledStageRect.left + 2, clientY: scaledStageRect.top + 2 }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 42, clientX: scaledStageRect.right - 2, clientY: scaledStageRect.bottom - 2 }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 42, clientX: scaledStageRect.right - 2, clientY: scaledStageRect.bottom - 2 }));
+      await waitFor(() => doc.querySelectorAll('#stage .stage-element.selected').length === totalEls * 2, 'marquee selects all at zoom');
+      checks.push(check('marquee works at zoom', doc.querySelectorAll('#stage .stage-element.selected').length === totalEls * 2));
+
+      clickAction('zoom-fit');
+      await waitFor(() => parseFloat(sizer.style.getPropertyValue('--stage-zoom')) <= 1, 'zoom-fit fits within 100%');
+      checks.push(check('zoom-fit keeps scale within 100%', parseFloat(sizer.style.getPropertyValue('--stage-zoom')) <= 1));
+
       // Restore-after-reload: збережена чернетка має відновитися на старті
       // (hydration). Зберігаємо маркерну чернетку й перезавантажуємо редактор.
       // Чекаємо завершення останнього debounce з активного iframe, щоб він не

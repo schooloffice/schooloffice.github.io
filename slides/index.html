@@ -156,6 +156,15 @@
     <div class="menu-item-wrap">
       <button class="menu-title" data-menu="view" aria-haspopup="true" aria-expanded="false">Перегляд</button>
       <div class="menu-dropdown" data-menu="view" role="menu">
+        <button class="menu-item" data-action="zoom-in"><span><i class="fa-solid fa-magnifying-glass-plus fa-fw"></i>
+            Збільшити</span><span class="shortcut">Ctrl++</span></button>
+        <button class="menu-item" data-action="zoom-out"><span><i class="fa-solid fa-magnifying-glass-minus fa-fw"></i>
+            Зменшити</span><span class="shortcut">Ctrl+−</span></button>
+        <button class="menu-item" data-action="zoom-100"><span><i class="fa-solid fa-magnifying-glass fa-fw"></i> Масштаб
+            100%</span><span class="shortcut">Ctrl+0</span></button>
+        <button class="menu-item" data-action="zoom-fit"><span><i class="fa-solid fa-expand fa-fw"></i> Вмістити
+            слайд</span></button>
+        <div class="menu-sep"></div>
         <button class="menu-item" data-action="slide-background"><span><i class="fa-solid fa-fill-drip fa-fw"></i> Фон
             слайда…</span></button>
         <button class="menu-item" data-action="present"><span><i class="fa-solid fa-play fa-fw"></i> Почати
@@ -241,6 +250,18 @@
       <button class="tb-btn danger" data-action="delete-element" title="Видалити об’єкт"><i
           class="fa-solid fa-trash"></i></button>
     </div>
+
+    <div class="tb-sep" aria-hidden="true"></div>
+
+    <div class="tb-group">
+      <button class="tb-btn" data-action="zoom-out" title="Зменшити масштаб" aria-label="Зменшити масштаб"><i
+          class="fa-solid fa-magnifying-glass-minus"></i></button>
+      <div id="zoomLevel" class="zoom-badge" aria-live="polite" title="Поточний масштаб">100%</div>
+      <button class="tb-btn" data-action="zoom-in" title="Збільшити масштаб" aria-label="Збільшити масштаб"><i
+          class="fa-solid fa-magnifying-glass-plus"></i></button>
+      <button class="tb-btn" data-action="zoom-fit" title="Вмістити слайд" aria-label="Вмістити слайд у вікно"><i
+          class="fa-solid fa-expand"></i></button>
+    </div>
   </div>
 
   <main class="app-shell office-workspace">
@@ -282,7 +303,9 @@
       </div>
 
       <div class="stage-wrap">
-        <div id="stage" class="stage" aria-label="Полотно слайда"></div>
+        <div id="stageSizer" class="stage-sizer">
+          <div id="stage" class="stage" aria-label="Полотно слайда"></div>
+        </div>
       </div>
     </section>
   </main>

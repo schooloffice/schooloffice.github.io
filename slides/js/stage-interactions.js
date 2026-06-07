@@ -88,7 +88,7 @@ export function onElementPointerDown(event, elementId, { elementDomMap, findElem
   pointer.dragMaxBottom = Math.max(...pointer.dragElements.map(d => d.startY + d.h));
   pointer.dragLeadNode = node;
   node.classList.add('dragging');
-  node.setPointerCapture(event.pointerId);
+  try { node.setPointerCapture(event.pointerId); } catch { /* synthetic/unsupported pointer */ }
 }
 
 export function onHandlePointerDown(event, elementId, handle, { elementDomMap, findElementById, selectElement, stage }) {
@@ -111,7 +111,7 @@ export function onHandlePointerDown(event, elementId, handle, { elementDomMap, f
   pointer.committed = false;
 
   const node = elementDomMap.get(elementId);
-  node?.setPointerCapture(event.pointerId);
+  try { node?.setPointerCapture(event.pointerId); } catch { /* synthetic/unsupported pointer */ }
 }
 
 export function onStageBackgroundPointerDown(event, { stage, getSelectionIds }) {

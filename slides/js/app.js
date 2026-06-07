@@ -30,6 +30,14 @@ const dom = {};
 const elementDomMap = new Map();
 
 let colorAnchorButton = null;
+
+// Масштаб полотна — лише вигляд (координати моделі лишаються логічними 960×540).
+// `autoFitZoom` тримає слайд вписаним у вікно, доки користувач не задасть масштаб вручну.
+let stageZoom = 1;
+let autoFitZoom = true;
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 3;
+const ZOOM_STEP = 0.1;
 // Поки true — запізніле читання чернетки з IndexedDB ще може відновити її.
 // Скидається, щойно користувач створив/відкрив документ або почав редагувати,
 // щоб async-hydration не перезаписала нову чи відкриту презентацію.
@@ -66,6 +74,32 @@ function markDirty(statusText = 'Є незбережені зміни') {
   autosave();
 }
 
+function applyZoom() {
+  // Змінна успадковується від sizer до .stage (transform) — встановлюємо один раз.
+  dom.stageSizer?.style.setProperty('--stage-zoom', String(stageZoom));
+  if (dom.zoomLevel) dom.zoomLevel.textContent = `${Math.round(stageZoom * 100)}%`;
+}
+
+function setZoom(value, { auto = false } = {}) {
+  stageZoom = clamp(value, ZOOM_MIN, ZOOM_MAX);
+  autoFitZoom = auto;
+  applyZoom();
+}
+
+function zoomIn() { setZoom(stageZoom + ZOOM_STEP); }
+function zoomOut() { setZoom(stageZoom - ZOOM_STEP); }
+function zoomTo100() { setZoom(1); }
+
+// Вписує слайд у робочу область, не збільшуючи понад 100%.
+function fitStageToWorkspace() {
+  const ws = dom.workspace;
+  if (!ws || !ws.clientWidth) { setZoom(1, { auto: true }); return; }
+  const availW = ws.clientWidth - 48;
+  const availH = ws.clientHeight - 48;
+  const fit = Math.min(availW / STAGE_WIDTH, availH / STAGE_HEIGHT);
+  setZoom(clamp(fit, ZOOM_MIN, 1), { auto: true });
+}
+
 function initDom() {
   dom.fileName = $('#fileName');
   dom.dirtyDot = $('#dirtyDot');
@@ -73,6 +107,8 @@ function initDom() {
   dom.projectFileInput = $('#projectFileInput');
   dom.imageFileInput = $('#imageFileInput');
   dom.stage = $('#stage');
+  dom.stageSizer = $('#stageSizer');
+  dom.zoomLevel = $('#zoomLevel');
   dom.slideList = $('#slideList');
   dom.workspace = $('#workspace');
   dom.statusLeft = $('#statusLeft');
@@ -109,6 +145,9 @@ function initSlidesEditor() {
   bindStage();
   bindPresentation();
   renderAll();
+  applyZoom();
+  // Вписуємо слайд після того, як робоча область отримала розміри.
+  requestAnimationFrame(fitStageToWorkspace);
 }
 
 function registerOfficeCommands() {
@@ -388,7 +427,17 @@ function bindInputs() {
   });
 
   document.addEventListener('keydown', handleKeyboardShortcuts);
-  window.addEventListener('resize', () => { if (!dom.colorPopover.classList.contains('hidden')) positionColorPopover(); });
+  window.addEventListener('resize', () => {
+    if (!dom.colorPopover.classList.contains('hidden')) positionColorPopover();
+    if (autoFitZoom) fitStageToWorkspace();
+  });
+
+  // Ctrl+колесо — масштабування полотна.
+  dom.workspace.addEventListener('wheel', event => {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    setZoom(stageZoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+  }, { passive: false });
 }
 
 
@@ -571,6 +620,21 @@ function handleKeyboardShortcuts(event) {
       handlePrint();
       return;
     }
+    if (key === '=' || key === '+') {
+      event.preventDefault();
+      zoomIn();
+      return;
+    }
+    if (key === '-' || key === '_') {
+      event.preventDefault();
+      zoomOut();
+      return;
+    }
+    if (key === '0') {
+      event.preventDefault();
+      zoomTo100();
+      return;
+    }
 
     if (!isTypingInText && !isTypingInInput) {
       if (key === 'a') {
@@ -659,6 +723,10 @@ function dispatchAction(action, trigger = null) {
     case 'color-panel': openColorPopover(null, trigger); break;
     case 'slide-background': openColorPopover('background', trigger || dom.colorPanelBtn); break;
     case 'present': startPresentation(); break;
+    case 'zoom-in': zoomIn(); break;
+    case 'zoom-out': zoomOut(); break;
+    case 'zoom-100': zoomTo100(); break;
+    case 'zoom-fit': fitStageToWorkspace(); break;
     case 'bold': toggleTextStyle('bold'); break;
     case 'italic': toggleTextStyle('italic'); break;
     case 'underline': toggleTextStyle('underline'); break;
