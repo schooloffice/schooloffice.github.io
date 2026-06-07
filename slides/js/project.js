@@ -164,5 +164,12 @@ export function savePresentationFile(presentation) {
 
 // Імпорт з файла — НЕдовірений: зовнішні URL та надмірні значення нейтралізуються.
 export function parsePresentationText(text) {
-  return normalizePresentation(JSON.parse(text), { trusted: false });
+  const parsed = JSON.parse(text);
+  // Файли без версії — legacy v1. Явно невідому версію не відкриваємо
+  // мовчки, бо майбутній формат може мати іншу семантику або втрачати дані.
+  if (Object.prototype.hasOwnProperty.call(parsed || {}, 'schemaVersion') &&
+      parsed.schemaVersion !== SCHEMA_VERSION) {
+    return null;
+  }
+  return normalizePresentation(parsed, { trusted: false });
 }

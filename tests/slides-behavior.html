@@ -19,7 +19,8 @@
 
   <script type="module">
     import { normalizePresentation, parsePresentationText, slugify } from '../slides/js/project.js';
-    import { LIMITS } from '../slides/js/constants.js';
+    import { LIMITS, SCHEMA_VERSION } from '../slides/js/constants.js';
+    import { loadDraft, saveDraft, clearDraft } from '../slides/js/storage.js';
 
     const result = document.getElementById('result');
     const frame = document.getElementById('slidesFrame');
@@ -42,18 +43,71 @@
       return `PASS ${name}`;
     }
 
-    async function run() {
-      await import('../slides/js/app.js');
-      check('Slides app module import', typeof window.SlidesApp?.boot === 'function');
-
-      await new Promise((resolve, reject) => {
+    function loadFrame(url) {
+      return new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('slides iframe load timed out')), 7000);
         frame.addEventListener('load', () => {
           clearTimeout(timer);
           resolve();
         }, { once: true });
-        frame.src = '../slides/index.html';
+        frame.src = url;
       });
+    }
+
+    async function run() {
+      await import('../slides/js/app.js');
+      check('Slides app module import', typeof window.SlidesApp?.boot === 'function');
+
+      // Storage-перевірки ДО запуску застосунку в iframe (немає гонки з
+      // autosave). Залишаємо сховище чистим для детермінованого старту.
+      let idbRoundTrips = false;
+      let clearDraftWorks = false;
+      let imageDraftRoundTrips = false;
+      let quotaFailurePropagates = false;
+      let storageRecoversAfterFailure = false;
+      try {
+        await clearDraft();
+        await saveDraft({ probe: 'idb-roundtrip' });
+        const back = await loadDraft();
+        idbRoundTrips = !!back && back.probe === 'idb-roundtrip';
+
+        await clearDraft();
+        clearDraftWorks = (await loadDraft()) === null;
+
+        // Багатомегабайтний data-URL доводить, що реалістична презентація з
+        // великим зображенням зберігається й відновлюється через IndexedDB.
+        const imageDraft = { schemaVersion: SCHEMA_VERSION, fileName: 'З фото', slides: [{ id: 's1', background: '#ffffff', elements: [{ type: 'image', content: 'data:image/png;base64,' + 'A'.repeat(3 * 1024 * 1024), x: 0, y: 0, w: 100, h: 100 }] }], currentSlideId: 's1' };
+        await saveDraft(imageDraft);
+        const imageBack = await loadDraft();
+        imageDraftRoundTrips = !!imageBack && imageBack.slides?.[0]?.elements?.[0]?.content === imageDraft.slides[0].elements[0].content;
+        await clearDraft();
+
+        // Детерміновано імітуємо quota failure, не заповнюючи диск. Помилка
+        // повинна повернутися викликачеві, а наступне збереження — працювати.
+        const putDescriptor = Object.getOwnPropertyDescriptor(IDBObjectStore.prototype, 'put');
+        const setItemDescriptor = Object.getOwnPropertyDescriptor(Storage.prototype, 'setItem');
+        try {
+          Object.defineProperty(IDBObjectStore.prototype, 'put', {
+            ...putDescriptor,
+            value() { throw new DOMException('Quota exceeded in test', 'QuotaExceededError'); }
+          });
+          Object.defineProperty(Storage.prototype, 'setItem', {
+            ...setItemDescriptor,
+            value() { throw new DOMException('Quota exceeded in test', 'QuotaExceededError'); }
+          });
+          await saveDraft({ probe: 'quota-failure' });
+        } catch (error) {
+          quotaFailurePropagates = error?.name === 'QuotaExceededError';
+        } finally {
+          Object.defineProperty(IDBObjectStore.prototype, 'put', putDescriptor);
+          Object.defineProperty(Storage.prototype, 'setItem', setItemDescriptor);
+        }
+        await saveDraft({ probe: 'after-quota-failure' });
+        storageRecoversAfterFailure = (await loadDraft())?.probe === 'after-quota-failure';
+        await clearDraft();
+      } catch {}
+
+      await loadFrame('../slides/index.html');
 
       const doc = frame.contentDocument;
       const win = frame.contentWindow;
@@ -90,7 +144,12 @@
         check('project normalize keeps file name', normalized?.fileName === 'Шкільна презентація'),
         check('project normalize keeps elements', normalized?.slides?.[0]?.elements?.length === 1),
         check('project parse works', parsed?.slides?.[0]?.id === 's1'),
-        check('slugify handles ukrainian', slugify('Моя презентація 1') === 'моя-презентація-1')
+        check('slugify handles ukrainian', slugify('Моя презентація 1') === 'моя-презентація-1'),
+        check('IndexedDB draft round-trips', idbRoundTrips),
+        check('clear-draft removes the draft', clearDraftWorks),
+        check('large image draft (data-url) round-trips', imageDraftRoundTrips),
+        check('quota failure propagates without breaking the editor', quotaFailurePropagates),
+        check('draft storage recovers after quota failure', storageRecoversAfterFailure)
       ];
 
       // Негативні/безпекові перевірки нормалізації імпорту (P0): ліміти, нейтралізація
@@ -110,6 +169,9 @@
         return Number.isFinite(el.x) && Math.abs(el.x) <= LIMITS.MAX_COORD && el.w <= LIMITS.MAX_SIZE;
       })()));
       checks.push(check('corrupted json throws on parse', (() => { try { parsePresentationText('{bad'); return false; } catch { return true; } })()));
+      checks.push(check('import accepts current schema version', !!parsePresentationText(JSON.stringify({ schemaVersion: SCHEMA_VERSION, ...project }))));
+      checks.push(check('import accepts legacy file without schema version', !!parsePresentationText(JSON.stringify(project))));
+      checks.push(check('import rejects unknown future schema version', parsePresentationText(JSON.stringify({ schemaVersion: SCHEMA_VERSION + 1, ...project })) === null));
       checks.push(check('import allowlists text align (selector-injection)', ['left', 'center', 'right'].includes(firstEl(slidesOf([{ type: 'text', content: 'a', style: { align: '"]' } }])).style.align)));
       checks.push(check('import neutralizes css-url background', normalizePresentation({ slides: [{ id: 's', background: 'url(https://evil.example/x.png)', elements: [] }] }).slides[0].background === '#ffffff'));
       checks.push(check('import keeps valid hex background', normalizePresentation({ slides: [{ id: 's', background: '#123456', elements: [] }] }).slides[0].background === '#123456'));
@@ -204,32 +266,46 @@
       checks.push(check('Undo restores original placeholder content', !!restoredPh && restoredPh.textContent === originalPlaceholder));
       checks.push(check('Undo restores placeholder styling (is-placeholder)', !!restoredPh && restoredPh.classList.contains('is-placeholder')));
 
-      // Автозбереження ЧЕРНЕТКИ не повинно позначати ФАЙЛ як збережений: після
-      // паузи, довшої за autosave debounce, бейдж файла лишається "Є зміни".
-      await wait(350);
-      checks.push(check('autosave keeps the file marked dirty', doc.querySelector('#saveBadge').textContent.trim() === 'Є зміни'));
+      // Автозбереження ЧЕРНЕТКИ асинхронне — чекаємо його завершення, а не
+      // фіксовану паузу. Після нього бейдж ФАЙЛА має лишатися "Є зміни".
+      await waitFor(() => /Чернетку збережено/.test(doc.querySelector('#statusRight').textContent), 'autosave persists draft', 5000);
       checks.push(check('autosave reports draft (not file) saved', /Чернетку збережено/.test(doc.querySelector('#statusRight').textContent)));
+      checks.push(check('autosave keeps the file marked dirty', doc.querySelector('#saveBadge').textContent.trim() === 'Є зміни'));
+
+      // Restore-after-reload: збережена чернетка має відновитися на старті
+      // (hydration). Зберігаємо маркерну чернетку й перезавантажуємо редактор.
+      // Чекаємо завершення останнього debounce з активного iframe, щоб він не
+      // перезаписав маркерну чернетку вже після її збереження.
+      await wait(400);
+      await clearDraft();
+      const draftMarker = 'Чернетка-' + Date.now();
+      await saveDraft({ schemaVersion: 1, fileName: draftMarker, slides: [{ id: 's1', background: '#ffffff', elements: [{ type: 'text', content: 'Текст', x: 100, y: 100, w: 200, h: 80 }] }], currentSlideId: 's1' });
+      await loadFrame('../slides/index.html?reload=1');
+      const reloadedDoc = frame.contentDocument;
+      const reloadedWin = frame.contentWindow;
+      await waitFor(() => typeof reloadedWin.SlidesApp?.boot === 'function', 'reloaded boot');
+      await waitFor(() => reloadedDoc.querySelector('#fileName')?.textContent === draftMarker, 'draft restored after reload', 6000);
+      checks.push(check('draft restores after reload (hydration)', reloadedDoc.querySelector('#fileName')?.textContent === draftMarker));
 
       result.className = 'pass';
       result.textContent = checks.join('\n') + '\n\nPASSED';
       document.body.dataset.slidesBehavior = 'passed';
     }
 
-    // Guard: localStorage спільний для tests/ і slides/. Зберігаємо реальну
-    // чернетку користувача ДО тесту і ВІДНОВЛЮЄМО її у finally, тож запуск тесту
-    // (навіть у живому профілі) не знищує збережену презентацію.
+    // Guard: чернетка (IndexedDB) спільна для tests/ і slides/. Зберігаємо
+    // реальну чернетку користувача ДО тесту і ВІДНОВЛЮЄМО її у finally, тож
+    // запуск тесту (навіть у живому профілі) не знищує збережену презентацію.
     async function runGuarded() {
-      const STORAGE_KEY = 'art_slides_v1';
       let savedDraft = null;
-      try { savedDraft = localStorage.getItem(STORAGE_KEY); } catch {}
+      try { savedDraft = await loadDraft(); } catch {}
       try {
-        try { localStorage.removeItem(STORAGE_KEY); } catch {}
+        try { await clearDraft(); } catch {}
         await run();
       } finally {
         await wait(350); // дочекатися останнього autosave перед відновленням
         try {
-          if (savedDraft === null) localStorage.removeItem(STORAGE_KEY);
-          else localStorage.setItem(STORAGE_KEY, savedDraft);
+          if (savedDraft) await saveDraft(savedDraft);
+          else await clearDraft();
         } catch {}
       }
     }

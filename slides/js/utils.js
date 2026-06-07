@@ -15,10 +15,15 @@ export function deepClone(value) {
 
 export function debounce(fn, delay = 200) {
   let timer = null;
-  return (...args) => {
+  const debounced = (...args) => {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), delay);
   };
+  debounced.cancel = () => {
+    clearTimeout(timer);
+    timer = null;
+  };
+  return debounced;
 }
 
 export function downloadTextFile(filename, text, mime = 'application/json') {

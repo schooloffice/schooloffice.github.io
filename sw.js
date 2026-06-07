@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v8';
+const CACHE_VERSION = 'office-plus-v9';
 const PRECACHE_NAME = `${CACHE_VERSION}-precache`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const MAX_RUNTIME_ENTRIES = 80;

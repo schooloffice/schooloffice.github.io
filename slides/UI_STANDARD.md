@@ -32,7 +32,7 @@
 - `slides/js/modal-ui.js` — modal open/close/info/confirm поведінка.
 - `slides/js/state.js` — локальний state, selected element, serialization.
 - `slides/js/history.js` — undo/redo.
-- `slides/js/storage.js` — draft autosave.
+- `slides/js/storage.js` — draft autosave в IndexedDB (фолбек на localStorage).
 - `slides/js/templates.js` — створення слайдів, елементів і макетів.
 - `slides/js/export.js` — PDF export, print і snapshots.
 - `slides/js/utils.js` — DOM, file і utility helpers.

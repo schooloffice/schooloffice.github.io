@@ -1041,6 +1041,14 @@ if (Test-Path $swPath) {
   Assert-ServiceWorkerPrecache $sw
 }
 
+$offlinePath = Join-Path $Root 'offline.js'
+if (Test-Path $offlinePath) {
+  $offline = Get-Content -Raw -Encoding UTF8 $offlinePath
+  Assert-True ($offline -match 'navigator\.serviceWorker\.register') "offline.js: service worker registration must remain enabled"
+  Assert-True ($offline -notmatch 'getRegistrations\(\)[\s\S]*unregister\(\)') "offline.js: must not unregister the service worker during normal boot"
+  Assert-True ($offline -notmatch 'caches\.keys\(\)[\s\S]*caches\.delete') "offline.js: must not clear offline caches during normal boot"
+}
+
 $modalContractFiles = @(
   'text/ui/modals.js',
   'tables/js/ui.js',

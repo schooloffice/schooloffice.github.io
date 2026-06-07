@@ -28,18 +28,23 @@ const dom = {};
 const elementDomMap = new Map();
 
 let colorAnchorButton = null;
+// Поки true — запізніле читання чернетки з IndexedDB ще може відновити її.
+// Скидається, щойно користувач створив/відкрив документ або почав редагувати,
+// щоб async-hydration не перезаписала нову чи відкриту презентацію.
+let draftHydrationActive = true;
+
+function cancelDraftHydration() {
+  draftHydrationActive = false;
+}
 
 // Автозбереження оновлює лише браузерну ЧЕРНЕТКУ — це не збереження файла.
 // Тому воно не чіпає `unsavedChanges` і бейдж збереження файла: незбережені
 // зміни лишаються незбереженими, доки користувач не завантажить файл.
 const autosave = debounce(() => {
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  try {
-    saveDraft(serializePresentation());
-    setStatusRight(`Чернетку збережено • ${time}`);
-  } catch {
-    setStatusRight('Чернетку не збережено: бракує локального місця');
-  }
+  saveDraft(serializePresentation())
+    .then(() => setStatusRight(`Чернетку збережено • ${time}`))
+    .catch(() => setStatusRight('Чернетку не збережено: бракує локального місця'));
 }, 260);
 
 function setStatusRight(text) {
@@ -52,6 +57,7 @@ function updateDirtyUi() {
 }
 
 function markDirty(statusText = 'Є незбережені зміни') {
+  cancelDraftHydration();
   state.unsavedChanges = true;
   updateDirtyUi();
   setStatusRight(statusText);
@@ -128,14 +134,40 @@ function openImagePicker() {
 }
 
 function loadInitialState() {
-  // Чернетка — власні дані редактора, тож довірена (зокрема зовнішні image URL).
-  const saved = normalizePresentation(loadDraft(), { trusted: true });
-  const data = saved || createDefaultPresentation();
-  applyPresentationData(data);
+  // Дефолт показуємо синхронно (щоб UI не блимав порожнім), а чернетку з
+  // IndexedDB підвантажуємо асинхронно й заміщаємо нею, якщо вона є.
+  applyPresentationData(createDefaultPresentation());
   resetHistory();
   state.unsavedChanges = false;
   updateDirtyUi();
   setStatusRight('Готово');
+  hydrateFromDraft();
+}
+
+async function hydrateFromDraft() {
+  let raw = null;
+  try {
+    raw = await loadDraft();
+  } catch {
+    draftHydrationActive = false;
+    return;
+  }
+  // Скасовуємо, якщо користувач за цей час створив/відкрив документ чи почав
+  // редагувати — інакше чернетка перезаписала б нову/відкриту презентацію.
+  if (!draftHydrationActive || !raw || state.unsavedChanges) {
+    draftHydrationActive = false;
+    return;
+  }
+  // Чернетка — власні дані редактора, тож довірена (зокрема зовнішні image URL).
+  const saved = normalizePresentation(raw, { trusted: true });
+  draftHydrationActive = false;
+  if (!saved) return;
+  applyPresentationData(saved);
+  resetHistory();
+  state.unsavedChanges = false;
+  updateDirtyUi();
+  renderAll();
+  setStatusRight('Відновлено чернетку');
 }
 
 function renderAll() {
@@ -540,6 +572,7 @@ function dispatchAction(action, trigger = null) {
     case 'save-project': runOfficeCommand('save') || saveProjectFile(); break;
     case 'export-pdf': handleExportPdf(); break;
     case 'print': handlePrint(); break;
+    case 'clear-draft': confirmClearDraft(); break;
     case 'undo': runOfficeCommand('undo') || handleUndo(); break;
     case 'redo': runOfficeCommand('redo') || handleRedo(); break;
     case 'copy': copySelectedElement(); break;
@@ -597,6 +630,7 @@ function confirmNewProject() {
     text: 'Поточна презентація буде очищена. Продовжити?',
     confirmText: 'Створити',
     onConfirm: () => {
+      cancelDraftHydration();
       clearDraft();
       applyPresentationData(createDefaultPresentation());
       resetHistory();
@@ -615,6 +649,21 @@ function saveProjectFile() {
   setStatusRight('Файл збережено');
 }
 
+function confirmClearDraft() {
+  showConfirmModal({
+    title: 'Очистити збережену чернетку',
+    text: 'Локальну автозбережену чернетку буде видалено. Поточна презентація на екрані залишиться. Продовжити?',
+    confirmText: 'Очистити',
+    onConfirm: async () => {
+      // Скасовуємо відкладене автозбереження, щоб воно не відродило чернетку
+      // одразу після очищення.
+      autosave.cancel();
+      const ok = await clearDraft();
+      setStatusRight(ok ? 'Чернетку очищено' : 'Не вдалося очистити чернетку');
+    }
+  });
+}
+
 async function onProjectFileSelected() {
   const file = dom.projectFileInput.files?.[0];
   dom.projectFileInput.value = '';
@@ -623,6 +672,8 @@ async function onProjectFileSelected() {
     showInfoModal('Файл завеликий', `Максимальний розмір файла презентації — ${Math.round(LIMITS.MAX_PROJECT_FILE_BYTES / (1024 * 1024))} МБ.`);
     return;
   }
+  // Відкриття файла користувачем скасовує запізніле відновлення чернетки.
+  cancelDraftHydration();
   // Повний знімок стану редагування для відкату: якщо застосування чи рендер
   // імпорту зірветься (попри валідацію), повертаємо відкритий проєкт РАЗОМ з
   // історією та статусом збереження, без втрат.
