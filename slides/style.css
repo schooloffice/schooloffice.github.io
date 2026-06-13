@@ -1010,6 +1010,132 @@ ol.shape-text-element {
   color: #dc2626;
 }
 
+/* Picker тем оформлення. */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 2px solid var(--border-strong, #cbd5e1);
+  border-radius: .6rem;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+
+.theme-card.active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, .25);
+}
+
+.theme-preview {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 56px;
+  padding: 8px;
+  border-radius: .4rem;
+  border: 1px solid #e2e8f0;
+}
+
+.theme-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .08);
+}
+
+.theme-name {
+  font-size: .85rem;
+  font-weight: 700;
+  color: var(--slate, #334155);
+  text-align: center;
+}
+
+/* Порожній image-слот макета. */
+.image-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px dashed #94a3b8;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #64748b;
+  font-weight: 700;
+  font-size: .95rem;
+  box-sizing: border-box;
+}
+
+.image-placeholder i {
+  font-size: 1.6rem;
+}
+
+/* Picker макетів слайда. */
+.layout-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.layout-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 2px solid var(--border-strong, #cbd5e1);
+  border-radius: .6rem;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+
+.layout-card.active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, .25);
+}
+
+.layout-preview {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: .35rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  overflow: hidden;
+}
+
+.layout-slot {
+  position: absolute;
+  background: #cbd5e1;
+  border-radius: 2px;
+}
+
+.layout-slot.title {
+  background: #94a3b8;
+}
+
+.layout-slot.image {
+  background: #bfdbfe;
+}
+
+.layout-name {
+  font-size: .85rem;
+  font-weight: 700;
+  color: var(--slate, #334155);
+  text-align: center;
+}
+
 .form-error.form-busy {
   color: var(--slate-3);
 }

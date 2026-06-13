@@ -2,6 +2,7 @@ import { deepClone } from './utils.js';
 
 export const state = {
   fileName: 'моя презентація',
+  theme: 'classic',
   slides: [],
   currentSlideId: null,
   // Множинний вибір. Порядок = порядок додавання; останній — «головний»
@@ -29,6 +30,7 @@ function normalizeSelectionInput(data) {
 
 export function applyPresentationData(data) {
   state.fileName = data.fileName || 'моя презентація';
+  state.theme = typeof data.theme === 'string' ? data.theme : 'classic';
   state.slides = Array.isArray(data.slides) ? data.slides : [];
   state.currentSlideId = data.currentSlideId || state.slides[0]?.id || null;
   state.selectedElementIds = normalizeSelectionInput(data);
@@ -38,6 +40,7 @@ export function applyPresentationData(data) {
 export function serializePresentation() {
   return {
     fileName: state.fileName,
+    theme: state.theme,
     slides: deepClone(state.slides),
     currentSlideId: state.currentSlideId,
     selectedElementIds: [...state.selectedElementIds]

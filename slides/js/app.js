@@ -1,4 +1,4 @@
-﻿import { COLOR_PALETTE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILIES, FONT_SIZES, LIMITS, LINE_SHAPE_TYPES, STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES } from './constants.js';
+﻿import { DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILIES, FONT_SIZES, LAYOUTS, LAYOUT_KEYS, LIMITS, LINE_SHAPE_TYPES, STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES, THEMES, THEME_KEYS } from './constants.js';
 import { exportPresentationPdf, printPresentation, createSlideSnapshot } from './export.js';
 import { pushHistory, redo, resetHistory, undo } from './history.js';
 import {
@@ -12,6 +12,7 @@ import { renderStage as renderStageView, syncSelectionUi as syncStageSelectionUi
 import { renderSlideList as renderSlideListView } from './slide-list.js';
 import {
   bindStage as bindStageInteractions,
+  elementBounds,
   getStagePoint,
   normalizeZIndexes,
   onElementPointerDown as handleElementPointerDown,
@@ -23,8 +24,8 @@ import {
 } from './stage-interactions.js';
 import { state, applyPresentationData, getCurrentSlide, getCurrentSlideIndex, getSelectedElement, getSelectedElements, isSelected, serializePresentation } from './state.js';
 import { clearDraft, loadDraft, saveDraft } from './storage.js';
-import { createBasicSlideElements, createDefaultPresentation, createImageElement, createShapeElement, createSlide, createTemplateDefinition, createTextElement } from './templates.js';
-import { $, $$, clamp, debounce, deepClone, getTextFromContentEditable, readFileAsDataURL, readFileAsText } from './utils.js';
+import { createBasicSlideElements, createDefaultPresentation, createImageElement, createPlaceholderElement, createShapeElement, createSlide, createTemplateDefinition, createTextElement } from './templates.js';
+import { $, $$, clamp, debounce, deepClone, getTextFromContentEditable, readFileAsDataURL, readFileAsText, uid } from './utils.js';
 
 window.SlidesApp = window.SlidesApp || {};
 
@@ -134,6 +135,8 @@ function initDom() {
   dom.imageToolGroup = $('#imageToolGroup');
   dom.imageToolSep = $('#imageToolSep');
   dom.imageOpacityInput = $('#imageOpacityInput');
+  dom.alignToolGroup = $('#alignToolGroup');
+  dom.alignToolSep = $('#alignToolSep');
   dom.colorPanelBtn = $('#colorPanelBtn');
   dom.modalOverlay = $('#modalOverlay');
   dom.modalIcon = $('#modalIcon');
@@ -237,6 +240,8 @@ async function hydrateFromDraft() {
 
 function renderAll() {
   renderFileName();
+  // Палітра залежить від теми — оновлюємо разом зі станом (undo/redo/open/import).
+  renderColorPalette();
   renderStage();
   renderSlideList();
   renderToolbarState();
@@ -282,9 +287,13 @@ function renderTextControls() {
   // додає пікер, який обрізає центроване значення у вузькому полі тулбара).
 }
 
+function getActiveTheme() {
+  return THEMES.find(theme => theme.key === state.theme) || THEMES[0];
+}
+
 function renderColorPalette() {
   dom.colorPalette.innerHTML = '';
-  COLOR_PALETTE.forEach(color => {
+  getActiveTheme().palette.forEach(color => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'color-swatch';
@@ -297,6 +306,114 @@ function renderColorPalette() {
     });
     dom.colorPalette.appendChild(button);
   });
+}
+
+// Зміна теми оновлює фон усіх слайдів і акцентну палітру; вміст елементів не
+// чіпається. Один крок історії (theme серіалізується, тож undo/redo повертають).
+function applyTheme(themeKey) {
+  if (!THEME_KEYS.includes(themeKey) || themeKey === state.theme) return;
+  const theme = THEMES.find(item => item.key === themeKey);
+  pushHistory();
+  state.theme = themeKey;
+  state.slides.forEach(slide => { slide.background = theme.background; });
+  renderColorPalette();
+  renderStage();
+  renderSlideList();
+  markDirty('Тему змінено');
+}
+
+function showThemePicker() {
+  const cards = THEMES.map(theme => {
+    const dots = theme.palette.slice(2, 8).map(color => `<span class="theme-dot" style="background:${color}"></span>`).join('');
+    const active = theme.key === state.theme ? ' active' : '';
+    return `<button type="button" class="theme-card${active}" data-theme="${theme.key}" aria-pressed="${theme.key === state.theme}">
+        <span class="theme-preview" style="background:${theme.background}">${dots}</span>
+        <span class="theme-name">${theme.name}</span>
+      </button>`;
+  }).join('');
+  showModal({
+    title: 'Тема оформлення',
+    text: 'Зміна теми оновлює фон усіх слайдів і палітру кольорів. Вміст слайдів не змінюється.',
+    body: `<div class="theme-grid">${cards}</div>`,
+    confirmText: 'Закрити',
+    showCancel: false,
+    onMount: () => {
+      $$('.theme-card').forEach(card => {
+        card.addEventListener('click', () => {
+          applyTheme(card.dataset.theme);
+          closeModal();
+        });
+      });
+    }
+  });
+}
+
+// Застосування макета до ПОТОЧНОГО слайда — неруйнівне: реальний вміст лишається,
+// порожні placeholder-и прибираються, а для слотів, які ще не «закриті» реальним
+// вмістом того ж типу, додаються нові placeholder-и. Один крок історії.
+function applyLayout(layoutKey) {
+  if (!LAYOUT_KEYS.includes(layoutKey)) return;
+  const slide = getCurrentSlide();
+  if (!slide) return;
+  const layout = LAYOUTS.find(item => item.key === layoutKey);
+  pushHistory();
+  // Прибираємо ЛИШЕ порожні типізовані placeholder-и макета (isPlaceholder +
+  // placeholderType). Реальні фігури, фігури з текстовою підказкою та порожні
+  // ручні текстові поля (placeholderType=null) зберігаються.
+  const kept = slide.elements.filter(element => !(element.isPlaceholder && element.placeholderType));
+  const satisfied = {};
+  kept.forEach(element => {
+    if (element.placeholderType) satisfied[element.placeholderType] = (satisfied[element.placeholderType] || 0) + 1;
+  });
+  let z = kept.reduce((max, element) => Math.max(max, element.z || 1), 0) + 1;
+  const placeholders = [];
+  layout.slots.forEach(slot => {
+    if (satisfied[slot.type] > 0) { satisfied[slot.type] -= 1; return; }
+    placeholders.push(createPlaceholderElement(slot, z++));
+  });
+  slide.elements = [...kept, ...placeholders];
+  slide.layout = layoutKey;
+  state.selectedElementIds = [];
+  state.cropElementId = null;
+  renderAll();
+  markDirty('Макет застосовано');
+}
+
+function showLayoutPicker() {
+  const slide = getCurrentSlide();
+  const cards = LAYOUTS.map(layout => {
+    const slots = layout.slots.map(slot => {
+      const type = slot.type === 'image' ? ' image' : (slot.type === 'title' ? ' title' : '');
+      return `<span class="layout-slot${type}" style="left:${slot.x / STAGE_WIDTH * 100}%;top:${slot.y / STAGE_HEIGHT * 100}%;width:${slot.w / STAGE_WIDTH * 100}%;height:${slot.h / STAGE_HEIGHT * 100}%"></span>`;
+    }).join('');
+    const active = slide && slide.layout === layout.key ? ' active' : '';
+    return `<button type="button" class="layout-card${active}" data-layout="${layout.key}" aria-pressed="${slide && slide.layout === layout.key}">
+        <span class="layout-preview">${slots}</span>
+        <span class="layout-name">${layout.name}</span>
+      </button>`;
+  }).join('');
+  showModal({
+    title: 'Макет слайда',
+    text: 'Застосовується до поточного слайда. Заповнений вміст зберігається — оновлюються лише порожні слоти.',
+    body: `<div class="layout-grid">${cards}</div>`,
+    confirmText: 'Закрити',
+    showCancel: false,
+    onMount: () => {
+      $$('.layout-card').forEach(card => {
+        card.addEventListener('click', () => {
+          applyLayout(card.dataset.layout);
+          closeModal();
+        });
+      });
+    }
+  });
+}
+
+// Подвійний клік по image-placeholder відкриває діалог заповнення (елемент є
+// image, тож працює через звичайний replace-флоу; заповнення знімає isPlaceholder).
+function activateImagePlaceholder(elementId) {
+  selectElement(elementId);
+  promptImageReplace();
 }
 
 function renderSlideList() {
@@ -329,6 +446,7 @@ function renderStage() {
     onHandlePointerDown,
     onRotateHandlePointerDown,
     onCropHandlePointerDown,
+    onImagePlaceholderActivate: activateImagePlaceholder,
     renderSlideList,
     selectElement,
     stage: dom.stage
@@ -373,6 +491,18 @@ function renderToolbarState() {
     // Підпис — «прозорість»: 0% = повністю видиме (opacity 1), 100% = невидиме (opacity 0).
     dom.imageOpacityInput.value = String(Math.round((1 - (imageEl.style.opacity ?? 1)) * 100));
   }
+
+  // Вирівнювання/розподіл працюють за геометричними одиницями: група рахується
+  // як одна. Для однієї групи лишаємо панель видимою тільки заради «Розгрупувати».
+  const unitCount = selectionUnits().length;
+  const hasGroup = getSelectedElements().some(element => element.groupId);
+  const showAlignTools = unitCount >= 2 || hasGroup;
+  dom.alignToolGroup.classList.toggle('hidden', !showAlignTools);
+  dom.alignToolSep.classList.toggle('hidden', !showAlignTools);
+  $$('[data-action="align-objects-left"], [data-action="align-objects-h-center"], [data-action="align-objects-right"], [data-action="align-objects-top"], [data-action="align-objects-v-middle"], [data-action="align-objects-bottom"]').forEach(btn => { btn.disabled = unitCount < 2; });
+  $$('[data-action="distribute-h"], [data-action="distribute-v"]').forEach(btn => { btn.disabled = unitCount < 3; });
+  $$('[data-action="group-objects"]').forEach(btn => { btn.disabled = unitCount < 2; });
+  $$('[data-action="ungroup-objects"]').forEach(btn => { btn.disabled = !hasGroup; });
 }
 
 function syncSelectionUi() {
@@ -391,18 +521,61 @@ function setSelection(ids) {
   renderStatus();
 }
 
+// Усі елементи в одній групі з даним (липкий вибір): клік по члену групи вибирає
+// всю групу. Для негрупованого — лише сам елемент.
+function groupMemberIds(id) {
+  const slide = getCurrentSlide();
+  const element = slide?.elements.find(item => item.id === id);
+  if (!element || !element.groupId) return [id];
+  return slide.elements.filter(item => item.groupId === element.groupId).map(item => item.id);
+}
+
 function selectElement(id, additive = false) {
   if (!id) {
     setSelection([]);
     return;
   }
+  const members = groupMemberIds(id);
   if (additive) {
     const set = new Set(state.selectedElementIds);
-    if (set.has(id)) set.delete(id); else set.add(id);
+    const allSelected = members.every(member => set.has(member));
+    members.forEach(member => { if (allSelected) set.delete(member); else set.add(member); });
     setSelection([...set]);
   } else {
-    setSelection([id]);
+    setSelection(members);
   }
+}
+
+function groupSelected() {
+  const targets = getSelectedElements();
+  if (targets.length < 2) return;
+  pushHistory();
+  const groupId = uid();
+  targets.forEach(element => { element.groupId = groupId; });
+  renderStage();
+  renderToolbarState();
+  markDirty('Згруповано');
+}
+
+function ungroupSelected() {
+  const targets = getSelectedElements().filter(element => element.groupId);
+  if (!targets.length) return;
+  pushHistory();
+  targets.forEach(element => { element.groupId = null; });
+  renderStage();
+  renderToolbarState();
+  markDirty('Розгруповано');
+}
+
+// Копії групи мають утворювати НОВУ групу, а не зливатися з оригіналом: один
+// старий groupId → один новий у межах партії клонів.
+function remapGroupIds(elements) {
+  const map = new Map();
+  elements.forEach(element => {
+    if (!element.groupId) return;
+    if (!map.has(element.groupId)) map.set(element.groupId, uid());
+    element.groupId = map.get(element.groupId);
+  });
 }
 
 function clearSelection() {
@@ -463,13 +636,14 @@ function beginAltDragDuplicate() {
   if (!targets.length) return false;
   pushHistory();
   const slide = getCurrentSlide();
-  const newIds = [];
+  const copies = [];
   targets.forEach(el => {
     const copy = normalizeElement({ ...deepClone(el), id: null, z: slide.elements.length + 1 }, slide.elements.length, { trusted: true });
     slide.elements.push(copy);
-    newIds.push(copy.id);
+    copies.push(copy);
   });
-  state.selectedElementIds = newIds;
+  remapGroupIds(copies);
+  state.selectedElementIds = copies.map(copy => copy.id);
   renderStage();
   return true;
 }
@@ -872,6 +1046,10 @@ function handleKeyboardShortcuts(event) {
         event.preventDefault();
         duplicateSelectedElement();
       }
+      if (key === 'g') {
+        event.preventDefault();
+        if (event.shiftKey) ungroupSelected(); else groupSelected();
+      }
     }
   }
 
@@ -967,6 +1145,8 @@ function dispatchAction(action, trigger = null) {
     case 'move-slide-up': moveSlide(-1); break;
     case 'move-slide-down': moveSlide(1); break;
     case 'show-templates': showTemplatesPicker(); break;
+    case 'show-themes': showThemePicker(); break;
+    case 'show-layouts': showLayoutPicker(); break;
     case 'template-title': applyTemplate('title'); break;
     case 'template-text-image': applyTemplate('text-image'); break;
     case 'template-three-blocks': applyTemplate('three-blocks'); break;
@@ -993,6 +1173,16 @@ function dispatchAction(action, trigger = null) {
     case 'rotate-right': rotateSelected(15); break;
     case 'bring-front': bringSelectedToFront(); break;
     case 'send-back': sendSelectedToBack(); break;
+    case 'align-objects-left': alignSelected('left'); break;
+    case 'align-objects-h-center': alignSelected('center-h'); break;
+    case 'align-objects-right': alignSelected('right'); break;
+    case 'align-objects-top': alignSelected('top'); break;
+    case 'align-objects-v-middle': alignSelected('middle-v'); break;
+    case 'align-objects-bottom': alignSelected('bottom'); break;
+    case 'distribute-h': distributeSelected('h'); break;
+    case 'distribute-v': distributeSelected('v'); break;
+    case 'group-objects': groupSelected(); break;
+    case 'ungroup-objects': ungroupSelected(); break;
     case 'about': showAbout(); break;
     case 'shortcuts': showShortcuts(); break;
     default: break;
@@ -1093,7 +1283,7 @@ async function onProjectFileSelected() {
 
 function addSlide() {
   pushHistory();
-  const slide = createSlide({ elements: createBasicSlideElements() });
+  const slide = createSlide({ background: getActiveTheme().background, elements: createBasicSlideElements() });
   state.slides.push(slide);
   state.currentSlideId = slide.id;
   state.selectedElementIds = slide.elements[0] ? [slide.elements[0].id] : [];
@@ -1382,6 +1572,8 @@ function replaceImage(elementId, src, alt = '') {
   pushHistory();
   element.content = src;
   element.alt = alt;
+  // Заповнення image-placeholder робить його реальним зображенням.
+  element.isPlaceholder = false;
   state.selectedElementIds = [element.id];
   renderAll();
   markDirty('Зображення замінено');
@@ -1448,7 +1640,7 @@ function applyTemplate(type) {
   pushHistory();
   const slide = getCurrentSlide();
   const template = createTemplateDefinition(type);
-  slide.background = template.background;
+  slide.background = getActiveTheme().background;
   slide.elements = template.elements.map((element, index) => normalizeElement({ ...element, z: index + 1 }, index, { trusted: true }));
   state.selectedElementIds = [];
   renderAll();
@@ -1476,10 +1668,13 @@ function setSelectedTextStyle(partial) {
 
 // Представник зображення у вибірці: головний, якщо він зображення, інакше —
 // перше вибране зображення (для відображення стану в тулбарі при мультивиборі).
+// Порожній image-placeholder НЕ вважаємо «зображенням» для тулбара: fit/opacity/
+// crop недоречні, доки його не заповнено (інакше crop активувався б без ручок).
 function getPrimaryImageElement() {
+  const isRealImage = element => element?.type === 'image' && !element.isPlaceholder;
   const primary = getSelectedElement();
-  if (primary?.type === 'image') return primary;
-  return getSelectedElements().find(element => element.type === 'image') || null;
+  if (isRealImage(primary)) return primary;
+  return getSelectedElements().find(isRealImage) || null;
 }
 
 function setSelectedImageStyle(partial) {
@@ -1618,6 +1813,85 @@ function rotateSelected(delta) {
   markDirty('Об’єкт повернуто');
 }
 
+// Вирівнювання вибраних об'єктів за спільним обмежувальним прямокутником. Працює
+// на видимих краях (elementBounds — AABB з урахуванням rotation): зсув по x/y
+// транслює AABB на ту саму величину, тож математика однакова й для повернутих.
+// Одиниці вирівнювання/розподілу: кожна група — ОДНА одиниця зі спільним AABB
+// (зсувається цілісно, зберігаючи внутрішнє розташування); негруповані — окремо.
+function selectionUnits() {
+  const groups = new Map();
+  const units = [];
+  getSelectedElements().forEach(element => {
+    if (element.groupId) {
+      if (!groups.has(element.groupId)) {
+        const unit = { members: [] };
+        groups.set(element.groupId, unit);
+        units.push(unit);
+      }
+      groups.get(element.groupId).members.push(element);
+    } else {
+      units.push({ members: [element] });
+    }
+  });
+  units.forEach(unit => {
+    const bounds = unit.members.map(elementBounds);
+    const left = Math.min(...bounds.map(b => b.left));
+    const right = Math.max(...bounds.map(b => b.right));
+    const top = Math.min(...bounds.map(b => b.top));
+    const bottom = Math.max(...bounds.map(b => b.bottom));
+    unit.b = { left, right, top, bottom, cx: (left + right) / 2, cy: (top + bottom) / 2 };
+  });
+  return units;
+}
+
+function moveUnit(unit, dx, dy) {
+  unit.members.forEach(element => { element.x += dx; element.y += dy; });
+}
+
+function alignSelected(mode) {
+  const units = selectionUnits();
+  if (units.length < 2) return;
+  const minLeft = Math.min(...units.map(u => u.b.left));
+  const maxRight = Math.max(...units.map(u => u.b.right));
+  const minTop = Math.min(...units.map(u => u.b.top));
+  const maxBottom = Math.max(...units.map(u => u.b.bottom));
+  const centerX = (minLeft + maxRight) / 2;
+  const centerY = (minTop + maxBottom) / 2;
+  pushHistory();
+  units.forEach(u => {
+    if (mode === 'left') moveUnit(u, minLeft - u.b.left, 0);
+    else if (mode === 'right') moveUnit(u, maxRight - u.b.right, 0);
+    else if (mode === 'center-h') moveUnit(u, centerX - u.b.cx, 0);
+    else if (mode === 'top') moveUnit(u, 0, minTop - u.b.top);
+    else if (mode === 'bottom') moveUnit(u, 0, maxBottom - u.b.bottom);
+    else if (mode === 'middle-v') moveUnit(u, 0, centerY - u.b.cy);
+  });
+  renderStage();
+  renderSlideList();
+  markDirty('Вирівняно');
+}
+
+// Рівномірний розподіл центрів ОДИНИЦЬ між крайніми (потрібно ≥3 одиниці).
+function distributeSelected(axis) {
+  const units = selectionUnits();
+  if (units.length < 3) return;
+  const key = axis === 'h' ? 'cx' : 'cy';
+  units.sort((a, b) => a.b[key] - b.b[key]);
+  const first = units[0].b[key];
+  const last = units[units.length - 1].b[key];
+  const step = (last - first) / (units.length - 1);
+  pushHistory();
+  units.forEach((unit, index) => {
+    if (index === 0 || index === units.length - 1) return;
+    const delta = (first + index * step) - unit.b[key];
+    if (axis === 'h') moveUnit(unit, delta, 0);
+    else moveUnit(unit, 0, delta);
+  });
+  renderStage();
+  renderSlideList();
+  markDirty('Розподілено');
+}
+
 function bringSelectedToFront() {
   const targets = getSelectedElements().slice().sort((a, b) => (a.z || 0) - (b.z || 0));
   if (!targets.length) return;
@@ -1665,7 +1939,7 @@ function pasteElement() {
   const maxBottom = Math.max(...items.map(item => item.y + item.h));
   const dx = clamp(offset, -minX, STAGE_WIDTH - maxRight);
   const dy = clamp(offset, -minY, STAGE_HEIGHT - maxBottom);
-  const newIds = [];
+  const copies = [];
   items.forEach(item => {
     const copy = normalizeElement({
       ...deepClone(item),
@@ -1675,8 +1949,10 @@ function pasteElement() {
       z: slide.elements.length + 1
     }, slide.elements.length, { trusted: true });
     slide.elements.push(copy);
-    newIds.push(copy.id);
+    copies.push(copy);
   });
+  remapGroupIds(copies);
+  const newIds = copies.map(copy => copy.id);
   state.selectedElementIds = newIds;
   renderAll();
   markDirty(newIds.length > 1 ? 'Об’єкти вставлено' : 'Об’єкт вставлено');

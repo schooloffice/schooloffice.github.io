@@ -10,6 +10,7 @@ export function renderStage({
   onHandlePointerDown,
   onRotateHandlePointerDown,
   onCropHandlePointerDown,
+  onImagePlaceholderActivate,
   renderSlideList,
   selectElement,
   stage
@@ -31,6 +32,7 @@ export function renderStage({
       onHandlePointerDown,
       onRotateHandlePointerDown,
       onCropHandlePointerDown,
+      onImagePlaceholderActivate,
       renderSlideList,
       selectElement
     });
@@ -61,7 +63,19 @@ function renderElementNode(element, handlers) {
     content.appendChild(createTextNode(element, handlers));
   }
 
-  if (element.type === 'image') {
+  if (element.type === 'image' && (element.isPlaceholder || !element.content)) {
+    // Порожній image-слот макета: пунктирна рамка з підказкою «Додати зображення».
+    // Заповнюється через «Замінити зображення» (елемент є image) або подвійним кліком.
+    const box = document.createElement('div');
+    box.className = 'image-placeholder';
+    box.innerHTML = '<i class="fa-regular fa-image"></i><span>Додати зображення</span>';
+    box.addEventListener('dblclick', event => {
+      event.stopPropagation();
+      handlers.selectElement(element.id);
+      handlers.onImagePlaceholderActivate?.(element.id);
+    });
+    content.appendChild(box);
+  } else if (element.type === 'image') {
     const cropping = state.cropElementId === element.id;
     if (cropping) {
       content.classList.add('cropping');

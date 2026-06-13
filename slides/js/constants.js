@@ -64,6 +64,89 @@ export const DEFAULT_SHAPE_STYLE = {
   fill: '#dbeafe',
   stroke: '#1d4ed8'
 };
+
+// Теми оформлення (дизайн-токени): фон слайдів + узгоджена акцентна палітра,
+// яку показує колірний popover. Лише локальні кольори (офлайн, без зовнішніх
+// ресурсів). Зміна теми не чіпає вміст елементів — лише фон і палітру.
+export const THEMES = [
+  { key: 'classic', name: 'Класична', background: '#ffffff', palette: COLOR_PALETTE },
+  {
+    key: 'ocean', name: 'Океан', background: '#eff6ff',
+    palette: [
+      '#0f172a', '#ffffff', '#0ea5e9', '#0284c7', '#0369a1', '#1d4ed8',
+      '#2563eb', '#3b82f6', '#06b6d4', '#0891b2', '#14b8a6', '#0d9488',
+      '#38bdf8', '#7dd3fc', '#bae6fd', '#1e293b', '#475569', '#94a3b8'
+    ]
+  },
+  {
+    key: 'sunny', name: 'Сонячна', background: '#fffbeb',
+    palette: [
+      '#1c1917', '#ffffff', '#f59e0b', '#d97706', '#b45309', '#ea580c',
+      '#f97316', '#fb923c', '#dc2626', '#ef4444', '#eab308', '#ca8a04',
+      '#fcd34d', '#fde68a', '#fed7aa', '#44403c', '#78716c', '#a8a29e'
+    ]
+  },
+  {
+    key: 'forest', name: 'Ліс', background: '#f0fdf4',
+    palette: [
+      '#14241a', '#ffffff', '#16a34a', '#15803d', '#166534', '#22c55e',
+      '#4ade80', '#10b981', '#059669', '#047857', '#65a30d', '#4d7c0f',
+      '#86efac', '#bbf7d0', '#a16207', '#1f2937', '#4b5563', '#9ca3af'
+    ]
+  },
+  {
+    key: 'grape', name: 'Виноград', background: '#faf5ff',
+    palette: [
+      '#1e1b2e', '#ffffff', '#9333ea', '#7e22ce', '#6b21a8', '#a855f7',
+      '#c084fc', '#8b5cf6', '#6366f1', '#4f46e5', '#db2777', '#be185d',
+      '#ec4899', '#f0abfc', '#e9d5ff', '#312e44', '#52525b', '#a1a1aa'
+    ]
+  }
+];
+export const THEME_KEYS = THEMES.map(theme => theme.key);
+export const DEFAULT_THEME = 'classic';
+
+// Типи placeholder-слотів макета. Текстові (title/subtitle/body) і зображення.
+export const PLACEHOLDER_TYPES = ['title', 'subtitle', 'body', 'image'];
+export const PLACEHOLDER_PROMPTS = {
+  title: 'Заголовок слайда',
+  subtitle: 'Підзаголовок',
+  body: 'Додай основний текст або короткі пункти',
+  image: 'Додати зображення'
+};
+
+// Макети слайдів: набір типізованих слотів із геометрією та базовим стилем.
+// Застосування макета НЕ знищує реальний вміст — лише замінює порожні placeholder-и.
+export const LAYOUTS = [
+  { key: 'blank', name: 'Порожній', slots: [] },
+  {
+    key: 'title', name: 'Титульний', slots: [
+      { type: 'title', x: 110, y: 180, w: 740, h: 130, style: { fontSize: 54, bold: true, align: 'center' } },
+      { type: 'subtitle', x: 210, y: 330, w: 540, h: 80, style: { fontSize: 28, align: 'center', color: '#475569' } }
+    ]
+  },
+  {
+    key: 'title-body', name: 'Заголовок і текст', slots: [
+      { type: 'title', x: 70, y: 48, w: 820, h: 90, style: { fontSize: 40, bold: true } },
+      { type: 'body', x: 84, y: 168, w: 792, h: 300, style: { fontSize: 28 } }
+    ]
+  },
+  {
+    key: 'two-content', name: 'Дві колонки', slots: [
+      { type: 'title', x: 70, y: 48, w: 820, h: 90, style: { fontSize: 40, bold: true } },
+      { type: 'body', x: 70, y: 168, w: 390, h: 300, style: { fontSize: 26 } },
+      { type: 'body', x: 500, y: 168, w: 390, h: 300, style: { fontSize: 26 } }
+    ]
+  },
+  {
+    key: 'title-image', name: 'Заголовок і фото', slots: [
+      { type: 'title', x: 70, y: 48, w: 820, h: 90, style: { fontSize: 40, bold: true } },
+      { type: 'image', x: 230, y: 160, w: 500, h: 320 }
+    ]
+  }
+];
+export const LAYOUT_KEYS = LAYOUTS.map(layout => layout.key);
+export const DEFAULT_LAYOUT = 'blank';
 export const SHAPE_TYPES = ['rect', 'circle', 'triangle', 'line', 'arrow'];
 export const LINE_SHAPE_TYPES = ['line', 'arrow'];
 export const TEXT_SHAPE_TYPES = ['rect', 'circle', 'triangle'];

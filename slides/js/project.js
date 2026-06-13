@@ -1,4 +1,4 @@
-import { DEFAULT_IMAGE_STYLE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILY_KEYS, IMAGE_FIT_MODES, LIMITS, LIST_TYPES, SCHEMA_VERSION, SHAPE_TYPES, TEXT_MODEL_VERSION, TEXT_SHAPE_TYPES } from './constants.js';
+import { DEFAULT_IMAGE_STYLE, DEFAULT_LAYOUT, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, DEFAULT_THEME, FONT_FAMILY_KEYS, IMAGE_FIT_MODES, LAYOUT_KEYS, LIMITS, LIST_TYPES, SCHEMA_VERSION, SHAPE_TYPES, TEXT_MODEL_VERSION, TEXT_SHAPE_TYPES, THEME_KEYS } from './constants.js';
 import { clamp, downloadTextFile } from './utils.js';
 
 const DEFAULT_PRESENTATION_NAME = 'моя презентація';
@@ -79,6 +79,7 @@ export function normalizePresentation(raw, { trusted = false } = {}) {
     return {
       id: typeof slide.id === 'string' ? slide.id.slice(0, 64) : `slide_${slideIndex}`,
       background: sanitizeColor(slide.background, '#ffffff'),
+      layout: LAYOUT_KEYS.includes(slide.layout) ? slide.layout : DEFAULT_LAYOUT,
       elements: Array.isArray(slide.elements)
         ? slide.elements.slice(0, LIMITS.MAX_ELEMENTS_PER_SLIDE).map((element, elementIndex) => normalizeElement(element, elementIndex, { trusted }))
         : []
@@ -103,6 +104,7 @@ export function normalizePresentation(raw, { trusted = false } = {}) {
 
   return {
     fileName: typeof raw.fileName === 'string' && raw.fileName.trim() ? raw.fileName.trim().slice(0, 200) : DEFAULT_PRESENTATION_NAME,
+    theme: THEME_KEYS.includes(raw.theme) ? raw.theme : DEFAULT_THEME,
     slides,
     currentSlideId: slides.some(slide => slide.id === raw.currentSlideId) ? raw.currentSlideId : slides[0].id,
     selectedElementIds: []
@@ -117,9 +119,11 @@ export function normalizeElement(element, index, { trusted = false } = {}) {
     ? clampText(element.placeholder)
     : (type === 'text' ? 'Введіть текст...' : '');
   const hasTextContent = typeof element?.content === 'string' && element.content.length > 0;
-  const isPlaceholder = supportsText
-    ? (typeof element?.isPlaceholder === 'boolean' ? element.isPlaceholder : !hasTextContent)
-    : false;
+  // Явний isPlaceholder поважаємо для будь-якого типу (зокрема image-placeholder
+  // макета); для тексту без явного прапорця — за наявністю вмісту.
+  const isPlaceholder = typeof element?.isPlaceholder === 'boolean'
+    ? element.isPlaceholder
+    : (supportsText ? !hasTextContent : false);
   let content;
   if (supportsText) {
     content = hasTextContent ? clampText(element.content) : (placeholder || '');
@@ -142,10 +146,21 @@ export function normalizeElement(element, index, { trusted = false } = {}) {
     content,
     placeholder,
     isPlaceholder,
+    placeholderType: normalizePlaceholderType(element?.placeholderType, type),
+    groupId: typeof element?.groupId === 'string' && element.groupId ? element.groupId.slice(0, 64) : null,
     alt: type === 'image' && typeof element?.alt === 'string' ? clampText(element.alt) : '',
     crop: type === 'image' ? normalizeCrop(element?.crop) : null,
     style: normalizeStyle(element?.style)
   };
+}
+
+// placeholderType має відповідати типу елемента: title/subtitle/body — лише для
+// тексту, image — лише для зображення. Інакше зловмисний/пошкоджений файл міг би
+// «закрити» слот макета невідповідним елементом.
+function normalizePlaceholderType(value, type) {
+  if (type === 'text' && ['title', 'subtitle', 'body'].includes(value)) return value;
+  if (type === 'image' && value === 'image') return 'image';
+  return null;
 }
 
 function normalizeStyle(style) {

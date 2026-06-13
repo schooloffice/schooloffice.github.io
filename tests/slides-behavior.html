@@ -256,6 +256,17 @@
       checks.push(check('import allowlists text align (selector-injection)', ['left', 'center', 'right'].includes(firstEl(slidesOf([{ type: 'text', content: 'a', style: { align: '"]' } }])).style.align)));
       checks.push(check('import neutralizes css-url background', normalizePresentation({ slides: [{ id: 's', background: 'url(https://evil.example/x.png)', elements: [] }] }).slides[0].background === '#ffffff'));
       checks.push(check('import keeps valid hex background', normalizePresentation({ slides: [{ id: 's', background: '#123456', elements: [] }] }).slides[0].background === '#123456'));
+      checks.push(check('import keeps valid theme', normalizePresentation({ theme: 'ocean', slides: [{ id: 's', elements: [] }] }).theme === 'ocean'));
+      checks.push(check('import allowlists unknown theme', normalizePresentation({ theme: 'hacker', slides: [{ id: 's', elements: [] }] }).theme === 'classic'));
+      checks.push(check('import defaults missing theme to classic', normalizePresentation({ slides: [{ id: 's', elements: [] }] }).theme === 'classic'));
+      checks.push(check('import keeps valid layout', normalizePresentation({ slides: [{ id: 's', layout: 'two-content', elements: [] }] }).slides[0].layout === 'two-content'));
+      checks.push(check('import allowlists unknown layout', normalizePresentation({ slides: [{ id: 's', layout: 'fancy', elements: [] }] }).slides[0].layout === 'blank'));
+      checks.push(check('import keeps valid placeholder type', firstEl(slidesOf([{ type: 'text', content: 'a', placeholderType: 'title' }])).placeholderType === 'title'));
+      checks.push(check('import allowlists unknown placeholder type', firstEl(slidesOf([{ type: 'text', content: 'a', placeholderType: 'evil' }])).placeholderType === null));
+      checks.push(check('import rejects image placeholder type on text', firstEl(slidesOf([{ type: 'text', content: 'a', placeholderType: 'image' }])).placeholderType === null));
+      checks.push(check('import rejects text placeholder type on image', firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA', placeholderType: 'title' }])).placeholderType === null));
+      checks.push(check('import keeps image placeholder type on image', firstEl(slidesOf([{ type: 'image', content: '', isPlaceholder: true, placeholderType: 'image' }])).placeholderType === 'image'));
+      checks.push(check('import honors image placeholder flag', firstEl(slidesOf([{ type: 'image', content: '', isPlaceholder: true, placeholderType: 'image' }])).isPlaceholder === true));
       checks.push(check('import neutralizes css-url shape fill', firstEl(slidesOf([{ type: 'shape', shape: 'rect', style: { fill: 'url(https://evil.example/x.png)' } }])).style.fill !== 'url(https://evil.example/x.png)'));
       checks.push(check('import keeps line and arrow shapes', (() => {
         const n = normalizePresentation(slidesOf([{ type: 'shape', shape: 'line' }, { type: 'shape', shape: 'arrow' }]));
@@ -708,7 +719,9 @@
       await wait(60);
       const bodyTextNode = () => Array.from(doc.querySelectorAll('#stage .stage-element')).filter(w => w.querySelector('.text-element'))[1]?.querySelector('.text-element');
       bodyTextNode().dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 70 }));
-      await wait(30);
+      // Дочекатися, що вибір справді зареєстровано, перш ніж міняти формат —
+      // інакше під навантаженням зміна шрифту застосовується «в порожнечу».
+      await waitFor(() => bodyTextNode()?.closest('.stage-element')?.classList.contains('selected'), 'body text selected');
       checks.push(check('non-bold text renders at normal weight (400)', bodyTextNode().style.fontWeight === '400'));
 
       const ffSel = doc.querySelector('#fontFamilySelect');
@@ -956,6 +969,198 @@
       checks.push(check('pointercancel stops crop drag', parseFloat(cancelWrap.querySelector('.crop-window').style.width) === widthAfterCancel));
       doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await waitFor(() => !imgWrapNow().querySelector('.crop-handle'), 'exit crop after cancel test');
+
+      // === Хвиля 4.1: теми оформлення (фон усіх слайдів + акцентна палітра) ===
+      const themeStage = doc.querySelector('#stage');
+      const swatchTitle = () => doc.querySelector('#colorPalette .color-swatch')?.title;
+      const bgBeforeTheme = win.getComputedStyle(themeStage).backgroundColor;
+      const swatchBeforeTheme = swatchTitle();
+      clickAction('show-themes');
+      await waitFor(() => doc.querySelector('#modalBody .theme-card'), 'theme picker opens');
+      checks.push(check('theme picker lists multiple themes', doc.querySelectorAll('#modalBody .theme-card').length >= 4));
+      checks.push(check('classic theme is active by default', !!doc.querySelector('#modalBody .theme-card.active[data-theme="classic"]')));
+      doc.querySelector('#modalBody .theme-card[data-theme="ocean"]').click();
+      await waitFor(() => doc.querySelector('#modalOverlay').classList.contains('hidden'), 'theme picker closes on pick');
+      await waitFor(() => win.getComputedStyle(themeStage).backgroundColor === 'rgb(239, 246, 255)', 'theme updates slide background');
+      checks.push(check('theme updates slide background', win.getComputedStyle(themeStage).backgroundColor === 'rgb(239, 246, 255)'));
+      checks.push(check('theme switches accent palette', swatchTitle() === '#0F172A'));
+      clickAction('new-slide');
+      await waitFor(() => win.getComputedStyle(themeStage).backgroundColor === 'rgb(239, 246, 255)', 'new slide inherits active theme');
+      checks.push(check('new slide inherits active theme background', win.getComputedStyle(themeStage).backgroundColor === 'rgb(239, 246, 255)'));
+      clickAction('template-title');
+      await waitFor(() => doc.querySelector('#stage .shape-element'), 'legacy template applied under active theme');
+      checks.push(check('legacy template keeps active theme background', win.getComputedStyle(themeStage).backgroundColor === 'rgb(239, 246, 255)'));
+      clickAction('undo');
+      clickAction('undo');
+      clickAction('undo');
+      await waitFor(() => win.getComputedStyle(themeStage).backgroundColor === bgBeforeTheme, 'undo restores theme background');
+      checks.push(check('theme change participates in Undo', win.getComputedStyle(themeStage).backgroundColor === bgBeforeTheme && swatchTitle() === swatchBeforeTheme));
+
+      // === Хвиля 4.2: макети слайдів + типізовані placeholder-и ===
+      clickAction('new-slide');
+      await wait(60);
+      clickAction('show-layouts');
+      await waitFor(() => doc.querySelector('.layout-card'), 'layout picker opens');
+      checks.push(check('layout picker lists layouts', doc.querySelectorAll('.layout-card').length >= 4));
+      doc.querySelector('.layout-card[data-layout="title-image"]').click();
+      await waitFor(() => doc.querySelector('#stage .image-placeholder'), 'title-image layout adds image placeholder');
+      checks.push(check('layout adds typed image placeholder', !!doc.querySelector('#stage .image-placeholder')));
+      checks.push(check('layout adds text title placeholder', !!doc.querySelector('#stage .stage-element .text-element')));
+      checks.push(check('title-image layout has exactly two slots', doc.querySelectorAll('#stage .stage-element').length === 2));
+      clickAction('undo');
+      await waitFor(() => !doc.querySelector('#stage .image-placeholder'), 'undo reverts layout');
+      checks.push(check('layout apply participates in Undo', !doc.querySelector('#stage .image-placeholder')));
+      clickAction('redo');
+      await waitFor(() => doc.querySelector('#stage .image-placeholder'), 'redo reapplies layout');
+      // Порожній image-placeholder НЕ показує image-тулбар (fit/opacity/crop недоречні).
+      const phWrap = doc.querySelector('#stage .image-placeholder').closest('.stage-element');
+      const phr = phWrap.getBoundingClientRect();
+      phWrap.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 130, clientX: phr.left + 5, clientY: phr.top + 5 }));
+      doc.querySelector('#stage').dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 130, clientX: phr.left + 5, clientY: phr.top + 5 }));
+      await wait(30);
+      checks.push(check('empty image placeholder hides image toolbar', doc.querySelector('#imageToolGroup').classList.contains('hidden')));
+      // Заповнення image-placeholder подвійним кліком → реальне зображення (isPlaceholder знято).
+      doc.querySelector('#stage .image-placeholder').dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true }));
+      await waitFor(() => doc.querySelector('#modalTitle')?.textContent === 'Замінити зображення', 'image placeholder opens fill dialog');
+      doc.querySelector('#imageUrlField').value = 'data:image/png;base64,QQ==';
+      doc.querySelector('#modalConfirm').click();
+      await waitFor(() => doc.querySelector('#stage .image-element'), 'image placeholder filled with real image');
+      checks.push(check('filling image placeholder yields a real image', !!doc.querySelector('#stage .image-element') && !doc.querySelector('#stage .image-placeholder')));
+      await waitFor(() => !doc.querySelector('#imageToolGroup').classList.contains('hidden'), 'filled image shows image toolbar');
+      checks.push(check('filled image shows image toolbar', !doc.querySelector('#imageToolGroup').classList.contains('hidden')));
+
+      // [P1] Застосування макета зберігає реальні фігури (лише порожні типізовані
+      // placeholder-и прибираються).
+      clickAction('new-slide');
+      await wait(60);
+      clickAction('insert-rect');
+      await waitFor(() => doc.querySelector('#stage .shape-element'), 'real shape inserted before layout');
+      const shapesBeforeLayout = doc.querySelectorAll('#stage .shape-element').length;
+      clickAction('show-layouts');
+      await waitFor(() => doc.querySelector('.layout-card'), 'layout picker reopens');
+      doc.querySelector('.layout-card[data-layout="title-body"]').click();
+      await waitFor(() => doc.querySelector('#stage .text-element'), 'layout applied over real shape');
+      checks.push(check('applying layout keeps real shapes', doc.querySelectorAll('#stage .shape-element').length === shapesBeforeLayout));
+
+      // === №6: вирівнювання та розподіл об'єктів ===
+      clickAction('new-slide');
+      await wait(60);
+      const alStage = doc.querySelector('#stage');
+      const alSr = alStage.getBoundingClientRect();
+      const alSelWrap = () => alStage.querySelector('.stage-element.selected');
+      const shapeWraps = () => Array.from(alStage.querySelectorAll('.stage-element')).filter(w => w.querySelector('.shape-element'));
+      const cxOf = w => parseFloat(w.style.left) + parseFloat(w.style.width) / 2;
+      const dragSelTo = (lx, ly) => {
+        const w = alSelWrap();
+        const r = w.getBoundingClientRect();
+        const toX = alSr.left + lx * (alSr.width / 960);
+        const toY = alSr.top + ly * (alSr.height / 540);
+        w.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 95, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
+        alStage.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 95, clientX: toX, clientY: toY }));
+        alStage.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 95, clientX: toX, clientY: toY }));
+      };
+      clickAction('insert-rect'); await waitFor(() => shapeWraps().length === 1, 'align rect 1'); dragSelTo(170, 300);
+      clickAction('insert-rect'); await waitFor(() => shapeWraps().length === 2, 'align rect 2'); dragSelTo(450, 160);
+      clickAction('insert-rect'); await waitFor(() => shapeWraps().length === 3, 'align rect 3'); dragSelTo(780, 420);
+      // Вибираємо лише 3 фігури (не placeholder-и слайда).
+      const sw = shapeWraps();
+      sw[0].dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 96, clientX: sw[0].getBoundingClientRect().left + 5, clientY: sw[0].getBoundingClientRect().top + 5 }));
+      alStage.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 96 }));
+      sw[1].dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, shiftKey: true, pointerId: 97 }));
+      sw[2].dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, shiftKey: true, pointerId: 98 }));
+      await waitFor(() => alStage.querySelectorAll('.stage-element.selected').length === 3, 'three shapes selected');
+      checks.push(check('align toolbar shows for multi-select', !doc.querySelector('#alignToolGroup').classList.contains('hidden')));
+      // Розподіл по горизонталі: центр середньої фігури — рівно між крайніми.
+      clickAction('distribute-h');
+      await wait(40);
+      const byCx = shapeWraps().slice().sort((a, b) => cxOf(a) - cxOf(b));
+      const expectedMid = (cxOf(byCx[0]) + cxOf(byCx[2])) / 2;
+      checks.push(check('distribute centers the middle object', Math.abs(cxOf(byCx[1]) - expectedMid) < 1));
+      // Вирівнювання догори: усі верхні краї збігаються.
+      clickAction('align-objects-top');
+      await wait(40);
+      const tops = shapeWraps().map(w => parseFloat(w.style.top));
+      checks.push(check('align top makes top edges equal', Math.max(...tops) - Math.min(...tops) < 1));
+      // Undo повертає попередні top-и (різні).
+      clickAction('undo');
+      await wait(40);
+      const topsAfterUndo = shapeWraps().map(w => parseFloat(w.style.top));
+      checks.push(check('align participates in Undo', Math.max(...topsAfterUndo) - Math.min(...topsAfterUndo) > 1));
+
+      // === №6: групування / розгрупування (липкий вибір групи) ===
+      clickAction('new-slide');
+      await wait(60);
+      const grStage = doc.querySelector('#stage');
+      const grShapes = () => Array.from(grStage.querySelectorAll('.stage-element')).filter(w => w.querySelector('.shape-element'));
+      const selCount = () => grStage.querySelectorAll('.stage-element.selected').length;
+      const clickWrap = (w, extra = {}, pid = 110) => {
+        const r = w.getBoundingClientRect();
+        w.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: pid, clientX: r.left + 5, clientY: r.top + 5, ...extra }));
+        if (!extra.shiftKey) grStage.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: pid, clientX: r.left + 5, clientY: r.top + 5 }));
+      };
+      const deselect = (pid = 120) => {
+        const sr = grStage.getBoundingClientRect();
+        grStage.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: pid, clientX: sr.left + 2, clientY: sr.top + 2 }));
+        grStage.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: pid, clientX: sr.left + 2, clientY: sr.top + 2 }));
+      };
+      clickAction('insert-rect'); await waitFor(() => grShapes().length === 1, 'group rect 1');
+      clickAction('insert-rect'); await waitFor(() => grShapes().length === 2, 'group rect 2');
+      let gs = grShapes();
+      clickWrap(gs[0], {}, 110);
+      clickWrap(gs[1], { shiftKey: true }, 111);
+      await waitFor(() => selCount() === 2, 'two rects selected to group');
+      clickAction('group-objects');
+      await wait(30);
+      // Клік по одному члену групи вибирає всю групу.
+      deselect(120);
+      await waitFor(() => selCount() === 0, 'deselected after grouping');
+      clickWrap(grShapes()[0], {}, 112);
+      await waitFor(() => selCount() === 2, 'group member click selects whole group');
+      checks.push(check('clicking a group member selects the whole group', selCount() === 2));
+      checks.push(check('single selected group keeps ungroup command available', !doc.querySelector('#alignToolGroup').classList.contains('hidden') && !doc.querySelector('[data-action="ungroup-objects"]').disabled));
+      checks.push(check('single selected group disables no-op align and distribute', doc.querySelector('[data-action="align-objects-left"]').disabled && doc.querySelector('[data-action="distribute-h"]').disabled));
+      // Дублювання групи створює ОКРЕМУ групу (не зливається з оригіналом).
+      clickAction('duplicate-element');
+      await waitFor(() => grShapes().length === 4, 'group duplicated');
+      deselect(121);
+      await waitFor(() => selCount() === 0, 'deselected after duplicate');
+      clickWrap(grShapes()[0], {}, 113);
+      await waitFor(() => selCount() === 2, 'duplicated groups stay separate');
+      checks.push(check('duplicating a group creates a separate group', selCount() === 2 && grShapes().length === 4));
+      // Розгрупування — члени знову вибираються поодинці.
+      clickAction('ungroup-objects');
+      await wait(30);
+      deselect(122);
+      await waitFor(() => selCount() === 0, 'deselected after ungroup');
+      clickWrap(grShapes()[0], {}, 114);
+      await waitFor(() => selCount() === 1, 'ungrouped member selects alone');
+      checks.push(check('ungroup makes members select individually', selCount() === 1));
+
+      // [P1] Вирівнювання групи як ОДНІЄЇ одиниці — внутрішнє розташування зберігається.
+      clickAction('new-slide');
+      await wait(60);
+      clickAction('insert-rect'); await waitFor(() => shapeWraps().length === 1, 'unit rect A'); dragSelTo(220, 150);
+      clickAction('insert-rect'); await waitFor(() => shapeWraps().length === 2, 'unit rect B'); dragSelTo(330, 330);
+      const ab = shapeWraps();
+      clickWrap(ab[0], {}, 140);
+      clickWrap(ab[1], { shiftKey: true }, 141);
+      await waitFor(() => selCount() === 2, 'unit A+B selected to group');
+      clickAction('group-objects');
+      await wait(30);
+      clickAction('insert-rect'); await waitFor(() => shapeWraps().length === 3, 'unit rect C'); dragSelTo(760, 150);
+      const s3 = shapeWraps();
+      clickWrap(s3[0], {}, 142);
+      clickWrap(s3[2], { shiftKey: true }, 143);
+      await waitFor(() => selCount() === 3, 'unit group + C selected');
+      const leftOf = w => parseFloat(w.style.left);
+      const pre = shapeWraps();
+      const offBefore = leftOf(pre[1]) - leftOf(pre[0]);
+      clickAction('align-objects-left');
+      await wait(40);
+      const post = shapeWraps();
+      const offAfter = leftOf(post[1]) - leftOf(post[0]);
+      checks.push(check('aligning a group preserves its internal layout', Math.abs(offBefore) > 5 && Math.abs(offAfter - offBefore) < 1));
+      checks.push(check('alignment treats a group as one unit', Math.abs(leftOf(post[2]) - Math.min(leftOf(post[0]), leftOf(post[1]))) < 1));
 
       // Restore-after-reload: збережена чернетка має відновитися на старті
       // (hydration). Зберігаємо маркерну чернетку й перезавантажуємо редактор.

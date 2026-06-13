@@ -1,4 +1,4 @@
-import { DEFAULT_IMAGE_STYLE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE } from './constants.js';
+import { DEFAULT_IMAGE_STYLE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, LAYOUTS, PLACEHOLDER_PROMPTS } from './constants.js';
 import { uid } from './utils.js';
 
 function mergeTextStyle(style = {}) {
@@ -86,30 +86,34 @@ export function createImageElement(src, overrides = {}) {
 }
 
 export function createBasicSlideElements() {
-  return [
-    createTextElement({
-      x: 70,
-      y: 52,
-      w: 820,
-      h: 86,
-      z: 1,
-      placeholder: 'Заголовок слайда',
-      content: 'Заголовок слайда',
+  return buildLayoutPlaceholders('title-body', 1);
+}
+
+// Один placeholder зі слота макета: текстовий (типізований prompt) або зображення
+// (порожній image-елемент із isPlaceholder — рендериться як пунктирна рамка).
+export function createPlaceholderElement(slot, z = 1) {
+  const prompt = PLACEHOLDER_PROMPTS[slot.type] || 'Введіть текст...';
+  if (slot.type === 'image') {
+    return createImageElement('', {
+      x: slot.x, y: slot.y, w: slot.w, h: slot.h, z,
       isPlaceholder: true,
-      style: { fontSize: 40, bold: true, color: '#94a3b8' }
-    }),
-    createTextElement({
-      x: 84,
-      y: 166,
-      w: 792,
-      h: 250,
-      z: 2,
-      placeholder: 'Додай основний текст або короткі пункти',
-      content: 'Додай основний текст або короткі пункти',
-      isPlaceholder: true,
-      style: { fontSize: 28, color: '#64748b' }
-    })
-  ];
+      placeholderType: 'image'
+    });
+  }
+  return createTextElement({
+    x: slot.x, y: slot.y, w: slot.w, h: slot.h, z,
+    placeholder: prompt,
+    content: prompt,
+    isPlaceholder: true,
+    placeholderType: slot.type,
+    style: slot.style || {}
+  });
+}
+
+export function buildLayoutPlaceholders(layoutKey, startZ = 1) {
+  const layout = LAYOUTS.find(item => item.key === layoutKey);
+  if (!layout) return [];
+  return layout.slots.map((slot, index) => createPlaceholderElement(slot, startZ + index));
 }
 
 export function createSlide(overrides = {}) {
@@ -119,6 +123,7 @@ export function createSlide(overrides = {}) {
   return {
     id: uid(),
     background: '#ffffff',
+    layout: 'title-body',
     elements: providedElements,
     ...overrides,
     elements: providedElements
@@ -127,6 +132,7 @@ export function createSlide(overrides = {}) {
 
 export function createDefaultPresentation() {
   const slide = createSlide({
+    layout: 'title',
     elements: [
       createTextElement({
         x: 150,

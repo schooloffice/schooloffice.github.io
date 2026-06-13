@@ -85,6 +85,17 @@ function buildElementNode(element, forThumb = false) {
     applyTextSnapshotStyles(node, element, { showPlaceholder: forThumb });
   }
 
+  // Порожній image-placeholder: у мініатюрі — легка рамка-підказка, у PDF/print
+  // (forThumb=false) — нічого (службовий слот не потрапляє у показ/друк).
+  if (element.type === 'image' && (element.isPlaceholder || !element.content)) {
+    if (forThumb) {
+      node.style.border = '2px dashed #cbd5e1';
+      node.style.borderRadius = '8px';
+      node.style.boxSizing = 'border-box';
+    }
+    return node;
+  }
+
   if (element.type === 'image') {
     // Кадрування: вікно з overflow:hidden показує підпрямокутник, а зображення
     // лишається розміром у повну рамку й зсувається (однаково зі сценою).
