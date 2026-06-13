@@ -313,6 +313,14 @@ button {
   text-align: center;
 }
 
+/* Спінер number-інпута з'їдає правий край вузького поля й обрізає значення
+   (напр. «1.15» → «1.1»); прибираємо його — ввід з клавіатури і ↑/↓ лишаються. */
+.tb-num::-webkit-outer-spin-button,
+.tb-num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .app-shell {
   height: calc(100vh - var(--header-h) - var(--menubar-h) - var(--toolbar-h) - var(--statusbar-h));
   display: grid;
@@ -531,6 +539,7 @@ button {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
 .text-element {
@@ -545,12 +554,86 @@ button {
   cursor: text;
 }
 
+ul.text-element,
+ol.text-element {
+  margin: 0;
+  padding: 8px 8px 8px 1.55em;
+  white-space: normal;
+}
+
+.text-element li {
+  white-space: pre-wrap;
+}
+
 .image-element {
   width: 100%;
   height: 100%;
   object-fit: cover;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+/* Кадрування зображення: вікно клипить, зображення лишається у повну рамку. */
+.crop-window {
+  position: absolute;
+  overflow: hidden;
+}
+
+.crop-window .image-element {
+  position: absolute;
+}
+
+.crop-ghost {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: .32;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.element-content.cropping .crop-window {
+  outline: 2px solid #f59e0b;
+  outline-offset: -1px;
+}
+
+.crop-handles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.crop-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #f59e0b;
+  border: 2px solid #fff;
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+
+.crop-handle.nw,
+.crop-handle.se {
+  cursor: nwse-resize;
+}
+
+.crop-handle.ne,
+.crop-handle.sw {
+  cursor: nesw-resize;
+}
+
+.crop-handle.n,
+.crop-handle.s {
+  cursor: ns-resize;
+}
+
+.crop-handle.e,
+.crop-handle.w {
+  cursor: ew-resize;
 }
 
 .shape-element {
@@ -902,6 +985,16 @@ button {
 .helper-text {
   font-size: .76rem;
   font-weight: 700;
+  color: var(--slate-3);
+}
+
+.form-error {
+  font-size: .8rem;
+  font-weight: 700;
+  color: #dc2626;
+}
+
+.form-error.form-busy {
   color: var(--slate-3);
 }
 

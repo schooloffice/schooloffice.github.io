@@ -9,7 +9,7 @@ $services = @(
   @{ Key = 'text'; Path = 'text'; Menu = @('file', 'edit', 'insert', 'view', 'help'); ActionFiles = @('text/ui/menu.js'); CommandFiles = @('text/js/app.js'); FilePickerFiles = @('text/ui/menu.js', 'text/ui/editor.js'); OptionalIds = @() },
   @{ Key = 'tables'; Path = 'tables'; Menu = @('file', 'edit', 'insert', 'format', 'data', 'view', 'help'); ActionFiles = @('tables/js/ui.js'); CommandFiles = @('tables/js/app.js'); FilePickerFiles = @('tables/js/ui.js', 'tables/js/workbook-file.js'); OptionalIds = @('header') },
   @{ Key = 'paint'; Path = 'paint'; Menu = @('file', 'edit', 'view', 'help'); ActionFiles = @('paint/js/app.js'); CommandFiles = @('paint/js/app.js'); FilePickerFiles = @('paint/js/document.js'); OptionalIds = @() },
-  @{ Key = 'slides'; Path = 'slides'; Menu = @('file', 'edit', 'insert', 'slide', 'view', 'help'); ActionFiles = @('slides/js/app.js'); CommandFiles = @('slides/js/app.js'); FilePickerFiles = @('slides/js/app.js'); OptionalIds = @('imageUrlField', 'imageAltField', 'altEditField', 'pickImageFile') },
+  @{ Key = 'slides'; Path = 'slides'; Menu = @('file', 'edit', 'insert', 'slide', 'view', 'help'); ActionFiles = @('slides/js/app.js'); CommandFiles = @('slides/js/app.js'); FilePickerFiles = @('slides/js/app.js'); OptionalIds = @('imageUrlField', 'imageAltField', 'imageSourceError', 'altEditField', 'pickImageFile') },
   @{ Key = 'flowcharts'; Path = 'flowcharts'; Menu = @('file', 'edit', 'insert', 'view', 'help'); ActionFiles = @('flowcharts/js/editor.js', 'flowcharts/js/menu-actions.js'); CommandFiles = @('flowcharts/js/editor.js', 'flowcharts/js/project-io.js', 'flowcharts/js/menu-actions.js'); FilePickerFiles = @('flowcharts/js/editor.js', 'flowcharts/js/project-io.js'); OptionalIds = @('delete-button', 'help-button') },
   @{ Key = 'vector'; Path = 'vector'; Menu = @('file', 'edit', 'insert', 'format', 'help'); ActionFiles = @('vector/js/app.js'); CommandFiles = @('vector/js/app.js'); FilePickerFiles = @('vector/js/app.js'); OptionalIds = @() }
 )
@@ -518,6 +518,7 @@ $runtimeFiles = @(
   'slides/js/slide-list.js',
   'slides/js/stage-interactions.js',
   'slides/js/stage-renderer.js',
+  'slides/js/text-list.js',
   'text/js/app.js',
   'text/js/runtime.js'
 )

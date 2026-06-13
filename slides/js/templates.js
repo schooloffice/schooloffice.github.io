@@ -1,4 +1,4 @@
-import { DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE } from './constants.js';
+import { DEFAULT_IMAGE_STYLE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE } from './constants.js';
 import { uid } from './utils.js';
 
 function mergeTextStyle(style = {}) {
@@ -7,6 +7,10 @@ function mergeTextStyle(style = {}) {
 
 function mergeShapeStyle(style = {}) {
   return { ...DEFAULT_TEXT_STYLE, ...DEFAULT_SHAPE_STYLE, ...style };
+}
+
+function mergeImageStyle(style = {}) {
+  return { ...DEFAULT_IMAGE_STYLE, ...style };
 }
 
 export function createTextElement(overrides = {}) {
@@ -72,9 +76,10 @@ export function createImageElement(src, overrides = {}) {
     rotation: 0,
     content: src,
     alt: '',
-    style: mergeTextStyle(),
+    crop: { l: 0, t: 0, r: 0, b: 0 },
+    style: mergeImageStyle(),
     ...overrides,
-    style: mergeTextStyle(overrides.style || {})
+    style: mergeImageStyle(overrides.style || {})
   };
 }
 
@@ -211,9 +216,9 @@ export function createTemplateDefinition(type) {
           w: 410,
           h: 320,
           z: 2,
-          content: '• Пункт 1\n• Пункт 2\n• Пункт 3',
+          content: 'Пункт 1\nПункт 2\nПункт 3',
           isPlaceholder: false,
-          style: { fontSize: 28, color: '#111827' }
+          style: { fontSize: 28, color: '#111827', listType: 'bullet' }
         }),
         createShapeElement('rect', {
           x: 500,

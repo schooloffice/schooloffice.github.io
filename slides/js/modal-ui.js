@@ -1,4 +1,5 @@
 let modalHandlerAbort = null;
+let modalCloseHandler = null;
 
 export function showModal(dom, {
   title,
@@ -9,8 +10,14 @@ export function showModal(dom, {
   icon = 'fa-solid fa-circle-info',
   onConfirm = null,
   onMount = null,
+  onClose = null,
   showCancel = true
 }) {
+  // Поточну модалку заміщає нова — спершу повідомляємо її про закриття
+  // (напр. щоб інвалідувати незавершену асинхронну операцію).
+  const previousClose = modalCloseHandler;
+  modalCloseHandler = null;
+  previousClose?.();
   dom.modalTitle.textContent = title;
   dom.modalText.textContent = text;
   dom.modalBody.innerHTML = body;
@@ -22,8 +29,10 @@ export function showModal(dom, {
   dom.modalOverlay.classList.add('active');
   dom.modalOverlay.setAttribute('aria-hidden', 'false');
 
+  // Якщо onConfirm повертає false — лишаємо модалку відкритою (інлайн-валідація),
+  // щоб користувач не втрачав уведені дані. undefined/true закривають як раніше.
   const confirmHandler = () => {
-    onConfirm?.();
+    if (onConfirm?.() === false) return;
     closeModal(dom);
   };
   const cancelHandler = () => closeModal(dom);
@@ -32,6 +41,7 @@ export function showModal(dom, {
   modalHandlerAbort = new AbortController();
   dom.modalConfirm.addEventListener('click', confirmHandler, { signal: modalHandlerAbort.signal });
   dom.modalCancel.addEventListener('click', cancelHandler, { signal: modalHandlerAbort.signal });
+  modalCloseHandler = onClose;
   onMount?.();
 }
 
@@ -42,6 +52,11 @@ export function closeModal(dom) {
   dom.modalOverlay.classList.remove('active');
   dom.modalOverlay.setAttribute('aria-hidden', 'true');
   dom.modalBody.innerHTML = '';
+  // Закриття будь-яким шляхом (кнопка, overlay, програмно) повідомляє власника
+  // модалки — напр. щоб скасувати незавершений fetch вставки зображення.
+  const handler = modalCloseHandler;
+  modalCloseHandler = null;
+  handler?.();
 }
 
 export function showInfoModal(dom, title, text) {

@@ -1,7 +1,7 @@
 import { DEFAULT_SHAPE_STYLE, FONT_FAMILY_CSS, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
 import { captureState, commitState } from './history.js';
 import { getCurrentSlide, isSelected, state } from './state.js';
-import { getTextFromContentEditable } from './utils.js';
+import { createTextContainer, getTextFromTextContainer, setTextContainerContent, splitListItemAtSelection } from './text-list.js';
 
 export function renderStage({
   elementDomMap,
@@ -9,6 +9,7 @@ export function renderStage({
   onElementPointerDown,
   onHandlePointerDown,
   onRotateHandlePointerDown,
+  onCropHandlePointerDown,
   renderSlideList,
   selectElement,
   stage
@@ -29,6 +30,7 @@ export function renderStage({
       onElementPointerDown,
       onHandlePointerDown,
       onRotateHandlePointerDown,
+      onCropHandlePointerDown,
       renderSlideList,
       selectElement
     });
@@ -60,12 +62,34 @@ function renderElementNode(element, handlers) {
   }
 
   if (element.type === 'image') {
+    const cropping = state.cropElementId === element.id;
+    if (cropping) {
+      content.classList.add('cropping');
+      // «Привид» — повне зображення приглушено, щоб бачити, що обрізається.
+      const ghost = document.createElement('img');
+      ghost.className = 'crop-ghost';
+      ghost.src = element.content;
+      ghost.alt = '';
+      ghost.draggable = false;
+      ghost.style.objectFit = element.style?.objectFit || 'cover';
+      content.appendChild(ghost);
+    }
+    const win = document.createElement('div');
+    win.className = 'crop-window';
     const img = document.createElement('img');
     img.className = 'image-element';
     img.src = element.content;
     img.alt = element.alt || '';
     img.draggable = false;
-    content.appendChild(img);
+    img.style.objectFit = element.style?.objectFit || 'cover';
+    img.style.opacity = String(element.style?.opacity ?? 1);
+    win.appendChild(img);
+    content.appendChild(win);
+    setCropGeometry(win, img, element);
+    if (cropping) {
+      wrap.dataset.cropping = 'true';
+      content.appendChild(createCropHandles(element, handlers.onCropHandlePointerDown));
+    }
   }
 
   if (element.type === 'shape') {
@@ -79,11 +103,11 @@ function renderElementNode(element, handlers) {
 }
 
 function createTextNode(element, { markDirty, renderSlideList, selectElement }) {
-  const textBox = document.createElement('div');
+  const textBox = createTextContainer(element.style.listType);
   textBox.className = 'text-element';
   textBox.contentEditable = 'true';
   textBox.spellcheck = false;
-  textBox.textContent = element.content || '';
+  setTextContainerContent(textBox, element.content, element.style.listType);
   applyTextStylesToNode(textBox, element);
   // Безперервне введення тексту коаліс­уємо в один крок історії. Пре-стан
   // захоплюємо на focus — ДО очищення плейсхолдера, — а записуємо лише на
@@ -106,27 +130,34 @@ function createTextNode(element, { markDirty, renderSlideList, selectElement }) 
     if (element.isPlaceholder) {
       element.content = '';
       element.isPlaceholder = false;
-      textBox.textContent = '';
+      setTextContainerContent(textBox, '', element.style.listType);
       applyTextStylesToNode(textBox, element);
     }
   });
-  textBox.addEventListener('input', () => {
+  const syncTextContent = () => {
     if (pendingSnapshot) {
       commitState(pendingSnapshot);
       pendingSnapshot = null;
     }
-    const value = getTextFromContentEditable(textBox);
+    const value = getTextFromTextContainer(textBox, element.style.listType);
     element.content = value;
     element.isPlaceholder = false;
     markDirty('Текст змінено');
     renderSlideList();
+  };
+  textBox.addEventListener('keydown', event => {
+    if (element.style.listType === 'none' || event.key !== 'Enter' || event.shiftKey) return;
+    if (!splitListItemAtSelection(textBox)) return;
+    event.preventDefault();
+    syncTextContent();
   });
+  textBox.addEventListener('input', syncTextContent);
   textBox.addEventListener('blur', () => {
-    const value = getTextFromContentEditable(textBox).trim();
+    const value = getTextFromTextContainer(textBox, element.style.listType).trim();
     if (!value && element.placeholder) {
       element.content = element.placeholder;
       element.isPlaceholder = true;
-      textBox.textContent = element.placeholder;
+      setTextContainerContent(textBox, element.placeholder, element.style.listType);
       applyTextStylesToNode(textBox, element);
       renderSlideList();
       markDirty('Поле очищено');
@@ -186,6 +217,75 @@ function createHandles(elementId, onHandlePointerDown, onRotateHandlePointerDown
     handles.appendChild(rotate);
   }
   return handles;
+}
+
+// Кадрування у просторі рамки: вікно показує підпрямокутник, а зображення
+// всередині лишається розміром у повну рамку й зсувається — тож обрізаються краї.
+function getCrop(element) {
+  const c = element.crop || {};
+  return {
+    l: Number.isFinite(c.l) ? c.l : 0,
+    t: Number.isFinite(c.t) ? c.t : 0,
+    r: Number.isFinite(c.r) ? c.r : 0,
+    b: Number.isFinite(c.b) ? c.b : 0
+  };
+}
+
+function setCropGeometry(win, img, element) {
+  const { l, t, r, b } = getCrop(element);
+  const visW = Math.max(0.0001, 1 - l - r);
+  const visH = Math.max(0.0001, 1 - t - b);
+  win.style.left = `${l * 100}%`;
+  win.style.top = `${t * 100}%`;
+  win.style.width = `${visW * 100}%`;
+  win.style.height = `${visH * 100}%`;
+  img.style.width = `${(1 / visW) * 100}%`;
+  img.style.height = `${(1 / visH) * 100}%`;
+  img.style.left = `${-(l / visW) * 100}%`;
+  img.style.top = `${-(t / visH) * 100}%`;
+}
+
+const CROP_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+
+function cropHandlePosition(name, crop) {
+  const { l, t, r, b } = crop;
+  const left = name.includes('w') ? l : (name.includes('e') ? 1 - r : (l + (1 - r)) / 2);
+  const top = name.includes('n') ? t : (name.includes('s') ? 1 - b : (t + (1 - b)) / 2);
+  return { left, top };
+}
+
+function positionCropHandles(handles, element) {
+  const crop = getCrop(element);
+  handles.querySelectorAll('.crop-handle').forEach(handle => {
+    const { left, top } = cropHandlePosition(handle.dataset.handle, crop);
+    handle.style.left = `${left * 100}%`;
+    handle.style.top = `${top * 100}%`;
+  });
+}
+
+function createCropHandles(element, onCropHandlePointerDown) {
+  const handles = document.createElement('div');
+  handles.className = 'crop-handles';
+  CROP_HANDLES.forEach(name => {
+    const handle = document.createElement('div');
+    handle.className = `crop-handle ${name}`;
+    handle.dataset.handle = name;
+    if (onCropHandlePointerDown) {
+      handle.addEventListener('pointerdown', event => onCropHandlePointerDown(event, element.id, name));
+    }
+    handles.appendChild(handle);
+  });
+  positionCropHandles(handles, element);
+  return handles;
+}
+
+// Жива синхронізація DOM під час перетягування crop-ручки (без перебудови вузла).
+export function applyImageCropToNode(node, element) {
+  const win = node.querySelector('.crop-window');
+  const img = win?.querySelector('.image-element');
+  if (win && img) setCropGeometry(win, img, element);
+  const handles = node.querySelector('.crop-handles');
+  if (handles) positionCropHandles(handles, element);
 }
 
 function applyTextStylesToNode(node, element) {

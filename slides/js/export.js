@@ -1,4 +1,11 @@
 import { FONT_FAMILY_CSS, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
+import { createTextContainer, setTextContainerContent } from './text-list.js';
+
+function normalizeCropFractions(crop) {
+  const c = crop && typeof crop === 'object' ? crop : {};
+  const f = value => (Number.isFinite(value) ? Math.min(Math.max(value, 0), 0.9) : 0);
+  return { l: f(c.l), t: f(c.t), r: f(c.r), b: f(c.b) };
+}
 
 function appendShape(svg, element, forThumb = false) {
   const strokeWidth = forThumb ? '8' : '10';
@@ -28,7 +35,7 @@ function appendShape(svg, element, forThumb = false) {
 }
 
 function buildElementNode(element, forThumb = false) {
-  const node = document.createElement('div');
+  const node = element.type === 'text' ? createTextContainer(element.style.listType) : document.createElement('div');
   node.style.position = 'absolute';
   node.style.left = `${element.x}px`;
   node.style.top = `${element.y}px`;
@@ -36,11 +43,13 @@ function buildElementNode(element, forThumb = false) {
   node.style.height = `${element.h}px`;
   node.style.zIndex = String(element.z || 1);
   node.style.overflow = 'visible';
+  node.style.boxSizing = 'border-box';
   node.style.transform = `rotate(${element.rotation || 0}deg)`;
   node.style.transformOrigin = 'center center';
 
   if (element.type === 'text') {
-    node.style.padding = '8px';
+    node.style.margin = '0';
+    node.style.padding = element.style.listType === 'none' ? '8px' : '8px 8px 8px 1.55em';
     node.style.whiteSpace = 'pre-wrap';
     node.style.wordBreak = 'break-word';
     node.style.lineHeight = String(element.style.lineHeight || 1.15);
@@ -51,17 +60,34 @@ function buildElementNode(element, forThumb = false) {
     node.style.textDecoration = element.style.underline ? 'underline' : 'none';
     node.style.textAlign = element.style.align || 'left';
     node.style.color = element.style.color || '#111827';
-    node.textContent = element.content || '';
+    setTextContainerContent(node, element.content, element.style.listType);
   }
 
   if (element.type === 'image') {
+    // Кадрування: вікно з overflow:hidden показує підпрямокутник, а зображення
+    // лишається розміром у повну рамку й зсувається (однаково зі сценою).
+    const crop = normalizeCropFractions(element.crop);
+    const visW = Math.max(0.0001, 1 - crop.l - crop.r);
+    const visH = Math.max(0.0001, 1 - crop.t - crop.b);
+    const win = document.createElement('div');
+    win.style.position = 'absolute';
+    win.style.overflow = 'hidden';
+    win.style.left = `${crop.l * 100}%`;
+    win.style.top = `${crop.t * 100}%`;
+    win.style.width = `${visW * 100}%`;
+    win.style.height = `${visH * 100}%`;
     const img = document.createElement('img');
     img.src = element.content;
     img.alt = element.alt || '';
-    img.style.width = '100%';
-    img.style.height = '100%';
-    img.style.objectFit = 'cover';
-    node.appendChild(img);
+    img.style.position = 'absolute';
+    img.style.width = `${(1 / visW) * 100}%`;
+    img.style.height = `${(1 / visH) * 100}%`;
+    img.style.left = `${-(crop.l / visW) * 100}%`;
+    img.style.top = `${-(crop.t / visH) * 100}%`;
+    img.style.objectFit = element.style?.objectFit || 'cover';
+    img.style.opacity = String(element.style?.opacity ?? 1);
+    win.appendChild(img);
+    node.appendChild(win);
   }
 
   if (element.type === 'shape') {

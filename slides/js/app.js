@@ -1,4 +1,4 @@
-﻿import { COLOR_PALETTE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, LIMITS, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
+﻿import { COLOR_PALETTE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILIES, FONT_SIZES, LIMITS, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
 import { exportPresentationPdf, printPresentation, createSlideSnapshot } from './export.js';
 import { pushHistory, redo, resetHistory, undo } from './history.js';
 import {
@@ -8,10 +8,11 @@ import {
   showModal as showModalUi
 } from './modal-ui.js';
 import { normalizeElement, normalizePresentation, parsePresentationText, savePresentationFile } from './project.js';
-import { renderStage as renderStageView, syncSelectionUi as syncStageSelectionUi } from './stage-renderer.js';
+import { renderStage as renderStageView, syncSelectionUi as syncStageSelectionUi, applyImageCropToNode } from './stage-renderer.js';
 import { renderSlideList as renderSlideListView } from './slide-list.js';
 import {
   bindStage as bindStageInteractions,
+  getStagePoint,
   normalizeZIndexes,
   onElementPointerDown as handleElementPointerDown,
   onHandlePointerDown as handleHandlePointerDown,
@@ -31,7 +32,7 @@ const dom = {};
 const elementDomMap = new Map();
 
 let colorAnchorButton = null;
-let pendingImageAlt = '';
+let pendingImageOperation = { mode: 'insert', elementId: null, alt: '' };
 
 // Масштаб полотна — лише вигляд (координати моделі лишаються логічними 960×540).
 // `autoFitZoom` тримає слайд вписаним у вікно, доки користувач не задасть масштаб вручну.
@@ -130,6 +131,9 @@ function initDom() {
   dom.fontSizeSelect = $('#fontSizeSelect');
   dom.fontFamilySelect = $('#fontFamilySelect');
   dom.lineHeightSelect = $('#lineHeightSelect');
+  dom.imageToolGroup = $('#imageToolGroup');
+  dom.imageToolSep = $('#imageToolSep');
+  dom.imageOpacityInput = $('#imageOpacityInput');
   dom.colorPanelBtn = $('#colorPanelBtn');
   dom.modalOverlay = $('#modalOverlay');
   dom.modalIcon = $('#modalIcon');
@@ -189,7 +193,8 @@ function openProjectPicker() {
   window.OfficeShell?.openFilePicker?.(dom.projectFileInput) || dom.projectFileInput.click();
 }
 
-function openImagePicker() {
+function openImagePicker({ keepOperation = false } = {}) {
+  if (!keepOperation) pendingImageOperation = { mode: 'insert', elementId: null, alt: '' };
   window.OfficeShell?.openFilePicker?.(dom.imageFileInput) || dom.imageFileInput.click();
 }
 
@@ -271,13 +276,8 @@ function renderTextControls() {
     option.textContent = font.label;
     dom.fontFamilySelect.appendChild(option);
   });
-  dom.lineHeightSelect.innerHTML = '';
-  LINE_HEIGHTS.forEach(value => {
-    const option = document.createElement('option');
-    option.value = String(value);
-    option.textContent = `Інтервал ${value}`;
-    dom.lineHeightSelect.appendChild(option);
-  });
+  // Інтервал — довільне число 0.8–3 (без datalist: на number-інпуті атрибут list
+  // додає пікер, який обрізає центроване значення у вузькому полі тулбара).
 }
 
 function renderColorPalette() {
@@ -311,12 +311,22 @@ function renderSlideList() {
 }
 
 function renderStage() {
+  // Вихід із режиму кадрування, якщо кадроване зображення зникло з ПОТОЧНОГО
+  // слайда (зміна слайда, видалення, undo тощо) — інакше стан «воскресає» при
+  // поверненні на слайд. Навігація/видалення міняють selectedElementIds напряму,
+  // тож централізуємо очищення тут, де сходяться всі ці шляхи.
+  if (state.cropElementId) {
+    const slide = getCurrentSlide();
+    const stillCroppable = slide?.elements.some(el => el.id === state.cropElementId && el.type === 'image');
+    if (!stillCroppable) state.cropElementId = null;
+  }
   renderStageView({
     elementDomMap,
     markDirty,
     onElementPointerDown,
     onHandlePointerDown,
     onRotateHandlePointerDown,
+    onCropHandlePointerDown,
     renderSlideList,
     selectElement,
     stage: dom.stage
@@ -338,7 +348,7 @@ function renderToolbarState() {
   dom.fontSizeSelect.value = String(textEl?.style?.fontSize || primary?.style?.fontSize || FONT_SIZES[1]);
   dom.fontFamilySelect.value = textEl?.style?.fontFamily || DEFAULT_TEXT_STYLE.fontFamily;
   dom.lineHeightSelect.value = String(textEl?.style?.lineHeight || DEFAULT_TEXT_STYLE.lineHeight);
-  $$('[data-action="bold"], [data-action="italic"], [data-action="underline"], [data-action="align-left"], [data-action="align-center"], [data-action="align-right"]').forEach(button => {
+  $$('[data-action="bold"], [data-action="italic"], [data-action="underline"], [data-action="align-left"], [data-action="align-center"], [data-action="align-right"], [data-action="list-bullet"], [data-action="list-number"]').forEach(button => {
     button.classList.remove('active');
   });
 
@@ -347,6 +357,19 @@ function renderToolbarState() {
     if (textEl.style.italic) $$('[data-action="italic"]').forEach(btn => btn.classList.add('active'));
     if (textEl.style.underline) $$('[data-action="underline"]').forEach(btn => btn.classList.add('active'));
     $$(`[data-action="align-${textEl.style.align || 'left'}"]`).forEach(btn => btn.classList.add('active'));
+    if (textEl.style.listType !== 'none') $$(`[data-action="list-${textEl.style.listType}"]`).forEach(btn => btn.classList.add('active'));
+  }
+
+  // Група інструментів зображення видима лише коли у вибірці є зображення.
+  const imageEl = getPrimaryImageElement();
+  dom.imageToolGroup.classList.toggle('hidden', !imageEl);
+  dom.imageToolSep.classList.toggle('hidden', !imageEl);
+  $$('[data-action="image-fit-cover"], [data-action="image-fit-contain"]').forEach(btn => btn.classList.remove('active'));
+  $$('[data-action="image-crop"]').forEach(btn => btn.classList.toggle('active', !!imageEl && state.cropElementId === imageEl.id));
+  if (imageEl) {
+    $$(`[data-action="image-fit-${imageEl.style.objectFit || 'cover'}"]`).forEach(btn => btn.classList.add('active'));
+    // Підпис — «прозорість»: 0% = повністю видиме (opacity 1), 100% = невидиме (opacity 0).
+    dom.imageOpacityInput.value = String(Math.round((1 - (imageEl.style.opacity ?? 1)) * 100));
   }
 }
 
@@ -355,7 +378,12 @@ function syncSelectionUi() {
 }
 
 function setSelection(ids) {
-  state.selectedElementIds = Array.from(new Set(ids));
+  const next = Array.from(new Set(ids));
+  // Вихід із режиму кадрування, якщо кадроване зображення більше не у вибірці.
+  const leftCrop = state.cropElementId && !next.includes(state.cropElementId);
+  if (leftCrop) state.cropElementId = null;
+  state.selectedElementIds = next;
+  if (leftCrop) renderStage();
   syncSelectionUi();
   renderToolbarState();
   renderStatus();
@@ -569,7 +597,17 @@ function bindInputs() {
     event.target.value = String(value);
   });
   dom.fontFamilySelect.addEventListener('change', event => setSelectedTextStyle({ fontFamily: event.target.value }));
-  dom.lineHeightSelect.addEventListener('change', event => setSelectedTextStyle({ lineHeight: Number(event.target.value) }));
+  dom.lineHeightSelect.addEventListener('change', event => {
+    const value = clamp(Number(event.target.value) || DEFAULT_TEXT_STYLE.lineHeight, 0.8, 3);
+    setSelectedTextStyle({ lineHeight: value });
+    event.target.value = String(value);
+  });
+  dom.imageOpacityInput.addEventListener('change', event => {
+    // Введений % — це прозорість; у модель пишемо opacity = 1 - прозорість.
+    const percent = clamp(Math.round(Number(event.target.value)), 0, 100);
+    setSelectedImageStyle({ opacity: 1 - percent / 100 });
+    event.target.value = String(percent);
+  });
   dom.projectFileInput.addEventListener('change', onProjectFileSelected);
   dom.imageFileInput.addEventListener('change', onImageFileSelected);
 
@@ -757,6 +795,13 @@ function handleKeyboardShortcuts(event) {
   // Коли фокус у відкритому контекст-меню — воно саме обробляє клавіатуру.
   if (dom.contextMenu && !dom.contextMenu.classList.contains('hidden') && dom.contextMenu.contains(activeElement)) return;
 
+  // У режимі кадрування Esc/Enter завершують його (поза полями введення).
+  if (state.cropElementId && !isTypingInText && !isTypingInInput && (event.key === 'Escape' || event.key === 'Enter')) {
+    event.preventDefault();
+    exitCropMode();
+    return;
+  }
+
   if (event.key === 'Escape') hideContextMenu();
 
   if (ctrlOrMeta) {
@@ -906,6 +951,7 @@ function dispatchAction(action, trigger = null) {
     case 'delete-element': deleteSelectedElement(); break;
     case 'insert-text': addTextElement(); break;
     case 'insert-image': promptImageInsert(); break;
+    case 'replace-image': promptImageReplace(); break;
     case 'edit-alt': editImageAlt(); break;
     case 'insert-rect': addShape('rect'); break;
     case 'insert-circle': addShape('circle'); break;
@@ -933,6 +979,11 @@ function dispatchAction(action, trigger = null) {
     case 'align-left': setSelectedTextStyle({ align: 'left' }); break;
     case 'align-center': setSelectedTextStyle({ align: 'center' }); break;
     case 'align-right': setSelectedTextStyle({ align: 'right' }); break;
+    case 'list-bullet': toggleTextList('bullet'); break;
+    case 'list-number': toggleTextList('number'); break;
+    case 'image-fit-cover': setSelectedImageStyle({ objectFit: 'cover' }); break;
+    case 'image-fit-contain': setSelectedImageStyle({ objectFit: 'contain' }); break;
+    case 'image-crop': toggleCropMode(); break;
     case 'rotate-left': rotateSelected(-15); break;
     case 'rotate-right': rotateSelected(15); break;
     case 'bring-front': bringSelectedToFront(); break;
@@ -1116,50 +1167,194 @@ function addTextElement() {
 }
 
 function promptImageInsert() {
-  showModal({
+  pendingImageOperation = { mode: 'insert', elementId: null, alt: '' };
+  showImageSourceModal({
     title: 'Додати зображення',
     text: 'Оберіть файл із пристрою або вставте посилання на зображення.',
+    confirmText: 'Додати'
+  });
+}
+
+function promptImageReplace() {
+  const element = getSelectedElement();
+  if (!element || element.type !== 'image') {
+    showInfoModal('Замінити зображення', 'Виберіть одне зображення, яке потрібно замінити.');
+    return;
+  }
+  pendingImageOperation = { mode: 'replace', elementId: element.id, alt: element.alt || '' };
+  showImageSourceModal({
+    title: 'Замінити зображення',
+    text: 'Нове зображення збереже позицію, розмір, поворот і шар поточного.',
+    confirmText: 'Замінити',
+    alt: element.alt || ''
+  });
+}
+
+function showImageSourceModal({ title, text, confirmText, alt = '' }) {
+  showModal({
+    title,
+    text,
     body: `
       <div class="form-stack">
         <button id="pickImageFile" class="link-button" type="button"><i class="fa-solid fa-image"></i> Обрати файл</button>
         <input id="imageUrlField" class="input-like" type="text" placeholder="https://...">
         <input id="imageAltField" class="input-like" type="text" placeholder="Опис зображення (alt) — для доступності">
         <div class="helper-text">Для учнів і вчителів найнадійніше працює завантаження файлу з комп’ютера.</div>
+        <div id="imageSourceError" class="form-error hidden" role="alert"></div>
       </div>
     `,
-    confirmText: 'Додати',
+    confirmText,
     cancelText: 'Скасувати',
+    // Закриття/заміна модалки інвалідує незавершений HTTPS-fetch, тож його
+    // пізнє завершення не застосує/не замінить зображення й не закриє іншу модалку.
+    onClose: invalidateImageEmbed,
     onMount: () => {
+      $('#imageAltField').value = alt;
       $('#pickImageFile').addEventListener('click', () => {
-        // Запам'ятовуємо alt перед відкриттям файлового діалогу (інший потік).
-        pendingImageAlt = $('#imageAltField').value.trim();
-        openImagePicker();
+        pendingImageOperation.alt = $('#imageAltField').value.trim();
+        openImagePicker({ keepOperation: true });
       });
     },
+    // Повертаємо false при порожньому/невалідному джерелі — модалка лишається
+    // відкритою з інлайн-поясненням, тож уведені URL та alt не втрачаються.
     onConfirm: () => {
       const url = $('#imageUrlField').value.trim();
       const alt = $('#imageAltField').value.trim();
-      if (url) insertImage(url, alt);
+      if (!url) {
+        showImageSourceError('Вставте посилання на зображення або оберіть файл із пристрою.');
+        return false;
+      }
+      if (url.startsWith('data:')) {
+        if (!applyImageSource(url, alt)) {
+          showImageSourceError('Некоректний data:image URL або зображення завелике.');
+          return false;
+        }
+        return;
+      }
+      if (!/^https:\/\//i.test(url)) {
+        showImageSourceError('Підтримуються файл, HTTPS-посилання або data:image URL.');
+        return false;
+      }
+      // HTTPS вбудовуємо як data: одразу: модель зберігає лише data:, тож
+      // зображення переживає перезбереження й працює офлайн (зовнішні URL
+      // нейтралізуються при імпорті). Поки триває fetch — модалка відкрита.
+      embedAndApplyImageUrl(url, alt);
+      return false;
     }
   });
+}
+
+function showImageSourceError(message) {
+  const box = $('#imageSourceError');
+  if (!box) return;
+  box.classList.remove('form-busy');
+  box.textContent = message || '';
+  box.classList.toggle('hidden', !message);
+}
+
+function setImageSourceBusy(busy, message = '') {
+  const box = $('#imageSourceError');
+  if (box) {
+    box.classList.toggle('form-busy', busy);
+    box.textContent = busy ? message : '';
+    box.classList.toggle('hidden', !busy);
+  }
+  if (dom.modalConfirm) dom.modalConfirm.disabled = busy;
+}
+
+// Кожне HTTPS-завантаження отримує власний токен і AbortController. Інвалідація
+// (закриття/заміна модалки) збільшує лічильник і перериває fetch, тож запит, що
+// завершився ПІСЛЯ скасування, не пройде перевірку токена й нічого не змінить.
+let imageEmbedSeq = 0;
+let imageEmbedAbort = null;
+
+function invalidateImageEmbed() {
+  imageEmbedSeq += 1;
+  imageEmbedAbort?.abort();
+  imageEmbedAbort = null;
+  if (dom.modalConfirm) dom.modalConfirm.disabled = false;
+}
+
+async function embedAndApplyImageUrl(url, alt) {
+  const token = ++imageEmbedSeq;
+  imageEmbedAbort?.abort();
+  const controller = new AbortController();
+  imageEmbedAbort = controller;
+  // Знімок операції на момент старту — глобальний pendingImageOperation може
+  // змінитися (інша вставка/заміна) поки триває fetch.
+  const operation = { ...pendingImageOperation };
+  setImageSourceBusy(true, 'Завантаження зображення…');
+  try {
+    const dataUrl = await fetchImageAsDataURL(url, controller.signal);
+    if (token !== imageEmbedSeq) return;            // скасовано/заміщено під час fetch
+    setImageSourceBusy(false);
+    if (!applyImageSource(dataUrl, alt, operation)) {
+      showImageSourceError('Зображення завелике для вбудовування. Спробуйте менший файл.');
+      return;
+    }
+    closeModal();
+  } catch {
+    if (token !== imageEmbedSeq) return;            // скасовано — UI вже належить іншому стану
+    setImageSourceBusy(false);
+    showImageSourceError('Не вдалося завантажити зображення за посиланням (його може блокувати CORS). Збережіть файл і додайте з пристрою.');
+  }
+}
+
+// Завантажуємо зображення за HTTPS і кодуємо в data: URL для вбудовування.
+async function fetchImageAsDataURL(url, signal) {
+  const response = await fetch(url, { mode: 'cors', signal });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const blob = await response.blob();
+  if (!blob.type.startsWith('image/')) throw new Error('not an image');
+  if (blob.size > LIMITS.MAX_IMAGE_FILE_BYTES) throw new Error('too large');
+  return readFileAsDataURL(blob);
 }
 
 async function onImageFileSelected() {
   const file = dom.imageFileInput.files?.[0];
   dom.imageFileInput.value = '';
   if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    showInfoModal('Непідтримуваний файл', 'Оберіть файл зображення.');
+    return;
+  }
   if (file.size > LIMITS.MAX_IMAGE_FILE_BYTES) {
     showInfoModal('Зображення завелике', `Максимальний розмір зображення — ${Math.round(LIMITS.MAX_IMAGE_FILE_BYTES / (1024 * 1024))} МБ.`);
     return;
   }
   try {
     const dataUrl = await readFileAsDataURL(file);
-    insertImage(dataUrl, pendingImageAlt);
-    pendingImageAlt = '';
+    if (!applyImageSource(dataUrl, pendingImageOperation.alt)) return;
+    pendingImageOperation = { mode: 'insert', elementId: null, alt: '' };
     closeModal();
   } catch {
     showInfoModal('Не вдалося прочитати файл', 'Спробуйте інше зображення.');
   }
+}
+
+// operation — знімок наміру (insert/replace). Для синхронних шляхів (файл, data:)
+// це поточний pendingImageOperation; для асинхронного HTTPS — зафіксований на старті.
+function applyImageSource(src, alt = '', operation = pendingImageOperation) {
+  if (!isSupportedImageSource(src)) {
+    setStatusRight('Зображення не додано: використайте файл, HTTPS-посилання або коректний data:image URL');
+    return false;
+  }
+  // На цей рівень джерело доходить уже як data: (HTTPS вбудовано раніше),
+  // тож у моделі ніколи не зберігається сирий зовнішній URL.
+  if (operation.mode === 'replace') {
+    const replaced = replaceImage(operation.elementId, src, alt);
+    if (replaced) pendingImageOperation = { mode: 'insert', elementId: null, alt: '' };
+    return replaced;
+  }
+  insertImage(src, alt);
+  return true;
+}
+
+function isSupportedImageSource(src) {
+  if (typeof src !== 'string' || !src) return false;
+  // Лише data:image — HTTPS вбудовується в data: ще до цього кроку (embedAndApplyImageUrl),
+  // тож сирий зовнішній URL не потрапляє в модель і не ламає офлайн/безпеку.
+  return src.startsWith('data:image/') && src.length <= LIMITS.MAX_DATA_URL_LENGTH;
 }
 
 function insertImage(src, alt = '') {
@@ -1170,6 +1365,22 @@ function insertImage(src, alt = '') {
   state.selectedElementIds = [element.id];
   renderAll();
   markDirty('Додано зображення');
+}
+
+function replaceImage(elementId, src, alt = '') {
+  const element = findElementById(elementId);
+  if (!element || element.type !== 'image') {
+    setStatusRight('Зображення не замінено: вибраний об’єкт більше не існує');
+    return false;
+  }
+  if (element.content === src && element.alt === alt) return true;
+  pushHistory();
+  element.content = src;
+  element.alt = alt;
+  state.selectedElementIds = [element.id];
+  renderAll();
+  markDirty('Зображення замінено');
+  return true;
 }
 
 function editImageAlt() {
@@ -1244,12 +1455,109 @@ function setSelectedTextStyle(partial) {
   markDirty('Формат тексту змінено');
 }
 
+// Представник зображення у вибірці: головний, якщо він зображення, інакше —
+// перше вибране зображення (для відображення стану в тулбарі при мультивиборі).
+function getPrimaryImageElement() {
+  const primary = getSelectedElement();
+  if (primary?.type === 'image') return primary;
+  return getSelectedElements().find(element => element.type === 'image') || null;
+}
+
+function setSelectedImageStyle(partial) {
+  const targets = getSelectedElements().filter(element => element.type === 'image');
+  if (!targets.length) return;
+  const changedTargets = targets.filter(element => Object.entries(partial).some(([key, value]) => element.style[key] !== value));
+  if (!changedTargets.length) return;
+  pushHistory();
+  changedTargets.forEach(element => Object.assign(element.style, partial));
+  renderStage();
+  renderToolbarState();
+  renderSlideList();
+  markDirty('Зображення оформлено');
+}
+
+// Режим кадрування: показуємо crop-ручки й «привид» для вибраного зображення.
+function toggleCropMode() {
+  const imageEl = getPrimaryImageElement();
+  if (!imageEl) return;
+  if (state.cropElementId === imageEl.id) {
+    exitCropMode();
+    return;
+  }
+  state.cropElementId = imageEl.id;
+  setSelection([imageEl.id]);
+  renderStage();
+  renderToolbarState();
+}
+
+function exitCropMode() {
+  if (!state.cropElementId) return;
+  state.cropElementId = null;
+  renderStage();
+  renderToolbarState();
+}
+
+// Перетягування crop-ручки змінює відповідні частки рамки. Логіка ізольована від
+// головної pointer-машини: слухачі на document живуть лише на час перетягування.
+function onCropHandlePointerDown(event, elementId, handle) {
+  event.preventDefault();
+  event.stopPropagation();
+  const element = findElementById(elementId);
+  const node = elementDomMap.get(elementId);
+  if (!element || !node || element.type !== 'image') return;
+
+  const startPoint = getStagePoint(dom.stage, event.clientX, event.clientY);
+  const start = { ...(element.crop || { l: 0, t: 0, r: 0, b: 0 }), w: element.w, h: element.h, rotation: (element.rotation || 0) * Math.PI / 180 };
+  const cos = Math.cos(start.rotation);
+  const sin = Math.sin(start.rotation);
+  const MIN_VISIBLE = 0.1; // лишаємо хоча б 10% видимого вікна
+  let committed = false;
+
+  const onMove = moveEvent => {
+    const point = getStagePoint(dom.stage, moveEvent.clientX, moveEvent.clientY);
+    const dx = point.x - startPoint.x;
+    const dy = point.y - startPoint.y;
+    // Рух курсора переводимо в локальні осі повернутого об'єкта (як у resize).
+    const localDx = dx * cos + dy * sin;
+    const localDy = -dx * sin + dy * cos;
+    const fx = start.w ? localDx / start.w : 0;
+    const fy = start.h ? localDy / start.h : 0;
+    let l = start.l; let t = start.t; let r = start.r; let b = start.b;
+    if (handle.includes('w')) l = clamp(start.l + fx, 0, 1 - start.r - MIN_VISIBLE);
+    if (handle.includes('e')) r = clamp(start.r - fx, 0, 1 - start.l - MIN_VISIBLE);
+    if (handle.includes('n')) t = clamp(start.t + fy, 0, 1 - start.b - MIN_VISIBLE);
+    if (handle.includes('s')) b = clamp(start.b - fy, 0, 1 - start.t - MIN_VISIBLE);
+    if (l === element.crop.l && t === element.crop.t && r === element.crop.r && b === element.crop.b) return;
+    if (!committed) { pushHistory(); committed = true; }
+    element.crop = { l, t, r, b };
+    applyImageCropToNode(node, element);
+  };
+  // Спільне очищення: завершуємо й на pointerup, і на pointercancel (втрата
+  // контролю/перерваний touch-жест), інакше pointermove лишається активним і
+  // далі мутує кадрування.
+  const finishCrop = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', finishCrop);
+    document.removeEventListener('pointercancel', finishCrop);
+    if (committed) { renderSlideList(); markDirty('Зображення кадровано'); }
+  };
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', finishCrop);
+  document.addEventListener('pointercancel', finishCrop);
+}
+
 function toggleTextStyle(key) {
   // Напрям перемикання визначаємо за представником тексту, застосовуємо до всіх
   // вибраних текстових блоків (незалежно від того, що вибрано останнім).
   const textEl = getPrimaryTextElement();
   if (!textEl) return;
   setSelectedTextStyle({ [key]: !textEl.style[key] });
+}
+
+function toggleTextList(listType) {
+  const textEl = getPrimaryTextElement();
+  if (!textEl) return;
+  setSelectedTextStyle({ listType: textEl.style.listType === listType ? 'none' : listType });
 }
 
 function applyColor(color) {
@@ -1462,8 +1770,8 @@ function showShortcuts() {
   showInfoModal('Клавіатурні скорочення', 'Ctrl+N — нова презентація\nCtrl+O — відкрити\nCtrl+S — зберегти файл\nCtrl+Z / Ctrl+Y — скасувати / повернути\nCtrl+C / Ctrl+V — копіювати / вставити об’єкт\nCtrl+D — дублювати\nDelete — видалити\nСтрілки — рух об’єкта\nF5 — показ');
 }
 
-function showModal({ title, text = '', body = '', confirmText = 'Гаразд', cancelText = 'Скасувати', icon = 'fa-solid fa-circle-info', onConfirm = null, onMount = null, showCancel = true }) {
-  showModalUi(dom, { title, text, body, confirmText, cancelText, icon, onConfirm, onMount, showCancel });
+function showModal({ title, text = '', body = '', confirmText = 'Гаразд', cancelText = 'Скасувати', icon = 'fa-solid fa-circle-info', onConfirm = null, onMount = null, onClose = null, showCancel = true }) {
+  showModalUi(dom, { title, text, body, confirmText, cancelText, icon, onConfirm, onMount, onClose, showCancel });
 }
 
 function closeModal() {

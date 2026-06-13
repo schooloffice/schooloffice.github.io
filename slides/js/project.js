@@ -1,4 +1,4 @@
-import { DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILY_KEYS, LIMITS, LINE_HEIGHTS, SCHEMA_VERSION, TEXT_MODEL_VERSION } from './constants.js';
+import { DEFAULT_IMAGE_STYLE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILY_KEYS, IMAGE_FIT_MODES, LIMITS, LIST_TYPES, SCHEMA_VERSION, TEXT_MODEL_VERSION } from './constants.js';
 import { clamp, downloadTextFile } from './utils.js';
 
 const DEFAULT_PRESENTATION_NAME = 'моя презентація';
@@ -15,6 +15,17 @@ function clampSize(value, fallback) {
 
 function clampText(value) {
   return typeof value === 'string' ? value.slice(0, LIMITS.MAX_TEXT_LENGTH) : '';
+}
+
+// Кадрування зберігаємо як частки рамки (l/t/r/b у [0..0.9]); протилежні разом
+// не більш як 0.9, щоб лишалося хоча б 10% видимого вікна.
+function normalizeCrop(crop) {
+  const c = crop && typeof crop === 'object' ? crop : {};
+  const f = value => (Number.isFinite(value) ? clamp(value, 0, 0.9) : 0);
+  let l = f(c.l); let t = f(c.t); let r = f(c.r); let b = f(c.b);
+  if (l + r > 0.9) r = Math.max(0, 0.9 - l);
+  if (t + b > 0.9) b = Math.max(0, 0.9 - t);
+  return { l, t, r, b };
 }
 
 // Джерело зображення приймаємо лише як data:image обмеженого розміру. Зовнішні
@@ -131,13 +142,14 @@ export function normalizeElement(element, index, { trusted = false } = {}) {
     placeholder,
     isPlaceholder,
     alt: type === 'image' && typeof element?.alt === 'string' ? clampText(element.alt) : '',
+    crop: type === 'image' ? normalizeCrop(element?.crop) : null,
     style: normalizeStyle(element?.style)
   };
 }
 
 function normalizeStyle(style) {
   const src = style && typeof style === 'object' ? style : {};
-  const merged = { ...DEFAULT_TEXT_STYLE, ...DEFAULT_SHAPE_STYLE, ...src };
+  const merged = { ...DEFAULT_TEXT_STYLE, ...DEFAULT_SHAPE_STYLE, ...DEFAULT_IMAGE_STYLE, ...src };
   merged.color = sanitizeColor(merged.color, DEFAULT_TEXT_STYLE.color);
   merged.fill = sanitizeColor(merged.fill, DEFAULT_SHAPE_STYLE.fill);
   merged.stroke = sanitizeColor(merged.stroke, DEFAULT_SHAPE_STYLE.stroke);
@@ -148,7 +160,14 @@ function normalizeStyle(style) {
   merged.underline = !!merged.underline;
   merged.fontSize = Number.isFinite(merged.fontSize) ? clamp(merged.fontSize, 4, 400) : DEFAULT_TEXT_STYLE.fontSize;
   merged.fontFamily = FONT_FAMILY_KEYS.includes(merged.fontFamily) ? merged.fontFamily : DEFAULT_TEXT_STYLE.fontFamily;
-  merged.lineHeight = LINE_HEIGHTS.includes(merged.lineHeight) ? merged.lineHeight : DEFAULT_TEXT_STYLE.lineHeight;
+  // Інтервал — будь-яке число у діапазоні поля (0.8–3), не лише старі пресети,
+  // інакше довільні значення (напр. 1.2) мовчки втрачаються при відкритті/відновленні.
+  merged.lineHeight = Number.isFinite(merged.lineHeight) ? clamp(merged.lineHeight, 0.8, 3) : DEFAULT_TEXT_STYLE.lineHeight;
+  merged.listType = LIST_TYPES.includes(merged.listType) ? merged.listType : DEFAULT_TEXT_STYLE.listType;
+  // Зображення: режим вписування — суворий allowlist (йде в CSS object-fit),
+  // прозорість — число 0..1.
+  merged.objectFit = IMAGE_FIT_MODES.includes(merged.objectFit) ? merged.objectFit : DEFAULT_IMAGE_STYLE.objectFit;
+  merged.opacity = Number.isFinite(merged.opacity) ? clamp(merged.opacity, 0, 1) : DEFAULT_IMAGE_STYLE.opacity;
   return merged;
 }
 
@@ -160,7 +179,7 @@ export function slugify(value) {
 }
 
 export function savePresentationFile(presentation) {
-  const payload = { schemaVersion: SCHEMA_VERSION, textModelVersion: TEXT_MODEL_VERSION, ...presentation };
+  const payload = { ...presentation, schemaVersion: SCHEMA_VERSION, textModelVersion: TEXT_MODEL_VERSION };
   const fileName = `${slugify(presentation.fileName)}.artslides.json`;
   downloadTextFile(fileName, JSON.stringify(payload, null, 2));
 }
@@ -172,6 +191,10 @@ export function parsePresentationText(text) {
   // мовчки, бо майбутній формат може мати іншу семантику або втрачати дані.
   if (Object.prototype.hasOwnProperty.call(parsed || {}, 'schemaVersion') &&
       parsed.schemaVersion !== SCHEMA_VERSION) {
+    return null;
+  }
+  if (Object.prototype.hasOwnProperty.call(parsed || {}, 'textModelVersion') &&
+      (!Number.isInteger(parsed.textModelVersion) || parsed.textModelVersion < 1 || parsed.textModelVersion > TEXT_MODEL_VERSION)) {
     return null;
   }
   return normalizePresentation(parsed, { trusted: false });

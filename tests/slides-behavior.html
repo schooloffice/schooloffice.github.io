@@ -19,7 +19,7 @@
 
   <script type="module">
     import { normalizePresentation, parsePresentationText, slugify } from '../slides/js/project.js';
-    import { LIMITS, SCHEMA_VERSION } from '../slides/js/constants.js';
+    import { LIMITS, SCHEMA_VERSION, TEXT_MODEL_VERSION } from '../slides/js/constants.js';
     import { chooseNewerDraftRecord, loadDraft, saveDraft, clearDraft } from '../slides/js/storage.js';
     import { elementBounds } from '../slides/js/stage-interactions.js';
 
@@ -206,10 +206,22 @@
       checks.push(check('import neutralizes external image url', firstEl(slidesOf([{ type: 'image', content: 'https://evil.example/x.png' }])).content === ''));
       checks.push(check('import keeps data image url', firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA' }])).content === 'data:image/png;base64,AAAA'));
       checks.push(check('import preserves image alt text', firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA', alt: 'Кругообіг води' }])).alt === 'Кругообіг води'));
+      checks.push(check('import keeps valid image fit', firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA', style: { objectFit: 'contain' } }])).style.objectFit === 'contain'));
+      checks.push(check('import allowlists unknown image fit', firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA', style: { objectFit: 'fill' } }])).style.objectFit === 'cover'));
+      checks.push(check('import keeps fractional image opacity', firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA', style: { opacity: 0.4 } }])).style.opacity === 0.4));
+      checks.push(check('import clamps out-of-range image opacity', firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA', style: { opacity: 5 } }])).style.opacity === 1));
+      checks.push(check('import keeps valid crop fractions', (() => { const c = firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA', crop: { l: 0.2, t: 0.1, r: 0.3, b: 0.1 } }])).crop; return c.l === 0.2 && c.r === 0.3 && c.t === 0.1 && c.b === 0.1; })()));
+      checks.push(check('import clamps crop opposite sum', (() => { const c = firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA', crop: { l: 0.8, r: 0.8 } }])).crop; return c.l === 0.8 && (c.l + c.r) <= 0.9; })()));
+      checks.push(check('import resets invalid crop values', (() => { const c = firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA', crop: { l: 'x', t: -1 } }])).crop; return c.l === 0 && c.t === 0; })()));
+      checks.push(check('non-image element has null crop', firstEl(slidesOf([{ type: 'text', content: 'a' }])).crop === null));
       checks.push(check('import keeps valid font family', firstEl(slidesOf([{ type: 'text', content: 'a', style: { fontFamily: 'serif' } }])).style.fontFamily === 'serif'));
       checks.push(check('import allowlists unknown font family', firstEl(slidesOf([{ type: 'text', content: 'a', style: { fontFamily: 'evil-font' } }])).style.fontFamily === 'sans'));
-      checks.push(check('import keeps valid line height preset', firstEl(slidesOf([{ type: 'text', content: 'a', style: { lineHeight: 2 } }])).style.lineHeight === 2));
-      checks.push(check('import allowlists unknown line height', firstEl(slidesOf([{ type: 'text', content: 'a', style: { lineHeight: 3 } }])).style.lineHeight === 1.15));
+      checks.push(check('import keeps arbitrary in-range line height', firstEl(slidesOf([{ type: 'text', content: 'a', style: { lineHeight: 1.2 } }])).style.lineHeight === 1.2));
+      checks.push(check('import keeps line height upper bound', firstEl(slidesOf([{ type: 'text', content: 'a', style: { lineHeight: 3 } }])).style.lineHeight === 3));
+      checks.push(check('import clamps out-of-range line height', firstEl(slidesOf([{ type: 'text', content: 'a', style: { lineHeight: 9 } }])).style.lineHeight === 3));
+      checks.push(check('import resets non-numeric line height', firstEl(slidesOf([{ type: 'text', content: 'a', style: { lineHeight: 'big' } }])).style.lineHeight === 1.15));
+      checks.push(check('import keeps valid list type', firstEl(slidesOf([{ type: 'text', content: 'a', style: { listType: 'bullet' } }])).style.listType === 'bullet'));
+      checks.push(check('import allowlists unknown list type', firstEl(slidesOf([{ type: 'text', content: 'a', style: { listType: 'script' } }])).style.listType === 'none'));
       checks.push(check('trusted import keeps external image url', normalizePresentation(slidesOf([{ type: 'image', content: 'https://ok.example/x.png' }]), { trusted: true }).slides[0].elements[0].content === 'https://ok.example/x.png'));
       checks.push(check('import truncates over-long text', firstEl(slidesOf([{ type: 'text', content: 'x'.repeat(LIMITS.MAX_TEXT_LENGTH + 5000) }])).content.length === LIMITS.MAX_TEXT_LENGTH));
       checks.push(check('import clamps wild coordinates', (() => {
@@ -220,6 +232,10 @@
       checks.push(check('import accepts current schema version', !!parsePresentationText(JSON.stringify({ schemaVersion: SCHEMA_VERSION, ...project }))));
       checks.push(check('import accepts legacy file without schema version', !!parsePresentationText(JSON.stringify(project))));
       checks.push(check('import rejects unknown future schema version', parsePresentationText(JSON.stringify({ schemaVersion: SCHEMA_VERSION + 1, ...project })) === null));
+      checks.push(check('import accepts current text model version', !!parsePresentationText(JSON.stringify({ textModelVersion: TEXT_MODEL_VERSION, ...project }))));
+      checks.push(check('import accepts legacy file without text model version', !!parsePresentationText(JSON.stringify(project))));
+      checks.push(check('import rejects unknown future text model version', parsePresentationText(JSON.stringify({ textModelVersion: TEXT_MODEL_VERSION + 1, ...project })) === null));
+      checks.push(check('import rejects malformed text model version', parsePresentationText(JSON.stringify({ textModelVersion: '2', ...project })) === null));
       checks.push(check('import allowlists text align (selector-injection)', ['left', 'center', 'right'].includes(firstEl(slidesOf([{ type: 'text', content: 'a', style: { align: '"]' } }])).style.align)));
       checks.push(check('import neutralizes css-url background', normalizePresentation({ slides: [{ id: 's', background: 'url(https://evil.example/x.png)', elements: [] }] }).slides[0].background === '#ffffff'));
       checks.push(check('import keeps valid hex background', normalizePresentation({ slides: [{ id: 's', background: '#123456', elements: [] }] }).slides[0].background === '#123456'));
@@ -632,6 +648,222 @@
       lhSel.dispatchEvent(new win.Event('change', { bubbles: true }));
       await waitFor(() => bodyTextNode().style.lineHeight === '2', 'line spacing applies');
       checks.push(check('line spacing applies to selected text', bodyTextNode().style.lineHeight === '2'));
+
+      clickAction('list-bullet');
+      await waitFor(() => bodyTextNode().tagName === 'UL', 'bullet list applies');
+      checks.push(check('bullet list renders semantically', bodyTextNode().tagName === 'UL' && bodyTextNode().querySelectorAll(':scope > li').length === 1));
+      checks.push(check('bullet list button reflects active state', doc.querySelector('[data-action="list-bullet"]').classList.contains('active')));
+      checks.push(check('slide thumbnail renders bullet list', !!doc.querySelector('#slideList .slide-thumb-mini ul li')));
+      const bulletNode = bodyTextNode();
+      bulletNode.focus();
+      const firstItem = bulletNode.querySelector('li');
+      firstItem.textContent = 'Перший пунктДругий пункт';
+      const splitRange = doc.createRange();
+      splitRange.setStart(firstItem.firstChild, 'Перший пункт'.length);
+      splitRange.collapse(true);
+      win.getSelection().removeAllRanges();
+      win.getSelection().addRange(splitRange);
+      bulletNode.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      await waitFor(() => bulletNode.querySelectorAll(':scope > li').length === 2, 'Enter creates a list item');
+      checks.push(check('Enter creates a new list item', bulletNode.querySelectorAll(':scope > li').length === 2));
+      await waitFor(() => doc.querySelectorAll('#slideList .slide-thumb-mini ul li').length === 2, 'edited bullet items render in thumbnail');
+      checks.push(check('editing list items updates thumbnail', doc.querySelectorAll('#slideList .slide-thumb-mini ul li').length === 2));
+
+      clickAction('list-number');
+      await waitFor(() => bodyTextNode().tagName === 'OL', 'numbered list applies');
+      checks.push(check('numbered list replaces bullet list', bodyTextNode().tagName === 'OL' && !doc.querySelector('[data-action="list-bullet"]').classList.contains('active')));
+      checks.push(check('numbered list button reflects active state', doc.querySelector('[data-action="list-number"]').classList.contains('active')));
+
+      clickAction('undo');
+      await waitFor(() => bodyTextNode().tagName === 'UL', 'list undo');
+      checks.push(check('list style participates in Undo', bodyTextNode().tagName === 'UL'));
+      clickAction('redo');
+      await waitFor(() => bodyTextNode().tagName === 'OL', 'list redo');
+      checks.push(check('list style participates in Redo', bodyTextNode().tagName === 'OL'));
+
+      clickAction('list-number');
+      await waitFor(() => bodyTextNode().tagName === 'DIV', 'list toggles off');
+      checks.push(check('active list toggles back to plain text', bodyTextNode().tagName === 'DIV'));
+      checks.push(check('list markers are not stored in text content', bodyTextNode().textContent === 'Перший пункт\nДругий пункт'));
+
+      // === 3.3 зображення: заміна джерела зі збереженням геометрії/alt та Undo/Redo ===
+      const imageOne = 'data:image/png;base64,AAAA';
+      const imageTwo = 'data:image/png;base64,BBBB';
+      checks.push(check('image tools hidden without image selection', doc.querySelector('#imageToolGroup').classList.contains('hidden')));
+      clickAction('insert-image');
+      await waitFor(() => !doc.querySelector('#modalOverlay').classList.contains('hidden'), 'insert image modal');
+      doc.querySelector('#imageUrlField').value = imageOne;
+      doc.querySelector('#imageAltField').value = 'Перше зображення';
+      doc.querySelector('#modalConfirm').click();
+      await waitFor(() => doc.querySelector('#stage .image-element')?.getAttribute('src') === imageOne, 'image inserted from data url');
+      const imageGeometry = (() => {
+        const wrap = doc.querySelector('#stage .image-element').closest('.stage-element');
+        return [wrap.style.left, wrap.style.top, wrap.style.width, wrap.style.height, wrap.style.transform, wrap.style.zIndex].join('|');
+      })();
+
+      // === 3.4 зображення: режим вписування (cover/contain) + прозорість ===
+      checks.push(check('image tools show when image selected', !doc.querySelector('#imageToolGroup').classList.contains('hidden')));
+      checks.push(check('default image fit is cover', doc.querySelector('#stage .image-element').style.objectFit === 'cover'));
+      clickAction('image-fit-contain');
+      await waitFor(() => doc.querySelector('#stage .image-element').style.objectFit === 'contain', 'image fit switches to contain');
+      checks.push(check('image fit applies to selected image', doc.querySelector('#stage .image-element').style.objectFit === 'contain'));
+      checks.push(check('active fit button reflects state', doc.querySelector('[data-action="image-fit-contain"]').classList.contains('active')));
+      // Поле — «прозорість»: 20% прозорості → opacity 0.8 (інверсія, не симетрія).
+      const opacityInput = doc.querySelector('#imageOpacityInput');
+      opacityInput.value = '20';
+      opacityInput.dispatchEvent(new win.Event('change', { bubbles: true }));
+      await waitFor(() => doc.querySelector('#stage .image-element').style.opacity === '0.8', 'image transparency applies inverted');
+      checks.push(check('transparency 20% maps to opacity 0.8', doc.querySelector('#stage .image-element').style.opacity === '0.8'));
+      checks.push(check('toolbar shows transparency percent', doc.querySelector('#imageOpacityInput').value === '20'));
+      opacityInput.value = '0';
+      opacityInput.dispatchEvent(new win.Event('change', { bubbles: true }));
+      await waitFor(() => doc.querySelector('#stage .image-element').style.opacity === '1', 'transparency 0% is fully visible');
+      checks.push(check('transparency 0% maps to opacity 1', doc.querySelector('#stage .image-element').style.opacity === '1'));
+      opacityInput.value = '100';
+      opacityInput.dispatchEvent(new win.Event('change', { bubbles: true }));
+      await waitFor(() => doc.querySelector('#stage .image-element').style.opacity === '0', 'transparency 100% is invisible');
+      checks.push(check('transparency 100% maps to opacity 0', doc.querySelector('#stage .image-element').style.opacity === '0'));
+      // Повертаємо до видимого й перевіряємо, що зміна fit не чіпає прозорість
+      opacityInput.value = '20';
+      opacityInput.dispatchEvent(new win.Event('change', { bubbles: true }));
+      await waitFor(() => doc.querySelector('#stage .image-element').style.opacity === '0.8', 'transparency reset to 20%');
+      clickAction('image-fit-cover');
+      await waitFor(() => doc.querySelector('#stage .image-element').style.objectFit === 'cover', 'image fit switches back to cover');
+      checks.push(check('image fit toggles back to cover', doc.querySelector('#stage .image-element').style.objectFit === 'cover'));
+      checks.push(check('opacity preserved across fit change', doc.querySelector('#stage .image-element').style.opacity === '0.8'));
+
+      clickAction('replace-image');
+      await waitFor(() => doc.querySelector('#modalTitle').textContent === 'Замінити зображення', 'replace image modal');
+      checks.push(check('replace modal preserves current alt', doc.querySelector('#imageAltField').value === 'Перше зображення'));
+      doc.querySelector('#imageUrlField').value = imageTwo;
+      doc.querySelector('#imageAltField').value = 'Друге зображення';
+      doc.querySelector('#modalConfirm').click();
+      await waitFor(() => doc.querySelector('#stage .image-element')?.getAttribute('src') === imageTwo, 'image replaced');
+      const replacedWrap = doc.querySelector('#stage .image-element').closest('.stage-element');
+      checks.push(check('replace keeps image geometry and layer', [replacedWrap.style.left, replacedWrap.style.top, replacedWrap.style.width, replacedWrap.style.height, replacedWrap.style.transform, replacedWrap.style.zIndex].join('|') === imageGeometry));
+      checks.push(check('replace keeps image selected', replacedWrap.classList.contains('selected')));
+      checks.push(check('replace updates alt text', doc.querySelector('#stage .image-element').alt === 'Друге зображення'));
+
+      clickAction('undo');
+      await waitFor(() => doc.querySelector('#stage .image-element')?.getAttribute('src') === imageOne, 'image replace undo');
+      checks.push(check('image replace participates in Undo', doc.querySelector('#stage .image-element').alt === 'Перше зображення'));
+      clickAction('redo');
+      await waitFor(() => doc.querySelector('#stage .image-element')?.getAttribute('src') === imageTwo, 'image replace redo');
+      checks.push(check('image replace participates in Redo', doc.querySelector('#stage .image-element').alt === 'Друге зображення'));
+
+      clickAction('replace-image');
+      await waitFor(() => doc.querySelector('#modalTitle').textContent === 'Замінити зображення', 'invalid replace modal');
+      doc.querySelector('#imageUrlField').value = 'javascript:alert(1)';
+      doc.querySelector('#modalConfirm').click();
+      checks.push(check('replace rejects unsupported image source', doc.querySelector('#stage .image-element').getAttribute('src') === imageTwo));
+      checks.push(check('invalid source keeps modal open', !doc.querySelector('#modalOverlay').classList.contains('hidden')));
+      checks.push(check('invalid source shows inline error', !doc.querySelector('#imageSourceError').classList.contains('hidden') && doc.querySelector('#imageSourceError').textContent.length > 0));
+      doc.querySelector('#imageUrlField').value = '';
+      doc.querySelector('#modalConfirm').click();
+      checks.push(check('empty source keeps modal open with error', !doc.querySelector('#modalOverlay').classList.contains('hidden') && doc.querySelector('#imageSourceError').textContent.length > 0));
+      doc.querySelector('#modalCancel').click();
+      await waitFor(() => doc.querySelector('#modalOverlay').classList.contains('hidden'), 'invalid replace modal closed via cancel');
+
+      // Race: HTTPS-завантаження стартує, користувач скасовує, а fetch завершується
+      // ВЖЕ після скасування — операція не має застосуватися чи переоткрити модалку.
+      const imagesBeforeCancel = doc.querySelectorAll('#stage .image-element').length;
+      let resolvePendingFetch = null;
+      const realFetch = win.fetch;
+      win.fetch = () => new Promise(resolve => { resolvePendingFetch = resolve; });
+      clickAction('insert-image');
+      await waitFor(() => doc.querySelector('#modalTitle').textContent === 'Додати зображення', 'cancel-race insert modal');
+      doc.querySelector('#imageUrlField').value = 'https://example.com/pic.png';
+      doc.querySelector('#modalConfirm').click();
+      await waitFor(() => doc.querySelector('#modalConfirm').disabled === true, 'embed marks confirm busy');
+      doc.querySelector('#modalCancel').click();
+      await waitFor(() => doc.querySelector('#modalOverlay').classList.contains('hidden'), 'cancel closes modal mid-embed');
+      const tinyPng = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+      resolvePendingFetch(new win.Response(new win.Blob([tinyPng], { type: 'image/png' }), { status: 200 }));
+      await wait(150);
+      checks.push(check('cancelled HTTPS load does not insert image', doc.querySelectorAll('#stage .image-element').length === imagesBeforeCancel));
+      checks.push(check('cancelled HTTPS load does not reopen modal', doc.querySelector('#modalOverlay').classList.contains('hidden')));
+      win.fetch = realFetch;
+
+      const imagesBeforeInvalidFile = doc.querySelectorAll('#stage .image-element').length;
+      clickAction('insert-image');
+      await waitFor(() => doc.querySelector('#modalTitle').textContent === 'Додати зображення', 'invalid file insert modal');
+      const invalidFileTransfer = new win.DataTransfer();
+      invalidFileTransfer.items.add(new win.File(['not an image'], 'notes.txt', { type: 'text/plain' }));
+      const imageFileInput = doc.querySelector('#imageFileInput');
+      imageFileInput.files = invalidFileTransfer.files;
+      imageFileInput.dispatchEvent(new win.Event('change', { bubbles: true }));
+      await waitFor(() => doc.querySelector('#modalTitle').textContent === 'Непідтримуваний файл', 'invalid image file rejected');
+      checks.push(check('image picker rejects non-image MIME', doc.querySelectorAll('#stage .image-element').length === imagesBeforeInvalidFile));
+      doc.querySelector('#modalConfirm').click();
+
+      // === 3.4 зображення: неруйнівне кадрування (crop) ===
+      // renderStage() перебудовує вузли, тож щоразу беремо актуальний wrap.
+      const imgWrapNow = () => doc.querySelector('#stage .image-element').closest('.stage-element');
+      const cropStage = doc.querySelector('#stage');
+      const cropSRect = cropStage.getBoundingClientRect();
+      const cropToX = lx => cropSRect.left + lx * (cropSRect.width / 960);
+      const cropToY = ly => cropSRect.top + ly * (cropSRect.height / 540);
+      // Вибираємо зображення чистим pointerdown+pointerup (без зсуву).
+      imgWrapNow().dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 79, clientX: cropToX(470), clientY: cropToY(270) }));
+      cropStage.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 79, clientX: cropToX(470), clientY: cropToY(270) }));
+      clickAction('image-crop');
+      await waitFor(() => imgWrapNow().querySelector('.crop-handle'), 'crop mode shows handles');
+      const cropWrap = imgWrapNow(); // стабільний під час перетягування (drag не перебудовує сцену)
+      checks.push(check('crop mode marks content as cropping', cropWrap.querySelector('.element-content').classList.contains('cropping')));
+      checks.push(check('crop mode shows ghost preview', !!cropWrap.querySelector('.crop-ghost')));
+      checks.push(check('crop button reflects active state', doc.querySelector('[data-action="image-crop"]').classList.contains('active')));
+      // Тягнемо східну crop-ручку вліво на 100 логічних px (box x:260..680) → r≈0.238.
+      const cropE = cropWrap.querySelector('.crop-handle.e');
+      cropE.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 80, clientX: cropToX(680), clientY: cropToY(270) }));
+      cropStage.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 80, clientX: cropToX(580), clientY: cropToY(270) }));
+      cropStage.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 80, clientX: cropToX(580), clientY: cropToY(270) }));
+      await waitFor(() => parseFloat(cropWrap.querySelector('.crop-window').style.width) < 99, 'crop trims the frame');
+      const croppedWidth = parseFloat(cropWrap.querySelector('.crop-window').style.width);
+      checks.push(check('crop drag trims image window', croppedWidth > 70 && croppedWidth < 85));
+      // Esc завершує кадрування, але обрізання зберігається.
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await waitFor(() => !imgWrapNow().querySelector('.crop-handle'), 'Escape exits crop mode');
+      checks.push(check('exit crop keeps the trim applied', parseFloat(imgWrapNow().querySelector('.crop-window').style.width) < 99));
+      checks.push(check('crop button inactive after exit', !doc.querySelector('[data-action="image-crop"]').classList.contains('active')));
+      // Undo повертає повну рамку.
+      clickAction('undo');
+      await waitFor(() => imgWrapNow().querySelector('.crop-window').style.width === '100%', 'crop participates in Undo');
+      checks.push(check('crop participates in Undo', imgWrapNow().querySelector('.crop-window').style.width === '100%'));
+
+      // Зміна слайда має завершувати режим кадрування (не «воскресати» при поверненні).
+      imgWrapNow().dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 81, clientX: cropToX(470), clientY: cropToY(270) }));
+      cropStage.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 81, clientX: cropToX(470), clientY: cropToY(270) }));
+      clickAction('image-crop');
+      await waitFor(() => imgWrapNow().querySelector('.crop-handle'), 'crop re-entered for slide-change test');
+      const imageSlideId = doc.querySelector('#slideList .slide-card.active').dataset.slideId;
+      clickAction('new-slide');
+      await wait(20);
+      Array.from(doc.querySelectorAll('#slideList .slide-card'))
+        .find(card => card.dataset.slideId === imageSlideId)
+        .querySelector('.slide-thumb-button')
+        .click();
+      await waitFor(() => doc.querySelector('#stage .image-element'), 'returned to image slide');
+      checks.push(check('slide change exits crop mode', !imgWrapNow().querySelector('.crop-handle')));
+      checks.push(check('crop button inactive after slide change', !doc.querySelector('[data-action="image-crop"]').classList.contains('active')));
+
+      // pointercancel завершує crop-drag: подальший рух не змінює кадрування.
+      imgWrapNow().dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 82, clientX: cropToX(470), clientY: cropToY(270) }));
+      cropStage.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 82, clientX: cropToX(470), clientY: cropToY(270) }));
+      clickAction('image-crop');
+      await waitFor(() => imgWrapNow().querySelector('.crop-handle'), 'crop re-entered for cancel test');
+      const cancelWrap = imgWrapNow();
+      const cancelE = cancelWrap.querySelector('.crop-handle.e');
+      cancelE.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 83, clientX: cropToX(680), clientY: cropToY(270) }));
+      cropStage.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 83, clientX: cropToX(620), clientY: cropToY(270) }));
+      await waitFor(() => parseFloat(cancelWrap.querySelector('.crop-window').style.width) < 99, 'crop drag started before cancel');
+      cropStage.dispatchEvent(new win.PointerEvent('pointercancel', { bubbles: true, pointerId: 83, clientX: cropToX(620), clientY: cropToY(270) }));
+      const widthAfterCancel = parseFloat(cancelWrap.querySelector('.crop-window').style.width);
+      // Рух ПІСЛЯ скасування не повинен далі змінювати кадрування.
+      cropStage.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 83, clientX: cropToX(520), clientY: cropToY(270) }));
+      await wait(60);
+      checks.push(check('pointercancel stops crop drag', parseFloat(cancelWrap.querySelector('.crop-window').style.width) === widthAfterCancel));
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await waitFor(() => !imgWrapNow().querySelector('.crop-handle'), 'exit crop after cancel test');
 
       // Restore-after-reload: збережена чернетка має відновитися на старті
       // (hydration). Зберігаємо маркерну чернетку й перезавантажуємо редактор.

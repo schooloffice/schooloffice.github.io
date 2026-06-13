@@ -15,7 +15,9 @@ export const state = {
   currentColorTarget: 'text',
   presentationIndex: 0,
   // Налаштування вигляду (не серіалізується у файл/чернетку).
-  snapToGrid: false
+  snapToGrid: false,
+  // Id зображення в режимі кадрування (ефемерний UI-стан, не серіалізується).
+  cropElementId: null
 };
 
 function normalizeSelectionInput(data) {
@@ -30,6 +32,7 @@ export function applyPresentationData(data) {
   state.slides = Array.isArray(data.slides) ? data.slides : [];
   state.currentSlideId = data.currentSlideId || state.slides[0]?.id || null;
   state.selectedElementIds = normalizeSelectionInput(data);
+  state.cropElementId = null;
 }
 
 export function serializePresentation() {

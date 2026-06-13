@@ -28,6 +28,7 @@
 - `slides/js/project.js` — нормалізація презентації та елементів, збереження `.artslides.json`, парсинг відкритих файлів.
 - `slides/js/slide-list.js` — список слайдів, thumbnails, reorder, move/duplicate/delete actions.
 - `slides/js/stage-renderer.js` — рендеринг сцени, елементів, handles і selected-state.
+- `slides/js/text-list.js` — безпечне створення, рендеринг і читання маркованих/нумерованих текстових блоків.
 - `slides/js/stage-interactions.js` — pointer interactions для drag/resize.
 - `slides/js/modal-ui.js` — modal open/close/info/confirm поведінка.
 - `slides/js/state.js` — локальний state, selected element, serialization.

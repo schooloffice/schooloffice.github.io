@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v9';
+const CACHE_VERSION = 'office-plus-v10';
 const PRECACHE_NAME = `${CACHE_VERSION}-precache`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const MAX_RUNTIME_ENTRIES = 80;
@@ -73,6 +73,7 @@ const CORE_ASSETS = [
   './slides/js/slide-list.js',
   './slides/js/stage-interactions.js',
   './slides/js/stage-renderer.js',
+  './slides/js/text-list.js',
   './slides/js/state.js',
   './slides/js/storage.js',
   './slides/js/templates.js',
