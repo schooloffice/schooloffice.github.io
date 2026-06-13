@@ -12,8 +12,8 @@
 - `slides/js/app.js` — boot, UI coordinator, command dispatch і зв'язування модулів.
 - `slides/js/project.js` — нормалізація презентації/елементів, import/export JSON payload, filename slug.
 - `slides/js/slide-list.js` — thumbnails, drag reorder і кнопки керування слайдами.
-- `slides/js/stage-renderer.js` — DOM-рендеринг сцени, елементів, handles і selected-state.
-- `slides/js/stage-interactions.js` — pointer state, drag, resize і координати сцени.
+- `slides/js/stage-renderer.js` — DOM-рендеринг сцени, елементів, resize/rotate handles і selected-state.
+- `slides/js/stage-interactions.js` — pointer state, drag/resize/rotate, рамка вибору (marquee), smart guides + прив'язка (екранний поріг, AABB з урахуванням rotation), rotation-aware resize.
 - `slides/js/modal-ui.js` — show/close/info/confirm modal behavior.
 - `slides/js/state.js` — локальний state і serialization.
 - `slides/js/history.js` — undo/redo stack.
@@ -22,27 +22,27 @@
 - `slides/js/export.js` — PDF export, print і snapshot rendering.
 - `slides/js/utils.js` — DOM, file і utility helpers.
 
+## Реалізовано (хвилі 0–2)
+
+- **Хвиля 0 — надійність ядра:** коректний undo/redo (commit-after, коаліс­ція drag/typing), розділені статуси `dirty`/draft-saved/file-saved, захищена versioned-нормалізація імпорту (ліміти, allowlist кольорів, нейтралізація зовнішніх URL, унікальні ID), автозбереження в IndexedDB з фолбеком на localStorage і реконсиляцією за часом.
+- **Хвиля 1 (частково) — мультивибір:** `selectedElementIds`, shift-клік, Ctrl+A, marquee, груповий drag/нудж/delete/copy/paste, форматування за всіма вибраними. (№6 align/distribute/group — ВІДКЛАДЕНО.)
+- **Хвиля 2 — зручне полотно:** zoom (фіксована сцена 960×540 + transform-scale, fit-to-window, Ctrl+±/0, Ctrl+колесо); smart guides + прив'язка до країв/центра/об'єктів + сітка; rotation handle, Shift-пропорції resize, rotation-aware resize, Alt+drag-дублювання, контекстне меню (миша + Shift+F10); доступність (alt text зображень, видимий focus, Tab-цикл об'єктів, ↑/↓ між слайдами, aria-labels).
+
 ## Зафіксовані Перевірки
 
-- `tests/run-tests.ps1` перевіряє статичний shell/module контракт.
-- `tests/run-browser-smoke.ps1` запускає `tests/slides-behavior.html`.
-- `tests/slides-behavior.html` перевіряє:
-  - browser import `slides/js/app.js`;
-  - наявність `SlidesApp.boot`;
-  - рендер списку слайдів;
-  - рендер stage і stage elements;
-  - стандартні команди `new/open/save/undo/redo`;
-  - `normalizePresentation`, `parsePresentationText`, `slugify` з українським текстом.
+- `tests/run-tests.ps1` перевіряє статичний shell/module контракт (зокрема відповідність `$('#id')`-посилань HTML- id з allowlist динамічних).
+- `tests/run-browser-smoke.ps1` (бюджет virtual-time 35000) запускає `tests/slides-behavior.html`.
+- `tests/slides-behavior.html` (~88 перевірок) покриває: boot/рендер/стандартні команди; нормалізацію (ліміти, безпека, унікальність ID, alt); storage (IDB round-trip, quota, tombstone, reload-restore); undo/redo + коаліс­цію; мультивибір (Ctrl+A, multi-delete, shift-toggle, marquee, copy/paste, змішане форматування); zoom (масштаб, незмінність координат, drag/resize/marquee при zoom); smart guides + сітку; rotation/Shift-resize/rotation-aware resize/Alt-drag/контекст-меню; доступність (Tab-цикл, навігація слайдів, клавіатурне контекст-меню, aria-label).
 
 ## Найближчий Борг
 
-Подальше дроблення `app.js` робити тільки за чіткою межею відповідальності. Найближчі перспективні напрями вже мають бути функціональними:
+Подальше дроблення `app.js` робити тільки за чіткою межею відповідальності. Найближчі напрями:
 
-- themes і slide layouts;
-- align/distribute/order object commands;
+- align/distribute/group object commands (відкладений №6);
+- Хвиля 3 — текст (шрифти, списки, інтервали), зображення (crop/replace), фігури (лінії/стрілки, текст у фігурі);
+- themes і справжні slide layouts з placeholders;
 - tables/charts всередині слайдів;
-- transition/animation controls;
-- presenter mode і export сценарії.
+- presenter mode, transitions і PPTX export.
 
 ## Обмеження
 

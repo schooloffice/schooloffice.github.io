@@ -21,6 +21,7 @@
     import { normalizePresentation, parsePresentationText, slugify } from '../slides/js/project.js';
     import { LIMITS, SCHEMA_VERSION } from '../slides/js/constants.js';
     import { chooseNewerDraftRecord, loadDraft, saveDraft, clearDraft } from '../slides/js/storage.js';
+    import { elementBounds } from '../slides/js/stage-interactions.js';
 
     const result = document.getElementById('result');
     const frame = document.getElementById('slidesFrame');
@@ -175,6 +176,14 @@
         check('project normalize keeps elements', normalized?.slides?.[0]?.elements?.length === 1),
         check('project parse works', parsed?.slides?.[0]?.id === 's1'),
         check('slugify handles ukrainian', slugify('Моя презентація 1') === 'моя-презентація-1'),
+        check('elementBounds axis-aligned for rotation 0', (() => {
+          const b = elementBounds({ x: 100, y: 100, w: 240, h: 160, rotation: 0 });
+          return b.left === 100 && b.right === 340 && b.top === 100 && b.bottom === 260;
+        })()),
+        check('elementBounds rotation-aware (90deg AABB)', (() => {
+          const b = elementBounds({ x: 100, y: 100, w: 240, h: 160, rotation: 90 });
+          return Math.abs(b.left - 140) < 0.001 && Math.abs(b.right - 300) < 0.001 && Math.abs(b.top - 60) < 0.001 && Math.abs(b.bottom - 300) < 0.001;
+        })()),
         check('IndexedDB draft round-trips', idbRoundTrips),
         check('clear-draft removes the draft', clearDraftWorks),
         check('large image draft (data-url) round-trips', imageDraftRoundTrips),
@@ -196,6 +205,7 @@
       checks.push(check('import rejects too many elements', normalizePresentation(slidesOf(Array.from({ length: LIMITS.MAX_ELEMENTS_PER_SLIDE + 1 }, () => ({ type: 'text', content: 'a' })))) === null));
       checks.push(check('import neutralizes external image url', firstEl(slidesOf([{ type: 'image', content: 'https://evil.example/x.png' }])).content === ''));
       checks.push(check('import keeps data image url', firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA' }])).content === 'data:image/png;base64,AAAA'));
+      checks.push(check('import preserves image alt text', firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA', alt: 'Кругообіг води' }])).alt === 'Кругообіг води'));
       checks.push(check('trusted import keeps external image url', normalizePresentation(slidesOf([{ type: 'image', content: 'https://ok.example/x.png' }]), { trusted: true }).slides[0].elements[0].content === 'https://ok.example/x.png'));
       checks.push(check('import truncates over-long text', firstEl(slidesOf([{ type: 'text', content: 'x'.repeat(LIMITS.MAX_TEXT_LENGTH + 5000) }])).content.length === LIMITS.MAX_TEXT_LENGTH));
       checks.push(check('import clamps wild coordinates', (() => {
@@ -406,6 +416,180 @@
       clickAction('zoom-fit');
       await waitFor(() => parseFloat(sizer.style.getPropertyValue('--stage-zoom')) <= 1, 'zoom-fit fits within 100%');
       checks.push(check('zoom-fit keeps scale within 100%', parseFloat(sizer.style.getPropertyValue('--stage-zoom')) <= 1));
+
+      // Smart guides + прив'язка: на чистому слайді центр об'єкта прилипає до
+      // центра слайда (480), з'являється напрямна; після відпускання — зникає.
+      clickAction('zoom-100');
+      await waitFor(() => sizer.style.getPropertyValue('--stage-zoom') === '1', 'reset zoom for snap');
+      clickAction('new-slide');
+      await wait(80);
+      clickAction('insert-rect');
+      await waitFor(() => Array.from(doc.querySelectorAll('#stage .stage-element')).some(w => w.querySelector('.shape-element')), 'shape for snap');
+      const snapWrap = Array.from(doc.querySelectorAll('#stage .stage-element')).find(w => w.querySelector('.shape-element'));
+      const snW = parseFloat(snapWrap.style.width);
+      const snH = parseFloat(snapWrap.style.height);
+      const snCx0 = parseFloat(snapWrap.style.left) + snW / 2;
+      const snCy0 = parseFloat(snapWrap.style.top) + snH / 2;
+      const snRect = stageEl.getBoundingClientRect();
+      const snToX = lx => snRect.left + lx * snRect.width / 960;
+      const snToY = ly => snRect.top + ly * snRect.height / 540;
+      snapWrap.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 50, clientX: snToX(snCx0), clientY: snToY(snCy0) }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 50, clientX: snToX(481), clientY: snToY(snCy0) }));
+      await wait(60);
+      const snappedW = Array.from(doc.querySelectorAll('#stage .stage-element')).find(w => w.querySelector('.shape-element'));
+      const snNewCx = parseFloat(snappedW.style.left) + snW / 2;
+      checks.push(check('drag snaps object center to slide center', Math.abs(snNewCx - 480) < 1));
+      checks.push(check('smart guide appears while snapping', !!doc.querySelector('#stage .snap-guide-v')));
+      stageEl.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 50, clientX: snToX(481), clientY: snToY(snCy0) }));
+      await waitFor(() => !doc.querySelector('#stage .snap-guide'), 'guides clear after drag');
+      checks.push(check('guides clear after drag ends', !doc.querySelector('#stage .snap-guide')));
+
+      // Прив'язка до сітки: з увімкненим snapToGrid позиція округлюється до 10px
+      // (тягнемо далеко від smart-цілей, щоб спрацювала саме сітка).
+      clickAction('toggle-snap');
+      const gCx0 = parseFloat(snapWrap.style.left) + snW / 2;
+      const gCy0 = parseFloat(snapWrap.style.top) + snH / 2;
+      snapWrap.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 51, clientX: snToX(gCx0), clientY: snToY(gCy0) }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 51, clientX: snToX(337), clientY: snToY(gCy0) }));
+      await wait(60);
+      checks.push(check('snap-to-grid rounds position to 10px', Math.round(parseFloat(snapWrap.style.left)) % 10 === 0));
+      stageEl.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 51, clientX: snToX(337), clientY: snToY(gCy0) }));
+      clickAction('toggle-snap');
+
+      // Прив'язка працює й при zoom != 100% (поріг — у екранних px, не логічних).
+      for (let i = 0; i < 10; i += 1) clickAction('zoom-in');
+      await waitFor(() => parseFloat(sizer.style.getPropertyValue('--stage-zoom')) > 1.5, 'zoom to >150%');
+      const zr = stageEl.getBoundingClientRect();
+      const zToX = lx => zr.left + lx * zr.width / 960;
+      const zToY = ly => zr.top + ly * zr.height / 540;
+      const zCx0 = parseFloat(snapWrap.style.left) + snW / 2;
+      const zCy0 = parseFloat(snapWrap.style.top) + snH / 2;
+      snapWrap.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 52, clientX: zToX(zCx0), clientY: zToY(zCy0) }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 52, clientX: zToX(481), clientY: zToY(zCy0) }));
+      await wait(60);
+      checks.push(check('snapping works at non-100% zoom', Math.abs(parseFloat(snapWrap.style.left) + snW / 2 - 480) < 1));
+      stageEl.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 52, clientX: zToX(481), clientY: zToY(zCy0) }));
+      clickAction('zoom-100');
+
+      // === 2.3 покращення взаємодії: поворот, Shift-пропорції, Alt+drag, контекст-меню ===
+      clickAction('new-slide');
+      await wait(80);
+      clickAction('insert-rect');
+      await waitFor(() => Array.from(doc.querySelectorAll('#stage .stage-element')).some(w => w.querySelector('.shape-element')), 'shape for 2.3');
+      const ixWrap = Array.from(doc.querySelectorAll('#stage .stage-element')).find(w => w.querySelector('.shape-element'));
+      const ixRect = stageEl.getBoundingClientRect();
+      const ixToX = lx => ixRect.left + lx * ixRect.width / 960;
+      const ixToY = ly => ixRect.top + ly * ixRect.height / 540;
+
+      // Shift на кутовій ручці зберігає пропорції стартового боксу (1.5).
+      const aw0 = parseFloat(ixWrap.style.width);
+      const ah0 = parseFloat(ixWrap.style.height);
+      const seHandle = ixWrap.querySelector('.resize-handle.se');
+      const seRect = seHandle.getBoundingClientRect();
+      seHandle.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 60, clientX: seRect.left + seRect.width / 2, clientY: seRect.top + seRect.height / 2 }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 60, shiftKey: true, clientX: seRect.left + seRect.width / 2 + 60 * (ixRect.width / 960), clientY: seRect.top + seRect.height / 2 + 20 * (ixRect.height / 540) }));
+      await wait(40);
+      const arNow = parseFloat(ixWrap.style.width) / parseFloat(ixWrap.style.height);
+      checks.push(check('Shift resize keeps aspect ratio', Math.abs(arNow - aw0 / ah0) < 0.02));
+      stageEl.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 60, clientX: seRect.left + seRect.width / 2 + 60, clientY: seRect.top + seRect.height / 2 + 20 }));
+
+      // Ручка повороту обертає об'єкт (Shift — крок 15°): тягнемо праворуч → 90°.
+      const rCx = parseFloat(ixWrap.style.left) + parseFloat(ixWrap.style.width) / 2;
+      const rCy = parseFloat(ixWrap.style.top) + parseFloat(ixWrap.style.height) / 2;
+      const rotHandle = ixWrap.querySelector('.rotate-handle');
+      checks.push(check('rotation handle is present for single selection', !!rotHandle));
+      rotHandle.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 61, clientX: ixToX(rCx), clientY: ixToY(rCy - 30) }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 61, shiftKey: true, clientX: ixToX(rCx + 100), clientY: ixToY(rCy) }));
+      await wait(40);
+      checks.push(check('rotation handle rotates the object to 90deg', /rotate\(90deg\)/.test(ixWrap.style.transform)));
+      stageEl.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 61, clientX: ixToX(rCx + 100), clientY: ixToY(rCy) }));
+
+      // Після повороту resize працює у локальних осях: візуальна права ручка
+      // при 90° рухається вниз і збільшує саме ширину елемента.
+      const rotatedWidth0 = parseFloat(ixWrap.style.width);
+      const rotatedHeight0 = parseFloat(ixWrap.style.height);
+      const rotatedEast = ixWrap.querySelector('.resize-handle.e');
+      const rotatedEastRect = rotatedEast.getBoundingClientRect();
+      const rotatedEastX = rotatedEastRect.left + rotatedEastRect.width / 2;
+      const rotatedEastY = rotatedEastRect.top + rotatedEastRect.height / 2;
+      const rotatedResizeDelta = 60 * (ixRect.height / 540);
+      rotatedEast.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 63, clientX: rotatedEastX, clientY: rotatedEastY }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 63, clientX: rotatedEastX, clientY: rotatedEastY + rotatedResizeDelta }));
+      await wait(40);
+      checks.push(check('resize follows local axes after rotation', parseFloat(ixWrap.style.width) > rotatedWidth0 + 50 && Math.abs(parseFloat(ixWrap.style.height) - rotatedHeight0) < 1));
+      stageEl.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 63, clientX: rotatedEastX, clientY: rotatedEastY + rotatedResizeDelta }));
+
+      // Alt+drag дублює об'єкт (оригінал лишається).
+      const beforeAlt = doc.querySelectorAll('#stage .shape-element').length;
+      const altCx = parseFloat(ixWrap.style.left) + parseFloat(ixWrap.style.width) / 2;
+      const altCy = parseFloat(ixWrap.style.top) + parseFloat(ixWrap.style.height) / 2;
+      ixWrap.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 62, altKey: true, clientX: ixToX(altCx), clientY: ixToY(altCy) }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 62, altKey: true, clientX: ixToX(altCx + 40), clientY: ixToY(altCy + 40) }));
+      stageEl.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 62, clientX: ixToX(altCx + 40), clientY: ixToY(altCy + 40) }));
+      await waitFor(() => doc.querySelectorAll('#stage .shape-element').length === beforeAlt + 1, 'alt-drag duplicates');
+      checks.push(check('Alt+drag duplicates the object', doc.querySelectorAll('#stage .shape-element').length === beforeAlt + 1));
+
+      // Права кнопка показує контекстне меню; Escape ховає.
+      const ctxMenu = doc.querySelector('#contextMenu');
+      const ctxWrap = Array.from(doc.querySelectorAll('#stage .stage-element')).find(w => w.querySelector('.shape-element'));
+      ctxWrap.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, clientX: 120, clientY: 120 }));
+      checks.push(check('right-click shows object context menu', !ctxMenu.classList.contains('hidden')));
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      checks.push(check('Escape hides the context menu', ctxMenu.classList.contains('hidden')));
+
+      // === 2.4 доступність: keyboard-навігація об'єктами і слайдами ===
+      clickAction('new-slide');
+      await wait(60);
+      clickAction('insert-rect');
+      await waitFor(() => doc.querySelectorAll('#stage .stage-element').length >= 3, 'objects for Tab');
+      const wsEl = doc.querySelector('#workspace');
+      wsEl.focus();
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      const tabSel1 = doc.querySelector('#stage .stage-element.selected')?.dataset.id;
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      const tabSel2 = doc.querySelector('#stage .stage-element.selected')?.dataset.id;
+      checks.push(check('Tab cycles object selection', !!tabSel1 && !!tabSel2 && tabSel1 !== tabSel2));
+
+      // Стрілки в списку слайдів переходять між слайдами.
+      const firstThumb = doc.querySelector('#slideList .slide-card .slide-thumb-button');
+      firstThumb.click();
+      await wait(20);
+      const cardsAll = Array.from(doc.querySelectorAll('#slideList .slide-card'));
+      const activeBefore = cardsAll.findIndex(c => c.classList.contains('active'));
+      doc.querySelector('#slideList .slide-card.active .slide-thumb-button').focus();
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      await wait(20);
+      const activeAfter = Array.from(doc.querySelectorAll('#slideList .slide-card')).findIndex(c => c.classList.contains('active'));
+      checks.push(check('Arrow keys navigate slides in the list', activeAfter === activeBefore + 1));
+      checks.push(check('slide thumbnail has aria-label', /Слайд \d+/.test(doc.querySelector('#slideList .slide-thumb-button')?.getAttribute('aria-label') || '')));
+
+      // Tab поза полотном НЕ циклить об'єкти (не блокує звичайний обхід).
+      const wsCard = doc.querySelector('#slideList .slide-card.active .slide-thumb-button') || doc.querySelector('.tb-btn');
+      const selBeforeOffTab = doc.querySelector('#stage .stage-element.selected')?.dataset.id || '';
+      wsCard.focus();
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      const selAfterOffTab = doc.querySelector('#stage .stage-element.selected')?.dataset.id || '';
+      checks.push(check('Tab off the canvas does not cycle objects', selBeforeOffTab === selAfterOffTab));
+
+      // Shift+F10 відкриває контекст-меню з клавіатури й фокусує пункт.
+      doc.querySelector('#workspace').focus();
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true })); // обираємо об'єкт
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }));
+      await waitFor(() => !doc.querySelector('#contextMenu').classList.contains('hidden'), 'context menu opens via keyboard');
+      checks.push(check('Shift+F10 opens context menu from keyboard', !doc.querySelector('#contextMenu').classList.contains('hidden')));
+      await waitFor(() => doc.querySelector('#contextMenu').contains(doc.activeElement), 'context menu item focused');
+      checks.push(check('keyboard context menu focuses an item', doc.querySelector('#contextMenu').contains(doc.activeElement)));
+      doc.activeElement.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await waitFor(() => doc.querySelector('#contextMenu').classList.contains('hidden'), 'Escape closes keyboard context menu');
+      checks.push(check('Escape closes the keyboard context menu', doc.querySelector('#contextMenu').classList.contains('hidden')));
+
+      // Після виконання команди з клавіатурного меню фокус повертається на
+      // workspace, а не лишається на прихованій кнопці.
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }));
+      await waitFor(() => doc.querySelector('#contextMenu').contains(doc.activeElement), 'context menu refocused');
+      doc.activeElement.click();
+      await waitFor(() => doc.querySelector('#contextMenu').classList.contains('hidden'), 'context menu closes after command');
+      checks.push(check('context-menu command restores workspace focus', doc.activeElement === doc.querySelector('#workspace')));
 
       // Restore-after-reload: збережена чернетка має відновитися на старті
       // (hydration). Зберігаємо маркерну чернетку й перезавантажуємо редактор.

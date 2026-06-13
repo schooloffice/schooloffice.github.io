@@ -104,7 +104,7 @@ function Invoke-SmokePage {
     '--no-first-run',
     "--user-data-dir=$profilePath",
     "--disk-cache-dir=$cachePath",
-    '--virtual-time-budget=12000',
+    '--virtual-time-budget=35000',
     '--dump-dom',
     $Url
   ) -Wait -CaptureOutput

@@ -165,6 +165,9 @@
         <button class="menu-item" data-action="zoom-fit"><span><i class="fa-solid fa-expand fa-fw"></i> Вмістити
             слайд</span></button>
         <div class="menu-sep"></div>
+        <button class="menu-item" id="snapToggleItem" data-action="toggle-snap"><span><i
+              class="fa-solid fa-check fa-fw menu-check"></i> Прив'язка до сітки</span></button>
+        <div class="menu-sep"></div>
         <button class="menu-item" data-action="slide-background"><span><i class="fa-solid fa-fill-drip fa-fw"></i> Фон
             слайда…</span></button>
         <button class="menu-item" data-action="present"><span><i class="fa-solid fa-play fa-fw"></i> Почати
@@ -282,7 +285,8 @@
       </div>
     </aside>
 
-    <section class="workspace office-workspace-focusable" id="workspace" tabindex="0">
+    <section class="workspace office-workspace-focusable" id="workspace" tabindex="0"
+      aria-label="Полотно слайда. Tab — перебір об’єктів, стрілки — переміщення вибраного">
       <div id="colorPopover" class="color-popover hidden" aria-hidden="true">
         <div class="color-popover-head">
           <div>
@@ -306,6 +310,23 @@
         <div id="stageSizer" class="stage-sizer">
           <div id="stage" class="stage" aria-label="Полотно слайда"></div>
         </div>
+      </div>
+
+      <div id="contextMenu" class="context-menu hidden" role="menu" aria-label="Дії з об’єктом">
+        <button class="menu-item" data-action="copy"><span><i class="fa-regular fa-copy fa-fw"></i> Копіювати</span></button>
+        <button class="menu-item" data-action="paste"><span><i class="fa-solid fa-paste fa-fw"></i> Вставити</span></button>
+        <button class="menu-item" data-action="duplicate-element"><span><i class="fa-regular fa-clone fa-fw"></i>
+            Дублювати</span></button>
+        <button class="menu-item" data-action="edit-alt"><span><i class="fa-solid fa-closed-captioning fa-fw"></i> Опис
+            зображення…</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="bring-front"><span><i class="fa-solid fa-layer-group fa-fw"></i> На
+            передній план</span></button>
+        <button class="menu-item" data-action="send-back"><span><i class="fa-solid fa-layer-group fa-flip-vertical fa-fw"></i>
+            На задній план</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="delete-element"><span><i class="fa-solid fa-trash fa-fw"></i>
+            Видалити</span></button>
       </div>
     </section>
   </main>

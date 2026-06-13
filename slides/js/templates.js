@@ -71,6 +71,7 @@ export function createImageElement(src, overrides = {}) {
     z: 1,
     rotation: 0,
     content: src,
+    alt: '',
     style: mergeTextStyle(),
     ...overrides,
     style: mergeTextStyle(overrides.style || {})

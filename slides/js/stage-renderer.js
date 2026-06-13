@@ -8,6 +8,7 @@ export function renderStage({
   markDirty,
   onElementPointerDown,
   onHandlePointerDown,
+  onRotateHandlePointerDown,
   renderSlideList,
   selectElement,
   stage
@@ -27,6 +28,7 @@ export function renderStage({
       markDirty,
       onElementPointerDown,
       onHandlePointerDown,
+      onRotateHandlePointerDown,
       renderSlideList,
       selectElement
     });
@@ -61,7 +63,7 @@ function renderElementNode(element, handlers) {
     const img = document.createElement('img');
     img.className = 'image-element';
     img.src = element.content;
-    img.alt = '';
+    img.alt = element.alt || '';
     img.draggable = false;
     content.appendChild(img);
   }
@@ -71,7 +73,7 @@ function renderElementNode(element, handlers) {
   }
 
   wrap.appendChild(content);
-  wrap.appendChild(createHandles(element.id, handlers.onHandlePointerDown));
+  wrap.appendChild(createHandles(element.id, handlers.onHandlePointerDown, handlers.onRotateHandlePointerDown));
   wrap.addEventListener('pointerdown', event => handlers.onElementPointerDown(event, element.id));
   return wrap;
 }
@@ -165,7 +167,7 @@ function createShapeNode(element) {
   return svg;
 }
 
-function createHandles(elementId, onHandlePointerDown) {
+function createHandles(elementId, onHandlePointerDown, onRotateHandlePointerDown) {
   const handles = document.createElement('div');
   handles.className = 'resize-handles';
   ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach(handleName => {
@@ -175,6 +177,14 @@ function createHandles(elementId, onHandlePointerDown) {
     handle.addEventListener('pointerdown', event => onHandlePointerDown(event, elementId, handleName));
     handles.appendChild(handle);
   });
+  if (onRotateHandlePointerDown) {
+    const rotate = document.createElement('div');
+    rotate.className = 'rotate-handle';
+    rotate.dataset.handle = 'rotate';
+    rotate.title = 'Перетягни, щоб повернути';
+    rotate.addEventListener('pointerdown', event => onRotateHandlePointerDown(event, elementId));
+    handles.appendChild(rotate);
+  }
   return handles;
 }
 

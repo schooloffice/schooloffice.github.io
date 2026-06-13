@@ -13,7 +13,9 @@ export const state = {
   unsavedChanges: false,
   suppressHistory: false,
   currentColorTarget: 'text',
-  presentationIndex: 0
+  presentationIndex: 0,
+  // Налаштування вигляду (не серіалізується у файл/чернетку).
+  snapToGrid: false
 };
 
 function normalizeSelectionInput(data) {

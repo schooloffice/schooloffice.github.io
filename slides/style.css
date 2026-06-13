@@ -510,6 +510,7 @@ button {
   min-height: 30px;
   border: 2px solid transparent;
   box-sizing: border-box;
+  cursor: move;
 }
 
 .stage-element.selected {
@@ -535,6 +536,7 @@ button {
   white-space: pre-wrap;
   outline: none;
   user-select: text;
+  cursor: text;
 }
 
 .image-element {
@@ -570,6 +572,65 @@ button {
   background: rgba(37, 99, 235, 0.12);
   pointer-events: none;
   z-index: 9999;
+}
+
+/* Напрямні прив'язки (smart guides) під час перетягування. */
+.snap-guide {
+  position: absolute;
+  pointer-events: none;
+  z-index: 9998;
+}
+
+.snap-guide-v {
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed #ec4899;
+}
+
+.snap-guide-h {
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed #ec4899;
+}
+
+/* Позначка стану «Прив'язка до сітки» у меню. */
+.menu-check {
+  visibility: hidden;
+}
+
+.menu-item.snap-on .menu-check {
+  visibility: visible;
+}
+
+/* Видимий focus для клавіатурної навігації. */
+.workspace:focus-visible {
+  outline: 3px solid var(--accent, #2563eb);
+  outline-offset: -3px;
+}
+
+.slide-thumb-button:focus-visible,
+.slide-card:focus-visible {
+  outline: 3px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+  border-radius: .5rem;
+}
+
+/* Контекстне меню об'єкта (права кнопка миші). */
+.context-menu {
+  position: fixed;
+  min-width: 200px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: .6rem;
+  box-shadow: var(--shadow);
+  padding: .3rem;
+  z-index: 10000;
+}
+
+.context-menu.hidden {
+  display: none;
 }
 
 .resize-handle {
@@ -631,6 +692,32 @@ button {
   top: 50%;
   transform: translateY(-50%);
   cursor: ew-resize;
+}
+
+/* Ручка повороту над верхнім центром (лише для одиничного вибору). */
+.rotate-handle {
+  position: absolute;
+  left: 50%;
+  top: -30px;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid #2563eb;
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.rotate-handle::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  width: 0;
+  height: 16px;
+  border-left: 1px solid #2563eb;
+  transform: translateX(-50%);
 }
 
 .color-popover {

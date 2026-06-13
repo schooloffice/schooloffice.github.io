@@ -15,6 +15,7 @@ import {
   normalizeZIndexes,
   onElementPointerDown as handleElementPointerDown,
   onHandlePointerDown as handleHandlePointerDown,
+  onRotateHandlePointerDown as handleRotateHandlePointerDown,
   onStageBackgroundPointerDown as handleStageBackgroundPointerDown,
   onStagePointerMove as handleStagePointerMove,
   onStagePointerUp as handleStagePointerUp
@@ -30,6 +31,7 @@ const dom = {};
 const elementDomMap = new Map();
 
 let colorAnchorButton = null;
+let pendingImageAlt = '';
 
 // Масштаб полотна — лише вигляд (координати моделі лишаються логічними 960×540).
 // `autoFitZoom` тримає слайд вписаним у вікно, доки користувач не задасть масштаб вручну.
@@ -90,6 +92,16 @@ function zoomIn() { setZoom(stageZoom + ZOOM_STEP); }
 function zoomOut() { setZoom(stageZoom - ZOOM_STEP); }
 function zoomTo100() { setZoom(1); }
 
+function updateSnapUi() {
+  dom.snapToggleItem?.classList.toggle('snap-on', state.snapToGrid);
+}
+
+function toggleSnapToGrid() {
+  state.snapToGrid = !state.snapToGrid;
+  updateSnapUi();
+  setStatusRight(state.snapToGrid ? 'Прив’язку до сітки увімкнено' : 'Прив’язку до сітки вимкнено');
+}
+
 // Вписує слайд у робочу область, не збільшуючи понад 100%.
 function fitStageToWorkspace() {
   const ws = dom.workspace;
@@ -109,6 +121,8 @@ function initDom() {
   dom.stage = $('#stage');
   dom.stageSizer = $('#stageSizer');
   dom.zoomLevel = $('#zoomLevel');
+  dom.snapToggleItem = $('#snapToggleItem');
+  dom.contextMenu = $('#contextMenu');
   dom.slideList = $('#slideList');
   dom.workspace = $('#workspace');
   dom.statusLeft = $('#statusLeft');
@@ -143,9 +157,11 @@ function initSlidesEditor() {
   bindToolbar();
   bindInputs();
   bindStage();
+  bindContextMenu();
   bindPresentation();
   renderAll();
   applyZoom();
+  updateSnapUi();
   // Вписуємо слайд після того, як робоча область отримала розміри.
   requestAnimationFrame(fitStageToWorkspace);
 }
@@ -280,6 +296,7 @@ function renderStage() {
     markDirty,
     onElementPointerDown,
     onHandlePointerDown,
+    onRotateHandlePointerDown,
     renderSlideList,
     selectElement,
     stage: dom.stage
@@ -351,12 +368,58 @@ function getCurrentElements() {
   return getCurrentSlide()?.elements || [];
 }
 
+// Циклічний вибір об'єктів клавішею Tab (у візуальному порядку шарів).
+function cycleObjectSelection(direction) {
+  const slide = getCurrentSlide();
+  if (!slide || !slide.elements.length) return;
+  const ordered = [...slide.elements].sort((a, b) => (a.z || 0) - (b.z || 0));
+  const primary = getSelectedElement();
+  let index = primary ? ordered.findIndex(el => el.id === primary.id) : -1;
+  index = index === -1 ? (direction > 0 ? 0 : ordered.length - 1) : (index + direction + ordered.length) % ordered.length;
+  setSelection([ordered[index].id]);
+  dom.workspace.focus();
+}
+
+// Клавіатурна навігація між слайдами; фокус лишається на активній мініатюрі.
+function moveSlideFocus(direction) {
+  const index = getCurrentSlideIndex();
+  const next = clamp(index + direction, 0, state.slides.length - 1);
+  if (next === index) return;
+  state.currentSlideId = state.slides[next].id;
+  state.selectedElementIds = [];
+  closeColorPopover();
+  renderAll();
+  setStatusRight('Слайд вибрано');
+  $('.slide-card.active .slide-thumb-button')?.focus();
+}
+
 function onElementPointerDown(event, elementId) {
-  handleElementPointerDown(event, elementId, { elementDomMap, findElementById, selectElement, isSelected, getSelectedElements, stage: dom.stage });
+  handleElementPointerDown(event, elementId, { elementDomMap, findElementById, selectElement, isSelected, getSelectedElements, duplicateSelection: beginAltDragDuplicate, stage: dom.stage });
 }
 
 function onHandlePointerDown(event, elementId, handle) {
   handleHandlePointerDown(event, elementId, handle, { elementDomMap, findElementById, selectElement, stage: dom.stage });
+}
+
+function onRotateHandlePointerDown(event, elementId) {
+  handleRotateHandlePointerDown(event, elementId, { elementDomMap, findElementById, selectElement, stage: dom.stage });
+}
+
+// Дублює виділення на місці (без зміщення) для Alt+drag; історію записує сам.
+function beginAltDragDuplicate() {
+  const targets = getSelectedElements();
+  if (!targets.length) return false;
+  pushHistory();
+  const slide = getCurrentSlide();
+  const newIds = [];
+  targets.forEach(el => {
+    const copy = normalizeElement({ ...deepClone(el), id: null, z: slide.elements.length + 1 }, slide.elements.length, { trusted: true });
+    slide.elements.push(copy);
+    newIds.push(copy.id);
+  });
+  state.selectedElementIds = newIds;
+  renderStage();
+  return true;
 }
 
 function bindStage() {
@@ -383,7 +446,7 @@ function bindMenus() {
     });
   });
 
-  $$('.menu-item').forEach(button => {
+  $$('.menu-dropdown .menu-item').forEach(button => {
     button.addEventListener('click', () => {
       dispatchAction(button.dataset.action, button);
       closeMenus();
@@ -393,14 +456,83 @@ function bindMenus() {
   document.addEventListener('pointerdown', event => {
     if (!event.target.closest('.menu-item-wrap')) closeMenus();
     if (!event.target.closest('.color-popover') && !event.target.closest('#colorPanelBtn')) closeColorPopover();
+    if (!event.target.closest('.context-menu')) hideContextMenu();
   });
 }
 
 function bindToolbar() {
   $$('[data-action]').forEach(button => {
-    if (button.closest('.menu-dropdown')) return;
+    if (button.closest('.menu-dropdown') || button.closest('.context-menu')) return;
     button.addEventListener('click', event => dispatchAction(button.dataset.action, event.currentTarget));
   });
+}
+
+function bindContextMenu() {
+  dom.stage.addEventListener('contextmenu', onStageContextMenu);
+  $$('.menu-item', dom.contextMenu).forEach(button => {
+    button.addEventListener('click', () => {
+      dispatchAction(button.dataset.action, button);
+      // Якщо команда не перевела фокус у modal/інший control, повертаємо його
+      // з прихованого пункту меню до безпечної робочої області.
+      hideContextMenu({ restoreFocus: dom.contextMenu.contains(document.activeElement) });
+    });
+  });
+  // Клавіатурна навігація всередині контекст-меню.
+  dom.contextMenu.addEventListener('keydown', event => {
+    const items = $$('.menu-item', dom.contextMenu);
+    const index = items.indexOf(document.activeElement);
+    if (event.key === 'ArrowDown') { event.preventDefault(); items[(index + 1) % items.length]?.focus(); }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); items[(index - 1 + items.length) % items.length]?.focus(); }
+    else if (event.key === 'Home') { event.preventDefault(); items[0]?.focus(); }
+    else if (event.key === 'End') { event.preventDefault(); items[items.length - 1]?.focus(); }
+    else if (event.key === 'Escape') { event.preventDefault(); hideContextMenu({ restoreFocus: true }); }
+  });
+}
+
+// Робить натиснутий елемент ГОЛОВНИМ (зберігаючи мультивибір), щоб per-object
+// дії (зокрема edit-alt) працювали саме з ним.
+function makePrimary(id) {
+  if (!isSelected(id)) {
+    selectElement(id, false);
+  } else {
+    setSelection([...state.selectedElementIds.filter(x => x !== id), id]);
+  }
+}
+
+function onStageContextMenu(event) {
+  const wrap = event.target.closest('.stage-element');
+  if (!wrap) { hideContextMenu(); return; }
+  event.preventDefault();
+  if (wrap.dataset.id) makePrimary(wrap.dataset.id);
+  showContextMenu(event.clientX, event.clientY);
+}
+
+// Відкриття контекст-меню з клавіатури (Shift+F10 / клавіша меню) біля головного
+// вибраного об'єкта.
+function openContextMenuForSelection() {
+  const element = getSelectedElement();
+  if (!element) return;
+  const node = elementDomMap.get(element.id);
+  const rect = (node || dom.stage).getBoundingClientRect();
+  showContextMenu(rect.left + rect.width / 2, rect.top + rect.height / 2, true);
+}
+
+function showContextMenu(clientX, clientY, focusFirst = false) {
+  const menu = dom.contextMenu;
+  menu.classList.remove('hidden');
+  // Тримаємо меню в межах вікна.
+  const width = menu.offsetWidth || 200;
+  const height = menu.offsetHeight || 220;
+  const left = Math.min(clientX, window.innerWidth - width - 8);
+  const top = Math.min(clientY, window.innerHeight - height - 8);
+  menu.style.left = `${Math.max(8, left)}px`;
+  menu.style.top = `${Math.max(8, top)}px`;
+  if (focusFirst) menu.querySelector('.menu-item')?.focus();
+}
+
+function hideContextMenu({ restoreFocus = false } = {}) {
+  dom.contextMenu?.classList.add('hidden');
+  if (restoreFocus) dom.workspace?.focus();
 }
 
 function bindInputs() {
@@ -438,6 +570,7 @@ function bindInputs() {
     event.preventDefault();
     setZoom(stageZoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
   }, { passive: false });
+  dom.workspace.addEventListener('scroll', hideContextMenu);
 }
 
 
@@ -588,6 +721,11 @@ function handleKeyboardShortcuts(event) {
     return;
   }
 
+  // Коли фокус у відкритому контекст-меню — воно саме обробляє клавіатуру.
+  if (dom.contextMenu && !dom.contextMenu.classList.contains('hidden') && dom.contextMenu.contains(activeElement)) return;
+
+  if (event.key === 'Escape') hideContextMenu();
+
   if (ctrlOrMeta) {
     const key = event.key.toLowerCase();
     if (key === 'z') {
@@ -657,6 +795,33 @@ function handleKeyboardShortcuts(event) {
   }
 
   if (!isTypingInText && !isTypingInInput) {
+    // Стрілки в списку слайдів — навігація між слайдами.
+    if (['ArrowUp', 'ArrowDown'].includes(event.key) && dom.slideList.contains(activeElement)) {
+      event.preventDefault();
+      moveSlideFocus(event.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
+
+    // Shift+F10 або клавіша меню — контекст-меню для вибраного об'єкта.
+    if ((event.key === 'F10' && event.shiftKey) || event.key === 'ContextMenu') {
+      if (getSelectedElement()) {
+        event.preventDefault();
+        openContextMenuForSelection();
+        return;
+      }
+    }
+
+    // Tab — циклічний вибір об'єктів, лише коли фокус БЕЗПОСЕРЕДНЬО на полотні
+    // (щоб не блокувати звичайний обхід меню/палітри/контекст-меню).
+    if (event.key === 'Tab' && activeElement === dom.workspace) {
+      const slide = getCurrentSlide();
+      if (slide && slide.elements.length) {
+        event.preventDefault();
+        cycleObjectSelection(event.shiftKey ? -1 : 1);
+        return;
+      }
+    }
+
     if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault();
       deleteSelectedElement();
@@ -708,6 +873,7 @@ function dispatchAction(action, trigger = null) {
     case 'delete-element': deleteSelectedElement(); break;
     case 'insert-text': addTextElement(); break;
     case 'insert-image': promptImageInsert(); break;
+    case 'edit-alt': editImageAlt(); break;
     case 'insert-rect': addShape('rect'); break;
     case 'insert-circle': addShape('circle'); break;
     case 'insert-triangle': addShape('triangle'); break;
@@ -727,6 +893,7 @@ function dispatchAction(action, trigger = null) {
     case 'zoom-out': zoomOut(); break;
     case 'zoom-100': zoomTo100(); break;
     case 'zoom-fit': fitStageToWorkspace(); break;
+    case 'toggle-snap': toggleSnapToGrid(); break;
     case 'bold': toggleTextStyle('bold'); break;
     case 'italic': toggleTextStyle('italic'); break;
     case 'underline': toggleTextStyle('underline'); break;
@@ -923,17 +1090,23 @@ function promptImageInsert() {
       <div class="form-stack">
         <button id="pickImageFile" class="link-button" type="button"><i class="fa-solid fa-image"></i> Обрати файл</button>
         <input id="imageUrlField" class="input-like" type="text" placeholder="https://...">
+        <input id="imageAltField" class="input-like" type="text" placeholder="Опис зображення (alt) — для доступності">
         <div class="helper-text">Для учнів і вчителів найнадійніше працює завантаження файлу з комп’ютера.</div>
       </div>
     `,
     confirmText: 'Додати',
     cancelText: 'Скасувати',
     onMount: () => {
-      $('#pickImageFile').addEventListener('click', () => openImagePicker());
+      $('#pickImageFile').addEventListener('click', () => {
+        // Запам'ятовуємо alt перед відкриттям файлового діалогу (інший потік).
+        pendingImageAlt = $('#imageAltField').value.trim();
+        openImagePicker();
+      });
     },
     onConfirm: () => {
       const url = $('#imageUrlField').value.trim();
-      if (url) insertImage(url);
+      const alt = $('#imageAltField').value.trim();
+      if (url) insertImage(url, alt);
     }
   });
 }
@@ -948,21 +1121,47 @@ async function onImageFileSelected() {
   }
   try {
     const dataUrl = await readFileAsDataURL(file);
-    insertImage(dataUrl);
+    insertImage(dataUrl, pendingImageAlt);
+    pendingImageAlt = '';
     closeModal();
   } catch {
     showInfoModal('Не вдалося прочитати файл', 'Спробуйте інше зображення.');
   }
 }
 
-function insertImage(src) {
+function insertImage(src, alt = '') {
   pushHistory();
   const slide = getCurrentSlide();
-  const element = createImageElement(src, { z: slide.elements.length + 1 });
+  const element = createImageElement(src, { z: slide.elements.length + 1, alt });
   slide.elements.push(element);
   state.selectedElementIds = [element.id];
   renderAll();
   markDirty('Додано зображення');
+}
+
+function editImageAlt() {
+  const element = getSelectedElement();
+  if (!element || element.type !== 'image') {
+    showInfoModal('Опис зображення', 'Виберіть зображення, щоб задати текстовий опис (alt).');
+    return;
+  }
+  showModal({
+    title: 'Опис зображення (alt)',
+    text: 'Короткий текстовий опис для доступності та озвучення зчитувачем екрана.',
+    body: '<input id="altEditField" class="input-like" type="text" placeholder="Напр.: Схема кругообігу води">',
+    confirmText: 'Зберегти',
+    onMount: () => {
+      const field = $('#altEditField');
+      field.value = element.alt || '';
+      field.focus();
+    },
+    onConfirm: () => {
+      pushHistory();
+      element.alt = $('#altEditField').value.trim();
+      renderStage();
+      markDirty('Опис зображення змінено');
+    }
+  });
 }
 
 function addShape(kind) {
@@ -1248,4 +1447,3 @@ window.SlidesApp.boot = initSlidesEditor;
 window.SlidesApp.runCommand = runOfficeCommand;
 window.SlidesApp.openProjectPicker = openProjectPicker;
 window.SlidesApp.openImagePicker = openImagePicker;
-

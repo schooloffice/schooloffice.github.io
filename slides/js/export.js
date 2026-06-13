@@ -56,6 +56,7 @@ function buildElementNode(element, forThumb = false) {
   if (element.type === 'image') {
     const img = document.createElement('img');
     img.src = element.content;
+    img.alt = element.alt || '';
     img.style.width = '100%';
     img.style.height = '100%';
     img.style.objectFit = 'cover';

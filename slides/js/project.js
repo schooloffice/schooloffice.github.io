@@ -130,6 +130,7 @@ export function normalizeElement(element, index, { trusted = false } = {}) {
     content,
     placeholder,
     isPlaceholder,
+    alt: type === 'image' && typeof element?.alt === 'string' ? clampText(element.alt) : '',
     style: normalizeStyle(element?.style)
   };
 }

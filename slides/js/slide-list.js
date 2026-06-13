@@ -87,6 +87,8 @@ export function renderSlideList({
     thumbButton.type = 'button';
     thumbButton.className = 'slide-thumb-button';
     thumbButton.draggable = false;
+    thumbButton.setAttribute('aria-label', `Слайд ${index + 1}`);
+    thumbButton.setAttribute('aria-current', slide.id === state.currentSlideId ? 'true' : 'false');
 
     const thumb = document.createElement('div');
     thumb.className = 'slide-thumb';
