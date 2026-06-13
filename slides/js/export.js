@@ -1,4 +1,4 @@
-import { FONT_FAMILY_CSS, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
+import { FONT_FAMILY_CSS, LINE_SHAPE_TYPES, STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES } from './constants.js';
 import { createTextContainer, setTextContainerContent } from './text-list.js';
 
 function normalizeCropFractions(crop) {
@@ -10,7 +10,23 @@ function normalizeCropFractions(crop) {
 function appendShape(svg, element, forThumb = false) {
   const strokeWidth = forThumb ? '8' : '10';
   let shape;
-  if (element.shape === 'circle') {
+  const isLine = LINE_SHAPE_TYPES.includes(element.shape);
+  if (isLine) {
+    svg.setAttribute('preserveAspectRatio', 'none');
+    shape = document.createElementNS('http://www.w3.org/2000/svg', element.shape === 'arrow' ? 'path' : 'line');
+    shape.setAttribute('data-shape-kind', element.shape);
+    shape.setAttribute('stroke-linecap', 'round');
+    shape.setAttribute('vector-effect', 'non-scaling-stroke');
+    if (element.shape === 'arrow') {
+      shape.setAttribute('d', 'M 4 50 H 92 M 78 30 L 96 50 L 78 70');
+      shape.setAttribute('stroke-linejoin', 'round');
+    } else {
+      shape.setAttribute('x1', '4');
+      shape.setAttribute('y1', '50');
+      shape.setAttribute('x2', '96');
+      shape.setAttribute('y2', '50');
+    }
+  } else if (element.shape === 'circle') {
     shape = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
     shape.setAttribute('cx', '50%');
     shape.setAttribute('cy', '50%');
@@ -28,10 +44,28 @@ function appendShape(svg, element, forThumb = false) {
     shape.setAttribute('rx', forThumb ? '6' : '12');
     shape.setAttribute('ry', forThumb ? '6' : '12');
   }
-  shape.setAttribute('fill', element.style.fill || '#dbeafe');
+  shape.setAttribute('fill', isLine ? 'none' : (element.style.fill || '#dbeafe'));
   shape.setAttribute('stroke', element.style.stroke || '#1d4ed8');
-  shape.setAttribute('stroke-width', strokeWidth);
+  shape.setAttribute('stroke-width', isLine ? '6' : strokeWidth);
   svg.appendChild(shape);
+}
+
+function applyTextSnapshotStyles(node, element, { showPlaceholder = false } = {}) {
+  const isVisiblePlaceholder = !!element.isPlaceholder && showPlaceholder;
+  node.style.margin = '0';
+  node.style.padding = element.style.listType === 'none' ? '8px' : '8px 8px 8px 1.55em';
+  node.style.whiteSpace = 'pre-wrap';
+  node.style.wordBreak = 'break-word';
+  node.style.lineHeight = String(element.style.lineHeight || 1.15);
+  node.style.fontSize = `${element.style.fontSize || 28}px`;
+  node.style.fontFamily = FONT_FAMILY_CSS[element.style.fontFamily] || 'inherit';
+  node.style.fontWeight = element.style.bold ? '700' : '400';
+  node.style.fontStyle = isVisiblePlaceholder ? 'normal' : (element.style.italic ? 'italic' : 'normal');
+  node.style.textDecoration = isVisiblePlaceholder ? 'none' : (element.style.underline ? 'underline' : 'none');
+  node.style.textAlign = element.style.align || 'left';
+  node.style.color = isVisiblePlaceholder ? '#94a3b8' : (element.style.color || '#111827');
+  node.classList.toggle('is-placeholder', isVisiblePlaceholder);
+  setTextContainerContent(node, element.isPlaceholder && !showPlaceholder ? '' : element.content, element.style.listType);
 }
 
 function buildElementNode(element, forThumb = false) {
@@ -48,19 +82,7 @@ function buildElementNode(element, forThumb = false) {
   node.style.transformOrigin = 'center center';
 
   if (element.type === 'text') {
-    node.style.margin = '0';
-    node.style.padding = element.style.listType === 'none' ? '8px' : '8px 8px 8px 1.55em';
-    node.style.whiteSpace = 'pre-wrap';
-    node.style.wordBreak = 'break-word';
-    node.style.lineHeight = String(element.style.lineHeight || 1.15);
-    node.style.fontSize = `${element.style.fontSize || 28}px`;
-    node.style.fontFamily = FONT_FAMILY_CSS[element.style.fontFamily] || 'inherit';
-    node.style.fontWeight = element.style.bold ? '700' : '400';
-    node.style.fontStyle = element.style.italic ? 'italic' : 'normal';
-    node.style.textDecoration = element.style.underline ? 'underline' : 'none';
-    node.style.textAlign = element.style.align || 'left';
-    node.style.color = element.style.color || '#111827';
-    setTextContainerContent(node, element.content, element.style.listType);
+    applyTextSnapshotStyles(node, element, { showPlaceholder: forThumb });
   }
 
   if (element.type === 'image') {
@@ -97,6 +119,20 @@ function buildElementNode(element, forThumb = false) {
     svg.setAttribute('viewBox', '0 0 100 100');
     appendShape(svg, element, forThumb);
     node.appendChild(svg);
+    if (TEXT_SHAPE_TYPES.includes(element.shape) && element.content && (!element.isPlaceholder || forThumb)) {
+      const text = createTextContainer(element.style.listType);
+      text.className = 'shape-text-element';
+      text.style.position = 'absolute';
+      text.style.inset = '12%';
+      text.style.width = '76%';
+      text.style.height = '76%';
+      text.style.display = element.style.listType === 'none' ? 'flex' : 'block';
+      text.style.alignItems = 'center';
+      text.style.justifyContent = 'center';
+      text.style.overflow = 'hidden';
+      applyTextSnapshotStyles(text, element, { showPlaceholder: forThumb });
+      node.appendChild(text);
+    }
   }
 
   return node;

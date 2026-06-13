@@ -1,4 +1,4 @@
-import { DEFAULT_SHAPE_STYLE, FONT_FAMILY_CSS, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
+import { DEFAULT_SHAPE_STYLE, FONT_FAMILY_CSS, LINE_SHAPE_TYPES, STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES } from './constants.js';
 import { captureState, commitState } from './history.js';
 import { getCurrentSlide, isSelected, state } from './state.js';
 import { createTextContainer, getTextFromTextContainer, setTextContainerContent, splitListItemAtSelection } from './text-list.js';
@@ -94,18 +94,21 @@ function renderElementNode(element, handlers) {
 
   if (element.type === 'shape') {
     content.appendChild(createShapeNode(element));
+    if (TEXT_SHAPE_TYPES.includes(element.shape)) {
+      content.appendChild(createTextNode(element, handlers, { shapeText: true }));
+    }
   }
 
   wrap.appendChild(content);
-  wrap.appendChild(createHandles(element.id, handlers.onHandlePointerDown, handlers.onRotateHandlePointerDown));
+  wrap.appendChild(createHandles(element, handlers.onHandlePointerDown, handlers.onRotateHandlePointerDown));
   wrap.addEventListener('pointerdown', event => handlers.onElementPointerDown(event, element.id));
   return wrap;
 }
 
-function createTextNode(element, { markDirty, renderSlideList, selectElement }) {
+function createTextNode(element, { markDirty, renderSlideList, selectElement }, { shapeText = false } = {}) {
   const textBox = createTextContainer(element.style.listType);
-  textBox.className = 'text-element';
-  textBox.contentEditable = 'true';
+  textBox.className = `text-element${shapeText ? ' shape-text-element' : ''}`;
+  textBox.contentEditable = shapeText ? 'false' : 'true';
   textBox.spellcheck = false;
   setTextContainerContent(textBox, element.content, element.style.listType);
   applyTextStylesToNode(textBox, element);
@@ -113,7 +116,18 @@ function createTextNode(element, { markDirty, renderSlideList, selectElement }) 
   // захоплюємо на focus — ДО очищення плейсхолдера, — а записуємо лише на
   // першій реальній зміні, щоб undo повертав саме початковий стан поля.
   let pendingSnapshot = null;
+  const beginShapeTextEditing = event => {
+    event.preventDefault();
+    event.stopPropagation();
+    selectElement(element.id);
+    textBox.contentEditable = 'true';
+    textBox.focus();
+  };
   textBox.addEventListener('pointerdown', event => {
+    if (shapeText && textBox.contentEditable !== 'true') {
+      if (event.detail >= 2) beginShapeTextEditing(event);
+      return;
+    }
     event.stopPropagation();
     // Shift-клік додає/прибирає текстовий блок з мультивибору, не входячи в
     // редагування.
@@ -124,6 +138,9 @@ function createTextNode(element, { markDirty, renderSlideList, selectElement }) 
     }
     selectElement(element.id);
   });
+  if (shapeText) {
+    textBox.addEventListener('dblclick', beginShapeTextEditing);
+  }
   textBox.addEventListener('focus', () => {
     pendingSnapshot = captureState();
     selectElement(element.id);
@@ -163,6 +180,7 @@ function createTextNode(element, { markDirty, renderSlideList, selectElement }) 
       markDirty('Поле очищено');
     }
   });
+  if (shapeText) textBox.addEventListener('blur', () => { textBox.contentEditable = 'false'; });
   return textBox;
 }
 
@@ -173,7 +191,23 @@ function createShapeNode(element) {
   svg.setAttribute('viewBox', '0 0 100 100');
   svg.setAttribute('class', 'shape-element');
   let shape;
-  if (element.shape === 'circle') {
+  const isLine = LINE_SHAPE_TYPES.includes(element.shape);
+  if (isLine) {
+    svg.setAttribute('preserveAspectRatio', 'none');
+    shape = document.createElementNS('http://www.w3.org/2000/svg', element.shape === 'arrow' ? 'path' : 'line');
+    shape.setAttribute('data-shape-kind', element.shape);
+    shape.setAttribute('stroke-linecap', 'round');
+    shape.setAttribute('vector-effect', 'non-scaling-stroke');
+    if (element.shape === 'arrow') {
+      shape.setAttribute('d', 'M 4 50 H 92 M 78 30 L 96 50 L 78 70');
+      shape.setAttribute('stroke-linejoin', 'round');
+    } else {
+      shape.setAttribute('x1', '4');
+      shape.setAttribute('y1', '50');
+      shape.setAttribute('x2', '96');
+      shape.setAttribute('y2', '50');
+    }
+  } else if (element.shape === 'circle') {
     shape = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
     shape.setAttribute('cx', '50%');
     shape.setAttribute('cy', '50%');
@@ -191,21 +225,24 @@ function createShapeNode(element) {
     shape.setAttribute('rx', '12');
     shape.setAttribute('ry', '12');
   }
-  shape.setAttribute('fill', element.style.fill || DEFAULT_SHAPE_STYLE.fill);
+  shape.setAttribute('fill', isLine ? 'none' : (element.style.fill || DEFAULT_SHAPE_STYLE.fill));
   shape.setAttribute('stroke', element.style.stroke || DEFAULT_SHAPE_STYLE.stroke);
-  shape.setAttribute('stroke-width', '8');
+  shape.setAttribute('stroke-width', isLine ? '6' : '8');
   svg.appendChild(shape);
   return svg;
 }
 
-function createHandles(elementId, onHandlePointerDown, onRotateHandlePointerDown) {
+function createHandles(element, onHandlePointerDown, onRotateHandlePointerDown) {
   const handles = document.createElement('div');
   handles.className = 'resize-handles';
-  ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach(handleName => {
+  const handleNames = element.type === 'shape' && LINE_SHAPE_TYPES.includes(element.shape)
+    ? ['e', 'w']
+    : ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+  handleNames.forEach(handleName => {
     const handle = document.createElement('div');
     handle.className = `resize-handle ${handleName}`;
     handle.dataset.handle = handleName;
-    handle.addEventListener('pointerdown', event => onHandlePointerDown(event, elementId, handleName));
+    handle.addEventListener('pointerdown', event => onHandlePointerDown(event, element.id, handleName));
     handles.appendChild(handle);
   });
   if (onRotateHandlePointerDown) {
@@ -213,7 +250,7 @@ function createHandles(elementId, onHandlePointerDown, onRotateHandlePointerDown
     rotate.className = 'rotate-handle';
     rotate.dataset.handle = 'rotate';
     rotate.title = 'Перетягни, щоб повернути';
-    rotate.addEventListener('pointerdown', event => onRotateHandlePointerDown(event, elementId));
+    rotate.addEventListener('pointerdown', event => onRotateHandlePointerDown(event, element.id));
     handles.appendChild(rotate);
   }
   return handles;
@@ -290,7 +327,7 @@ export function applyImageCropToNode(node, element) {
 
 function applyTextStylesToNode(node, element) {
   node.style.fontSize = `${element.style.fontSize || 28}px`;
-  node.style.color = element.isPlaceholder ? (element.style.color || '#94a3b8') : (element.style.color || '#111827');
+  node.style.color = element.isPlaceholder ? '#94a3b8' : (element.style.color || '#111827');
   // Звичайний текст — нормальної ваги (400), жирний — 700 (раніше все було 700+).
   node.style.fontWeight = element.style.bold ? '700' : '400';
   node.style.fontFamily = FONT_FAMILY_CSS[element.style.fontFamily] || 'inherit';

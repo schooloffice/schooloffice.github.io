@@ -128,6 +128,10 @@
             Коло</span></button>
         <button class="menu-item" data-action="insert-triangle"><span><i
               class="fa-solid fa-play fa-fw fa-rotate-270"></i> Трикутник</span></button>
+        <button class="menu-item" data-action="insert-line"><span><i class="fa-solid fa-minus fa-fw"></i>
+            Лінія</span></button>
+        <button class="menu-item" data-action="insert-arrow"><span><i class="fa-solid fa-arrow-right-long fa-fw"></i>
+            Стрілка</span></button>
       </div>
     </div>
 
@@ -211,6 +215,8 @@
       <button class="tb-btn" data-action="insert-circle" title="Коло"><i class="fa-regular fa-circle"></i></button>
       <button class="tb-btn" data-action="insert-triangle" title="Трикутник"><i
           class="fa-solid fa-play fa-rotate-270"></i></button>
+      <button class="tb-btn" data-action="insert-line" title="Лінія"><i class="fa-solid fa-minus"></i></button>
+      <button class="tb-btn" data-action="insert-arrow" title="Стрілка"><i class="fa-solid fa-arrow-right-long"></i></button>
     </div>
 
     <div class="tb-sep" aria-hidden="true"></div>
@@ -238,7 +244,7 @@
       <button class="tb-btn" data-action="image-fit-cover" title="Заповнити рамку" aria-label="Заповнити рамку (обрізати)"><i class="fa-solid fa-expand"></i></button>
       <button class="tb-btn" data-action="image-fit-contain" title="Вписати в рамку" aria-label="Вписати зображення повністю"><i class="fa-solid fa-compress"></i></button>
       <button class="tb-btn" data-action="image-crop" title="Кадрувати" aria-label="Кадрувати зображення"><i class="fa-solid fa-crop-simple"></i></button>
-      <input id="imageOpacityInput" class="tb-select tb-num" type="number" min="0" max="100" step="5" value="100"
+      <input id="imageOpacityInput" class="tb-select tb-num" type="number" min="0" max="100" step="5" value="0"
         title="Прозорість, %" aria-label="Прозорість зображення у відсотках">
     </div>
 
@@ -357,4 +363,3 @@
 </body>
 
 </html>
-

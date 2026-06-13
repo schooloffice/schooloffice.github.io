@@ -33,7 +33,7 @@ export const FONT_SIZES = [20, 28, 40, 56, 72];
 
 // Версія текстової моделі. Формат лишається whole-box (форматування на рівні
 // блока), але поле готує ґрунт для майбутніх inline-runs без зміни схеми файла.
-export const TEXT_MODEL_VERSION = 2;
+export const TEXT_MODEL_VERSION = 3;
 
 // Сімейства шрифтів. Тільки CSS-загальні родини з локальними fallback —
 // без зовнішніх шрифтів, щоб лишатися офлайн.
@@ -46,7 +46,6 @@ export const FONT_FAMILIES = [
 export const FONT_FAMILY_KEYS = FONT_FAMILIES.map(f => f.key);
 export const FONT_FAMILY_CSS = Object.fromEntries(FONT_FAMILIES.map(f => [f.key, f.css]));
 
-export const LINE_HEIGHTS = [1, 1.15, 1.5, 2];
 export const LIST_TYPES = ['none', 'bullet', 'number'];
 
 export const DEFAULT_TEXT_STYLE = {
@@ -65,6 +64,9 @@ export const DEFAULT_SHAPE_STYLE = {
   fill: '#dbeafe',
   stroke: '#1d4ed8'
 };
+export const SHAPE_TYPES = ['rect', 'circle', 'triangle', 'line', 'arrow'];
+export const LINE_SHAPE_TYPES = ['line', 'arrow'];
+export const TEXT_SHAPE_TYPES = ['rect', 'circle', 'triangle'];
 
 // Режим вписування зображення в рамку: cover (заповнити з обрізанням) або
 // contain (вписати повністю). Прозорість — 0..1.

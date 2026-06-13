@@ -1,4 +1,4 @@
-﻿import { COLOR_PALETTE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILIES, FONT_SIZES, LIMITS, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
+﻿import { COLOR_PALETTE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILIES, FONT_SIZES, LIMITS, LINE_SHAPE_TYPES, STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES } from './constants.js';
 import { exportPresentationPdf, printPresentation, createSlideSnapshot } from './export.js';
 import { pushHistory, redo, resetHistory, undo } from './history.js';
 import {
@@ -265,6 +265,8 @@ function describeElement(element) {
   if (element.type === 'image') return 'зображення';
   if (element.shape === 'circle') return 'коло';
   if (element.shape === 'triangle') return 'трикутник';
+  if (element.shape === 'line') return 'лінія';
+  if (element.shape === 'arrow') return 'стрілка';
   return 'прямокутник';
 }
 
@@ -338,8 +340,8 @@ function renderStage() {
 // мультивиборі незалежно від того, що вибрано останнім.
 function getPrimaryTextElement() {
   const primary = getSelectedElement();
-  if (primary?.type === 'text') return primary;
-  return getSelectedElements().find(element => element.type === 'text') || null;
+  if (primary && (primary.type === 'text' || (primary.type === 'shape' && TEXT_SHAPE_TYPES.includes(primary.shape)))) return primary;
+  return getSelectedElements().find(element => element.type === 'text' || (element.type === 'shape' && TEXT_SHAPE_TYPES.includes(element.shape))) || null;
 }
 
 function renderToolbarState() {
@@ -668,12 +670,13 @@ function closeMenus() {
 function getAvailableColorModes() {
   // Режими доступні за ВСІМА вибраними типами, а не лише за головним об'єктом.
   const selected = getSelectedElements();
-  const hasText = selected.some(element => element.type === 'text');
+  const hasText = selected.some(element => element.type === 'text' || (element.type === 'shape' && TEXT_SHAPE_TYPES.includes(element.shape)));
   const hasShape = selected.some(element => element.type === 'shape');
+  const hasFilledShape = selected.some(element => element.type === 'shape' && !LINE_SHAPE_TYPES.includes(element.shape));
   const modes = [];
   if (hasText) modes.push({ key: 'text', label: 'Текст' });
   if (hasShape) {
-    modes.push({ key: 'fill', label: 'Заливка' });
+    if (hasFilledShape) modes.push({ key: 'fill', label: 'Заливка' });
     modes.push({ key: 'stroke', label: 'Контур' });
   }
   modes.push({ key: 'background', label: 'Фон слайда' });
@@ -721,8 +724,8 @@ function openColorPopover(target = null, anchorButton = null) {
   const selected = getSelectedElement();
   if (target) state.currentColorTarget = target;
   if (!target) {
-    if (selected?.type === 'text') state.currentColorTarget = 'text';
-    else if (selected?.type === 'shape') state.currentColorTarget = 'fill';
+    if (selected && (selected.type === 'text' || (selected.type === 'shape' && TEXT_SHAPE_TYPES.includes(selected.shape)))) state.currentColorTarget = 'text';
+    else if (selected?.type === 'shape') state.currentColorTarget = LINE_SHAPE_TYPES.includes(selected.shape) ? 'stroke' : 'fill';
     else state.currentColorTarget = 'background';
   }
   colorAnchorButton = anchorButton || colorAnchorButton || dom.colorPanelBtn;
@@ -956,6 +959,8 @@ function dispatchAction(action, trigger = null) {
     case 'insert-rect': addShape('rect'); break;
     case 'insert-circle': addShape('circle'); break;
     case 'insert-triangle': addShape('triangle'); break;
+    case 'insert-line': addShape('line'); break;
+    case 'insert-arrow': addShape('arrow'); break;
     case 'new-slide': addSlide(); break;
     case 'duplicate-slide': duplicateSlide(); break;
     case 'delete-slide': confirmDeleteSlide(); break;
@@ -1413,8 +1418,15 @@ function addShape(kind) {
   const slide = getCurrentSlide();
   const count = slide.elements.filter(element => element.type === 'shape').length;
   const base = createShapeElement(kind, {
-    x: kind === 'circle' ? 320 : (kind === 'triangle' ? 315 : 285),
-    y: kind === 'circle' ? 160 : 150,
+    ...(kind === 'circle' ? { x: 320, y: 160 } : {}),
+    ...(kind === 'triangle' ? { x: 315, y: 150 } : {}),
+    ...(kind === 'rect' ? { x: 285, y: 150 } : {}),
+    ...(TEXT_SHAPE_TYPES.includes(kind) ? {
+      content: 'Текст фігури',
+      placeholder: 'Текст фігури',
+      isPlaceholder: true,
+      style: { align: 'center' }
+    } : {}),
     z: slide.elements.length + 1
   });
   base.x = clamp(base.x + (count % 4) * 24, 24, STAGE_WIDTH - base.w - 24);
@@ -1422,7 +1434,14 @@ function addShape(kind) {
   slide.elements.push(base);
   state.selectedElementIds = [base.id];
   renderAll();
-  markDirty(kind === 'triangle' ? 'Додано трикутник' : 'Додано фігуру');
+  const labels = {
+    rect: 'Додано прямокутник',
+    circle: 'Додано коло',
+    triangle: 'Додано трикутник',
+    line: 'Додано лінію',
+    arrow: 'Додано стрілку'
+  };
+  markDirty(labels[kind] || 'Додано фігуру');
 }
 
 function applyTemplate(type) {
@@ -1443,7 +1462,7 @@ function findElementById(elementId) {
 }
 
 function setSelectedTextStyle(partial) {
-  const targets = getSelectedElements().filter(element => element.type === 'text');
+  const targets = getSelectedElements().filter(element => element.type === 'text' || (element.type === 'shape' && TEXT_SHAPE_TYPES.includes(element.shape)));
   if (!targets.length) return;
   const changedTargets = targets.filter(element => Object.entries(partial).some(([key, value]) => element.style[key] !== value));
   if (!changedTargets.length) return;
@@ -1576,7 +1595,7 @@ function applyColor(color) {
   if (!targets.length) return;
   pushHistory();
   targets.forEach(element => {
-    if (state.currentColorTarget === 'text' && element.type === 'text') element.style.color = color;
+    if (state.currentColorTarget === 'text' && (element.type === 'text' || (element.type === 'shape' && TEXT_SHAPE_TYPES.includes(element.shape)))) element.style.color = color;
     if (state.currentColorTarget === 'fill' && element.type === 'shape') element.style.fill = color;
     if (state.currentColorTarget === 'stroke' && element.type === 'shape') element.style.stroke = color;
   });

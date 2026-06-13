@@ -158,7 +158,8 @@ function resetPointer() {
 }
 
 export function onElementPointerDown(event, elementId, { elementDomMap, findElementById, selectElement, isSelected, getSelectedElements, duplicateSelection, stage }) {
-  if (event.target.closest('.text-element')) return;
+  const textTarget = event.target.closest('.text-element');
+  if (textTarget?.contentEditable === 'true') return;
   event.preventDefault();
   event.stopPropagation();
 

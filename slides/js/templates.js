@@ -42,7 +42,9 @@ export function createShapeElement(kind = 'rect', overrides = {}) {
   const defaults = {
     rect: { x: 285, y: 150, w: 240, h: 160 },
     circle: { x: 330, y: 160, w: 180, h: 180 },
-    triangle: { x: 320, y: 155, w: 190, h: 170 }
+    triangle: { x: 320, y: 155, w: 190, h: 170 },
+    line: { x: 280, y: 245, w: 400, h: 48 },
+    arrow: { x: 280, y: 245, w: 400, h: 48 }
   };
   const size = defaults[kind] || defaults.rect;
 

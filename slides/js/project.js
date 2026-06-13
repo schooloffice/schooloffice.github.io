@@ -1,4 +1,4 @@
-import { DEFAULT_IMAGE_STYLE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILY_KEYS, IMAGE_FIT_MODES, LIMITS, LIST_TYPES, SCHEMA_VERSION, TEXT_MODEL_VERSION } from './constants.js';
+import { DEFAULT_IMAGE_STYLE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILY_KEYS, IMAGE_FIT_MODES, LIMITS, LIST_TYPES, SCHEMA_VERSION, SHAPE_TYPES, TEXT_MODEL_VERSION, TEXT_SHAPE_TYPES } from './constants.js';
 import { clamp, downloadTextFile } from './utils.js';
 
 const DEFAULT_PRESENTATION_NAME = 'моя презентація';
@@ -111,17 +111,18 @@ export function normalizePresentation(raw, { trusted = false } = {}) {
 
 export function normalizeElement(element, index, { trusted = false } = {}) {
   const type = ['text', 'image', 'shape'].includes(element?.type) ? element.type : 'text';
-  const shape = ['rect', 'circle', 'triangle'].includes(element?.shape) ? element.shape : 'rect';
+  const shape = SHAPE_TYPES.includes(element?.shape) ? element.shape : 'rect';
+  const supportsText = type === 'text' || (type === 'shape' && TEXT_SHAPE_TYPES.includes(shape));
   const placeholder = typeof element?.placeholder === 'string' && element.placeholder.trim()
     ? clampText(element.placeholder)
     : (type === 'text' ? 'Введіть текст...' : '');
   const hasTextContent = typeof element?.content === 'string' && element.content.length > 0;
-  const isPlaceholder = type === 'text'
+  const isPlaceholder = supportsText
     ? (typeof element?.isPlaceholder === 'boolean' ? element.isPlaceholder : !hasTextContent)
     : false;
   let content;
-  if (type === 'text') {
-    content = hasTextContent ? clampText(element.content) : placeholder;
+  if (supportsText) {
+    content = hasTextContent ? clampText(element.content) : (placeholder || '');
   } else if (type === 'image') {
     content = sanitizeImageSrc(element?.content, trusted);
   } else {

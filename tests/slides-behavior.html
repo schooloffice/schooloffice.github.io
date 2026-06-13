@@ -20,6 +20,7 @@
   <script type="module">
     import { normalizePresentation, parsePresentationText, slugify } from '../slides/js/project.js';
     import { LIMITS, SCHEMA_VERSION, TEXT_MODEL_VERSION } from '../slides/js/constants.js';
+    import { createSlideSnapshot, createThumbSnapshot } from '../slides/js/export.js';
     import { chooseNewerDraftRecord, loadDraft, saveDraft, clearDraft } from '../slides/js/storage.js';
     import { elementBounds } from '../slides/js/stage-interactions.js';
 
@@ -165,16 +166,32 @@
       };
       const normalized = normalizePresentation(project);
       const parsed = parsePresentationText(JSON.stringify(project));
+      const placeholderSlide = normalizePresentation({
+        slides: [{
+          id: 'placeholder-slide',
+          elements: [
+            { type: 'text', content: 'Введіть заголовок', placeholder: 'Введіть заголовок', isPlaceholder: true },
+            { type: 'shape', shape: 'rect', content: 'Текст фігури', placeholder: 'Текст фігури', isPlaceholder: true }
+          ]
+        }]
+      }).slides[0];
+      const fullPlaceholderSnapshot = createSlideSnapshot(placeholderSlide);
+      const thumbPlaceholderSnapshot = createThumbSnapshot(placeholderSlide);
 
       const checks = [
         check('SlidesApp boot exported', typeof win.SlidesApp?.boot === 'function'),
         check('slide list rendered', doc.querySelectorAll('#slideList .slide-card').length >= 1),
         check('stage rendered', !!doc.querySelector('#stage')),
         check('stage elements rendered', doc.querySelectorAll('#stage .stage-element').length >= 1),
+        check('image transparency field defaults to zero percent', doc.querySelector('#imageOpacityInput').value === '0'),
         check('standard commands exported', ['new', 'open', 'save', 'undo', 'redo'].every(command => !!doc.querySelector(`[data-office-command="${command}"]`))),
         check('project normalize keeps file name', normalized?.fileName === 'Шкільна презентація'),
         check('project normalize keeps elements', normalized?.slides?.[0]?.elements?.length === 1),
         check('project parse works', parsed?.slides?.[0]?.id === 's1'),
+        check('full snapshot omits text placeholders', !fullPlaceholderSnapshot.textContent.includes('Введіть заголовок')),
+        check('full snapshot omits shape placeholders', !fullPlaceholderSnapshot.textContent.includes('Текст фігури')),
+        check('thumbnail keeps editor placeholders', thumbPlaceholderSnapshot.textContent.includes('Введіть заголовок') && thumbPlaceholderSnapshot.textContent.includes('Текст фігури')),
+        check('thumbnail marks placeholders visually', thumbPlaceholderSnapshot.querySelectorAll('.is-placeholder').length === 2),
         check('slugify handles ukrainian', slugify('Моя презентація 1') === 'моя-презентація-1'),
         check('elementBounds axis-aligned for rotation 0', (() => {
           const b = elementBounds({ x: 100, y: 100, w: 240, h: 160, rotation: 0 });
@@ -240,6 +257,13 @@
       checks.push(check('import neutralizes css-url background', normalizePresentation({ slides: [{ id: 's', background: 'url(https://evil.example/x.png)', elements: [] }] }).slides[0].background === '#ffffff'));
       checks.push(check('import keeps valid hex background', normalizePresentation({ slides: [{ id: 's', background: '#123456', elements: [] }] }).slides[0].background === '#123456'));
       checks.push(check('import neutralizes css-url shape fill', firstEl(slidesOf([{ type: 'shape', shape: 'rect', style: { fill: 'url(https://evil.example/x.png)' } }])).style.fill !== 'url(https://evil.example/x.png)'));
+      checks.push(check('import keeps line and arrow shapes', (() => {
+        const n = normalizePresentation(slidesOf([{ type: 'shape', shape: 'line' }, { type: 'shape', shape: 'arrow' }]));
+        return n.slides[0].elements[0].shape === 'line' && n.slides[0].elements[1].shape === 'arrow';
+      })()));
+      checks.push(check('import allowlists unknown shape', firstEl(slidesOf([{ type: 'shape', shape: 'script' }])).shape === 'rect'));
+      checks.push(check('import keeps text in filled shape', firstEl(slidesOf([{ type: 'shape', shape: 'rect', content: 'Shape text' }])).content === 'Shape text'));
+      checks.push(check('import strips text from line shape', firstEl(slidesOf([{ type: 'shape', shape: 'line', content: 'Hidden text' }])).content === ''));
       checks.push(check('import handles null slide entries without throwing', (() => {
         const n = normalizePresentation({ slides: [null, { id: 'ok', elements: [] }] });
         return !!n && n.slides.length === 2 && typeof n.slides[0].id === 'string';
@@ -297,6 +321,74 @@
       clickAction('redo');
       await waitFor(() => countSlides() === slidesBefore + 1, 'redo restores the new slide');
       checks.push(check('redo restores the new slide', countSlides() === slidesBefore + 1));
+
+      // Лінії та стрілки користуються спільною моделлю shape й однаково рендеряться
+      // на сцені та у мініатюрі. Вставка стрілки також є окремим кроком Undo/Redo.
+      const shapesBeforeLines = countShapes();
+      clickAction('insert-line');
+      clickAction('insert-arrow');
+      await waitFor(() => countShapes() === shapesBeforeLines + 2, 'line and arrow inserted');
+      checks.push(check('line renders as SVG line', !!doc.querySelector('#stage .shape-element [data-shape-kind="line"]')));
+      checks.push(check('arrow renders with an arrowhead', !!doc.querySelector('#stage .shape-element path[data-shape-kind="arrow"]')));
+      checks.push(check('arrow renders in slide thumbnail', !!doc.querySelector('#slideList .slide-card.active .slide-thumb-mini path[data-shape-kind="arrow"]')));
+      checks.push(check('arrow reports its object type', /стрілка/.test(doc.querySelector('#statusLeft').textContent)));
+      const arrowHandles = Array.from(doc.querySelectorAll('#stage .stage-element.selected .resize-handle')).map(handle => handle.dataset.handle);
+      checks.push(check('arrow exposes only meaningful length handles', arrowHandles.length === 2 && arrowHandles.includes('e') && arrowHandles.includes('w')));
+      clickAction('color-panel');
+      checks.push(check('arrow color panel defaults to stroke', doc.querySelector('.color-mode-btn.active')?.textContent === 'Контур'));
+      checks.push(check('arrow color panel omits irrelevant fill', !Array.from(doc.querySelectorAll('.color-mode-btn')).some(button => button.textContent === 'Заливка')));
+      Array.from(doc.querySelectorAll('.color-swatch')).find(button => button.title === '#DC2626').click();
+      await waitFor(() => doc.querySelector('#stage .shape-element [data-shape-kind="arrow"]')?.getAttribute('stroke') === '#dc2626', 'arrow stroke color applies');
+      checks.push(check('arrow stroke color applies on stage', doc.querySelector('#stage .shape-element [data-shape-kind="arrow"]').getAttribute('stroke') === '#dc2626'));
+      checks.push(check('arrow stroke color applies in thumbnail', doc.querySelector('#slideList .slide-card.active .slide-thumb-mini [data-shape-kind="arrow"]').getAttribute('stroke') === '#dc2626'));
+      clickAction('undo');
+      await waitFor(() => doc.querySelector('#stage .shape-element [data-shape-kind="arrow"]')?.getAttribute('stroke') === '#1d4ed8', 'undo restores arrow stroke');
+      checks.push(check('Undo restores arrow stroke color', doc.querySelector('#stage .shape-element [data-shape-kind="arrow"]').getAttribute('stroke') === '#1d4ed8'));
+      clickAction('undo');
+      await waitFor(() => countShapes() === shapesBeforeLines + 1, 'undo removes arrow');
+      checks.push(check('Undo removes inserted arrow only', !doc.querySelector('#stage .shape-element [data-shape-kind="arrow"]')));
+      clickAction('redo');
+      await waitFor(() => countShapes() === shapesBeforeLines + 2, 'redo restores arrow');
+      checks.push(check('Redo restores inserted arrow', !!doc.querySelector('#stage .shape-element [data-shape-kind="arrow"]')));
+
+      // Текст заповненої фігури зберігається в самому shape: один клік/drag працює
+      // з фігурою, подвійний клік входить у редагування, форматування та Undo спільні.
+      clickAction('insert-rect');
+      await waitFor(() => doc.querySelector('#stage .stage-element.selected .shape-text-element'), 'shape text placeholder rendered');
+      let shapeText = doc.querySelector('#stage .stage-element.selected .shape-text-element');
+      checks.push(check('shape text is not editable before double click', shapeText.contentEditable === 'false'));
+      checks.push(check('shape placeholder uses muted editor color', shapeText.style.color === 'rgb(148, 163, 184)' || shapeText.style.color === '#94a3b8'));
+      const shapeWrapBeforeDrag = shapeText.closest('.stage-element');
+      const shapeLeftBeforeDrag = parseFloat(shapeWrapBeforeDrag.style.left);
+      const shapeTextRect = shapeText.getBoundingClientRect();
+      shapeText.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, cancelable: true, detail: 1, pointerId: 90, clientX: shapeTextRect.left + 20, clientY: shapeTextRect.top + 20 }));
+      doc.querySelector('#stage').dispatchEvent(new win.PointerEvent('pointermove', { bubbles: true, pointerId: 90, clientX: shapeTextRect.left + 50, clientY: shapeTextRect.top + 20 }));
+      doc.querySelector('#stage').dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 90, clientX: shapeTextRect.left + 50, clientY: shapeTextRect.top + 20 }));
+      await waitFor(() => parseFloat(shapeWrapBeforeDrag.style.left) > shapeLeftBeforeDrag, 'shape remains draggable through its text');
+      checks.push(check('shape remains draggable through its text', parseFloat(shapeWrapBeforeDrag.style.left) > shapeLeftBeforeDrag));
+      shapeText.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, cancelable: true, detail: 2, pointerId: 91 }));
+      await waitFor(() => shapeText.contentEditable === 'true', 'double click enables shape text editing');
+      checks.push(check('double click enables shape text editing', shapeText.contentEditable === 'true'));
+      shapeText.textContent = 'Важлива ідея';
+      shapeText.dispatchEvent(new win.InputEvent('input', { bubbles: true }));
+      shapeText.blur();
+      await waitFor(() => doc.querySelector('#slideList .slide-card.active .slide-thumb-mini .shape-text-element')?.textContent === 'Важлива ідея', 'shape text renders in thumbnail');
+      checks.push(check('shape text renders in thumbnail', doc.querySelector('#slideList .slide-card.active .slide-thumb-mini .shape-text-element').textContent === 'Важлива ідея'));
+      clickAction('list-bullet');
+      await waitFor(() => doc.querySelector('#stage .stage-element.selected ul.shape-text-element'), 'shape text list renders');
+      checks.push(check('shape text supports lists', !!doc.querySelector('#stage .stage-element.selected ul.shape-text-element li')));
+      checks.push(check('shape text list renders in thumbnail', !!doc.querySelector('#slideList .slide-card.active .slide-thumb-mini ul.shape-text-element li')));
+      clickAction('undo');
+      await waitFor(() => doc.querySelector('#stage .stage-element.selected div.shape-text-element'), 'undo restores plain shape text');
+      clickAction('bold');
+      await waitFor(() => doc.querySelector('#stage .stage-element.selected .shape-text-element')?.style.fontWeight === '700', 'shape text formatting applies');
+      checks.push(check('shape text uses regular text formatting', doc.querySelector('#stage .stage-element.selected .shape-text-element').style.fontWeight === '700'));
+      clickAction('undo');
+      await waitFor(() => doc.querySelector('#stage .stage-element.selected .shape-text-element')?.style.fontWeight === '400', 'undo restores shape text formatting');
+      checks.push(check('Undo restores shape text formatting', doc.querySelector('#stage .stage-element.selected .shape-text-element').style.fontWeight === '400'));
+      clickAction('undo');
+      await waitFor(() => doc.querySelector('#stage .stage-element.selected .shape-text-element')?.classList.contains('is-placeholder'), 'undo restores shape text placeholder');
+      checks.push(check('Undo restores shape text placeholder', doc.querySelector('#stage .stage-element.selected .shape-text-element').classList.contains('is-placeholder')));
 
       // Placeholder-регресія + коаліс­ція введення. Беремо body-плейсхолдер
       // СВІЖОГО слайда (його, на відміну від заголовка, не авто-фокусить, тож

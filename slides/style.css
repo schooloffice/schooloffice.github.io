@@ -641,6 +641,22 @@ ol.text-element {
   height: 100%;
 }
 
+.shape-text-element {
+  position: absolute;
+  inset: 12%;
+  width: 76%;
+  height: 76%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+ul.shape-text-element,
+ol.shape-text-element {
+  display: block;
+}
+
 .resize-handles {
   display: none;
   position: absolute;
