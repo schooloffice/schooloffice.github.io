@@ -214,20 +214,17 @@
     <div class="tb-sep" aria-hidden="true"></div>
 
     <div class="tb-group">
-      <select id="fontSizeSelect" class="tb-select" aria-label="Розмір тексту">
-        <option value="20">20</option>
-        <option value="28" selected>28</option>
-        <option value="40">40</option>
-        <option value="56">56</option>
-        <option value="72">72</option>
-      </select>
-      <button class="tb-btn" data-action="bold" title="Жирний"><i class="fa-solid fa-bold"></i></button>
-      <button class="tb-btn" data-action="italic" title="Курсив"><i class="fa-solid fa-italic"></i></button>
-      <button class="tb-btn" data-action="underline" title="Підкреслення"><i class="fa-solid fa-underline"></i></button>
-      <button class="tb-btn" data-action="align-left" title="Ліворуч"><i class="fa-solid fa-align-left"></i></button>
-      <button class="tb-btn" data-action="align-center" title="По центру"><i
+      <select id="fontFamilySelect" class="tb-select" aria-label="Шрифт" title="Шрифт"></select>
+      <input id="fontSizeSelect" class="tb-select tb-num" type="number" min="4" max="400" step="1" value="28"
+        aria-label="Розмір тексту" title="Розмір тексту">
+      <select id="lineHeightSelect" class="tb-select" aria-label="Міжрядковий інтервал" title="Міжрядковий інтервал"></select>
+      <button class="tb-btn" data-action="bold" title="Жирний" aria-label="Жирний"><i class="fa-solid fa-bold"></i></button>
+      <button class="tb-btn" data-action="italic" title="Курсив" aria-label="Курсив"><i class="fa-solid fa-italic"></i></button>
+      <button class="tb-btn" data-action="underline" title="Підкреслення" aria-label="Підкреслення"><i class="fa-solid fa-underline"></i></button>
+      <button class="tb-btn" data-action="align-left" title="Ліворуч" aria-label="Вирівняти ліворуч"><i class="fa-solid fa-align-left"></i></button>
+      <button class="tb-btn" data-action="align-center" title="По центру" aria-label="Вирівняти по центру"><i
           class="fa-solid fa-align-center"></i></button>
-      <button class="tb-btn" data-action="align-right" title="Праворуч"><i class="fa-solid fa-align-right"></i></button>
+      <button class="tb-btn" data-action="align-right" title="Праворуч" aria-label="Вирівняти праворуч"><i class="fa-solid fa-align-right"></i></button>
     </div>
 
     <div class="tb-sep" aria-hidden="true"></div>

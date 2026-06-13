@@ -206,6 +206,10 @@
       checks.push(check('import neutralizes external image url', firstEl(slidesOf([{ type: 'image', content: 'https://evil.example/x.png' }])).content === ''));
       checks.push(check('import keeps data image url', firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA' }])).content === 'data:image/png;base64,AAAA'));
       checks.push(check('import preserves image alt text', firstEl(slidesOf([{ type: 'image', content: 'data:image/png;base64,AAAA', alt: 'Кругообіг води' }])).alt === 'Кругообіг води'));
+      checks.push(check('import keeps valid font family', firstEl(slidesOf([{ type: 'text', content: 'a', style: { fontFamily: 'serif' } }])).style.fontFamily === 'serif'));
+      checks.push(check('import allowlists unknown font family', firstEl(slidesOf([{ type: 'text', content: 'a', style: { fontFamily: 'evil-font' } }])).style.fontFamily === 'sans'));
+      checks.push(check('import keeps valid line height preset', firstEl(slidesOf([{ type: 'text', content: 'a', style: { lineHeight: 2 } }])).style.lineHeight === 2));
+      checks.push(check('import allowlists unknown line height', firstEl(slidesOf([{ type: 'text', content: 'a', style: { lineHeight: 3 } }])).style.lineHeight === 1.15));
       checks.push(check('trusted import keeps external image url', normalizePresentation(slidesOf([{ type: 'image', content: 'https://ok.example/x.png' }]), { trusted: true }).slides[0].elements[0].content === 'https://ok.example/x.png'));
       checks.push(check('import truncates over-long text', firstEl(slidesOf([{ type: 'text', content: 'x'.repeat(LIMITS.MAX_TEXT_LENGTH + 5000) }])).content.length === LIMITS.MAX_TEXT_LENGTH));
       checks.push(check('import clamps wild coordinates', (() => {
@@ -590,6 +594,44 @@
       doc.activeElement.click();
       await waitFor(() => doc.querySelector('#contextMenu').classList.contains('hidden'), 'context menu closes after command');
       checks.push(check('context-menu command restores workspace focus', doc.activeElement === doc.querySelector('#workspace')));
+
+      // === 3.1 текст: вага шрифту, сімейство, довільний розмір, міжрядковий інтервал ===
+      clickAction('new-slide');
+      await wait(60);
+      const bodyTextNode = () => Array.from(doc.querySelectorAll('#stage .stage-element')).filter(w => w.querySelector('.text-element'))[1]?.querySelector('.text-element');
+      bodyTextNode().dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 70 }));
+      await wait(30);
+      checks.push(check('non-bold text renders at normal weight (400)', bodyTextNode().style.fontWeight === '400'));
+
+      const ffSel = doc.querySelector('#fontFamilySelect');
+      ffSel.value = 'serif';
+      ffSel.dispatchEvent(new win.Event('change', { bubbles: true }));
+      await waitFor(() => /serif/i.test(bodyTextNode().style.fontFamily || ''), 'font family applies');
+      checks.push(check('font family applies to selected text', /serif/i.test(bodyTextNode().style.fontFamily || '')));
+
+      const fsSel = doc.querySelector('#fontSizeSelect');
+      fsSel.value = '37';
+      fsSel.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await waitFor(() => bodyTextNode().style.fontSize === '37px', 'arbitrary font size applies');
+      checks.push(check('arbitrary font size applies', bodyTextNode().style.fontSize === '37px'));
+      fsSel.value = '3';
+      fsSel.dispatchEvent(new win.Event('input', { bubbles: true }));
+      checks.push(check('partial font size input waits for a valid value', bodyTextNode().style.fontSize === '37px' && fsSel.value === '3'));
+      fsSel.value = '37';
+      fsSel.dispatchEvent(new win.Event('change', { bubbles: true }));
+      clickAction('undo');
+      await waitFor(() => bodyTextNode().style.fontSize === '28px', 'font size undo');
+      checks.push(check('font size input and change share one history step', bodyTextNode().style.fontSize === '28px'));
+      clickAction('redo');
+      await waitFor(() => bodyTextNode().style.fontSize === '37px', 'font size redo');
+      checks.push(check('font size redo restores arbitrary value', bodyTextNode().style.fontSize === '37px'));
+
+      bodyTextNode().dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 71 }));
+      const lhSel = doc.querySelector('#lineHeightSelect');
+      lhSel.value = '2';
+      lhSel.dispatchEvent(new win.Event('change', { bubbles: true }));
+      await waitFor(() => bodyTextNode().style.lineHeight === '2', 'line spacing applies');
+      checks.push(check('line spacing applies to selected text', bodyTextNode().style.lineHeight === '2'));
 
       // Restore-after-reload: збережена чернетка має відновитися на старті
       // (hydration). Зберігаємо маркерну чернетку й перезавантажуємо редактор.

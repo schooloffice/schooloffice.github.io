@@ -1,4 +1,4 @@
-﻿import { COLOR_PALETTE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_SIZES, LIMITS, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
+﻿import { COLOR_PALETTE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILIES, FONT_SIZES, LINE_HEIGHTS, LIMITS, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
 import { exportPresentationPdf, printPresentation, createSlideSnapshot } from './export.js';
 import { pushHistory, redo, resetHistory, undo } from './history.js';
 import {
@@ -128,6 +128,8 @@ function initDom() {
   dom.statusLeft = $('#statusLeft');
   dom.statusRight = $('#statusRight');
   dom.fontSizeSelect = $('#fontSizeSelect');
+  dom.fontFamilySelect = $('#fontFamilySelect');
+  dom.lineHeightSelect = $('#lineHeightSelect');
   dom.colorPanelBtn = $('#colorPanelBtn');
   dom.modalOverlay = $('#modalOverlay');
   dom.modalIcon = $('#modalIcon');
@@ -152,6 +154,7 @@ function initSlidesEditor() {
   initDom();
   registerOfficeCommands();
   renderColorPalette();
+  renderTextControls();
   loadInitialState();
   bindMenus();
   bindToolbar();
@@ -260,6 +263,23 @@ function describeElement(element) {
   return 'прямокутник';
 }
 
+function renderTextControls() {
+  dom.fontFamilySelect.innerHTML = '';
+  FONT_FAMILIES.forEach(font => {
+    const option = document.createElement('option');
+    option.value = font.key;
+    option.textContent = font.label;
+    dom.fontFamilySelect.appendChild(option);
+  });
+  dom.lineHeightSelect.innerHTML = '';
+  LINE_HEIGHTS.forEach(value => {
+    const option = document.createElement('option');
+    option.value = String(value);
+    option.textContent = `Інтервал ${value}`;
+    dom.lineHeightSelect.appendChild(option);
+  });
+}
+
 function renderColorPalette() {
   dom.colorPalette.innerHTML = '';
   COLOR_PALETTE.forEach(color => {
@@ -316,6 +336,8 @@ function renderToolbarState() {
   const textEl = getPrimaryTextElement();
   const primary = getSelectedElement();
   dom.fontSizeSelect.value = String(textEl?.style?.fontSize || primary?.style?.fontSize || FONT_SIZES[1]);
+  dom.fontFamilySelect.value = textEl?.style?.fontFamily || DEFAULT_TEXT_STYLE.fontFamily;
+  dom.lineHeightSelect.value = String(textEl?.style?.lineHeight || DEFAULT_TEXT_STYLE.lineHeight);
   $$('[data-action="bold"], [data-action="italic"], [data-action="underline"], [data-action="align-left"], [data-action="align-center"], [data-action="align-right"]').forEach(button => {
     button.classList.remove('active');
   });
@@ -536,7 +558,18 @@ function hideContextMenu({ restoreFocus = false } = {}) {
 }
 
 function bindInputs() {
-  dom.fontSizeSelect.addEventListener('change', event => setSelectedTextStyle({ fontSize: Number(event.target.value) }));
+  dom.fontSizeSelect.addEventListener('input', event => {
+    const value = Math.round(Number(event.target.value));
+    if (!event.target.value || !Number.isFinite(value) || value < 4 || value > 400) return;
+    setSelectedTextStyle({ fontSize: value });
+  });
+  dom.fontSizeSelect.addEventListener('change', event => {
+    const value = clamp(Math.round(Number(event.target.value)) || DEFAULT_TEXT_STYLE.fontSize, 4, 400);
+    setSelectedTextStyle({ fontSize: value });
+    event.target.value = String(value);
+  });
+  dom.fontFamilySelect.addEventListener('change', event => setSelectedTextStyle({ fontFamily: event.target.value }));
+  dom.lineHeightSelect.addEventListener('change', event => setSelectedTextStyle({ lineHeight: Number(event.target.value) }));
   dom.projectFileInput.addEventListener('change', onProjectFileSelected);
   dom.imageFileInput.addEventListener('change', onImageFileSelected);
 
@@ -1201,8 +1234,10 @@ function findElementById(elementId) {
 function setSelectedTextStyle(partial) {
   const targets = getSelectedElements().filter(element => element.type === 'text');
   if (!targets.length) return;
+  const changedTargets = targets.filter(element => Object.entries(partial).some(([key, value]) => element.style[key] !== value));
+  if (!changedTargets.length) return;
   pushHistory();
-  targets.forEach(element => Object.assign(element.style, partial));
+  changedTargets.forEach(element => Object.assign(element.style, partial));
   renderStage();
   renderToolbarState();
   renderSlideList();

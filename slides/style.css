@@ -307,6 +307,12 @@ button {
   padding: 0 .75rem;
 }
 
+.tb-num {
+  width: 56px;
+  padding: 0 .35rem;
+  text-align: center;
+}
+
 .app-shell {
   height: calc(100vh - var(--header-h) - var(--menubar-h) - var(--toolbar-h) - var(--statusbar-h));
   display: grid;

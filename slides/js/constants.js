@@ -31,13 +31,32 @@ export const COLOR_PALETTE = [
 
 export const FONT_SIZES = [20, 28, 40, 56, 72];
 
+// Версія текстової моделі. Формат лишається whole-box (форматування на рівні
+// блока), але поле готує ґрунт для майбутніх inline-runs без зміни схеми файла.
+export const TEXT_MODEL_VERSION = 1;
+
+// Сімейства шрифтів. Тільки CSS-загальні родини з локальними fallback —
+// без зовнішніх шрифтів, щоб лишатися офлайн.
+export const FONT_FAMILIES = [
+  { key: 'sans', label: 'Звичайний', css: 'inherit' },
+  { key: 'serif', label: 'Із засічками', css: 'Georgia, "Times New Roman", serif' },
+  { key: 'mono', label: 'Моноширинний', css: '"Courier New", Consolas, monospace' },
+  { key: 'rounded', label: 'Округлий', css: '"Comic Sans MS", "Segoe UI", system-ui, sans-serif' }
+];
+export const FONT_FAMILY_KEYS = FONT_FAMILIES.map(f => f.key);
+export const FONT_FAMILY_CSS = Object.fromEntries(FONT_FAMILIES.map(f => [f.key, f.css]));
+
+export const LINE_HEIGHTS = [1, 1.15, 1.5, 2];
+
 export const DEFAULT_TEXT_STYLE = {
   fontSize: 28,
   color: '#111827',
   bold: false,
   italic: false,
   underline: false,
-  align: 'left'
+  align: 'left',
+  fontFamily: 'sans',
+  lineHeight: 1.15
 };
 
 export const DEFAULT_SHAPE_STYLE = {

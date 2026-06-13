@@ -1,4 +1,4 @@
-import { DEFAULT_SHAPE_STYLE, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
+import { DEFAULT_SHAPE_STYLE, FONT_FAMILY_CSS, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
 import { captureState, commitState } from './history.js';
 import { getCurrentSlide, isSelected, state } from './state.js';
 import { getTextFromContentEditable } from './utils.js';
@@ -191,7 +191,10 @@ function createHandles(elementId, onHandlePointerDown, onRotateHandlePointerDown
 function applyTextStylesToNode(node, element) {
   node.style.fontSize = `${element.style.fontSize || 28}px`;
   node.style.color = element.isPlaceholder ? (element.style.color || '#94a3b8') : (element.style.color || '#111827');
-  node.style.fontWeight = element.style.bold ? '900' : '700';
+  // Звичайний текст — нормальної ваги (400), жирний — 700 (раніше все було 700+).
+  node.style.fontWeight = element.style.bold ? '700' : '400';
+  node.style.fontFamily = FONT_FAMILY_CSS[element.style.fontFamily] || 'inherit';
+  node.style.lineHeight = String(element.style.lineHeight || 1.15);
   node.style.fontStyle = element.isPlaceholder ? 'normal' : (element.style.italic ? 'italic' : 'normal');
   node.style.textDecoration = element.isPlaceholder ? 'none' : (element.style.underline ? 'underline' : 'none');
   node.style.textAlign = element.style.align || 'left';

@@ -22,11 +22,12 @@
 - `slides/js/export.js` — PDF export, print і snapshot rendering.
 - `slides/js/utils.js` — DOM, file і utility helpers.
 
-## Реалізовано (хвилі 0–2)
+## Реалізовано (хвилі 0–2 і підетап 3.1)
 
 - **Хвиля 0 — надійність ядра:** коректний undo/redo (commit-after, коаліс­ція drag/typing), розділені статуси `dirty`/draft-saved/file-saved, захищена versioned-нормалізація імпорту (ліміти, allowlist кольорів, нейтралізація зовнішніх URL, унікальні ID), автозбереження в IndexedDB з фолбеком на localStorage і реконсиляцією за часом.
 - **Хвиля 1 (частково) — мультивибір:** `selectedElementIds`, shift-клік, Ctrl+A, marquee, груповий drag/нудж/delete/copy/paste, форматування за всіма вибраними. (№6 align/distribute/group — ВІДКЛАДЕНО.)
 - **Хвиля 2 — зручне полотно:** zoom (фіксована сцена 960×540 + transform-scale, fit-to-window, Ctrl+±/0, Ctrl+колесо); smart guides + прив'язка до країв/центра/об'єктів + сітка; rotation handle, Shift-пропорції resize, rotation-aware resize, Alt+drag-дублювання, контекстне меню (миша + Shift+F10); доступність (alt text зображень, видимий focus, Tab-цикл об'єктів, ↑/↓ між слайдами, aria-labels).
+- **Хвиля 3.1 — базове форматування текстового блока:** локальні сімейства шрифтів, довільний розмір 4–400, пресети міжрядкового інтервалу, нормальна/жирна вага 400/700; однаковий рендер на полотні, у мініатюрах і PDF/print; allowlist-нормалізація нових полів та версія текстової моделі у файлі.
 
 ## Зафіксовані Перевірки
 
@@ -39,7 +40,7 @@
 Подальше дроблення `app.js` робити тільки за чіткою межею відповідальності. Найближчі напрями:
 
 - align/distribute/group object commands (відкладений №6);
-- Хвиля 3 — текст (шрифти, списки, інтервали), зображення (crop/replace), фігури (лінії/стрілки, текст у фігурі);
+- решта Хвилі 3 — списки, зображення (crop/replace), фігури (лінії/стрілки, текст у фігурі);
 - themes і справжні slide layouts з placeholders;
 - tables/charts всередині слайдів;
 - presenter mode, transitions і PPTX export.

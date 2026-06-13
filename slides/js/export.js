@@ -1,4 +1,4 @@
-import { STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
+import { FONT_FAMILY_CSS, STAGE_HEIGHT, STAGE_WIDTH } from './constants.js';
 
 function appendShape(svg, element, forThumb = false) {
   const strokeWidth = forThumb ? '8' : '10';
@@ -43,9 +43,10 @@ function buildElementNode(element, forThumb = false) {
     node.style.padding = '8px';
     node.style.whiteSpace = 'pre-wrap';
     node.style.wordBreak = 'break-word';
-    node.style.lineHeight = '1.15';
+    node.style.lineHeight = String(element.style.lineHeight || 1.15);
     node.style.fontSize = `${element.style.fontSize || 28}px`;
-    node.style.fontWeight = element.style.bold ? '900' : '700';
+    node.style.fontFamily = FONT_FAMILY_CSS[element.style.fontFamily] || 'inherit';
+    node.style.fontWeight = element.style.bold ? '700' : '400';
     node.style.fontStyle = element.style.italic ? 'italic' : 'normal';
     node.style.textDecoration = element.style.underline ? 'underline' : 'none';
     node.style.textAlign = element.style.align || 'left';

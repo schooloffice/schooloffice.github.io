@@ -1,4 +1,4 @@
-import { DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, LIMITS, SCHEMA_VERSION } from './constants.js';
+import { DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILY_KEYS, LIMITS, LINE_HEIGHTS, SCHEMA_VERSION, TEXT_MODEL_VERSION } from './constants.js';
 import { clamp, downloadTextFile } from './utils.js';
 
 const DEFAULT_PRESENTATION_NAME = 'моя презентація';
@@ -147,6 +147,8 @@ function normalizeStyle(style) {
   merged.italic = !!merged.italic;
   merged.underline = !!merged.underline;
   merged.fontSize = Number.isFinite(merged.fontSize) ? clamp(merged.fontSize, 4, 400) : DEFAULT_TEXT_STYLE.fontSize;
+  merged.fontFamily = FONT_FAMILY_KEYS.includes(merged.fontFamily) ? merged.fontFamily : DEFAULT_TEXT_STYLE.fontFamily;
+  merged.lineHeight = LINE_HEIGHTS.includes(merged.lineHeight) ? merged.lineHeight : DEFAULT_TEXT_STYLE.lineHeight;
   return merged;
 }
 
@@ -158,7 +160,7 @@ export function slugify(value) {
 }
 
 export function savePresentationFile(presentation) {
-  const payload = { schemaVersion: SCHEMA_VERSION, ...presentation };
+  const payload = { schemaVersion: SCHEMA_VERSION, textModelVersion: TEXT_MODEL_VERSION, ...presentation };
   const fileName = `${slugify(presentation.fileName)}.artslides.json`;
   downloadTextFile(fileName, JSON.stringify(payload, null, 2));
 }
