@@ -15,18 +15,22 @@
   <h1>Slides Domain Behavior</h1>
   <pre id="result">Running...</pre>
 
+  <script src="../vendor/pptxgenjs/pptxgen.bundle.js"></script>
   <script type="module">
     import { MAX_HISTORY, SCHEMA_VERSION, TEXT_MODEL_VERSION } from '../slides/js/constants.js';
     import { appendShapeGraphic, applyTextVisualStyles } from '../slides/js/element-rendering.js';
-    import { createThumbSnapshot } from '../slides/js/export.js';
+    import { createSlideSnapshot, createThumbSnapshot } from '../slides/js/export.js';
     import { getCropFractions, getCropGeometry } from '../slides/js/image-geometry.js';
     import { captureState, commitState, pushHistory, redo, resetHistory, undo } from '../slides/js/history.js';
     import { alignSelectionUnits, createSelectionUnits, distributeSelectionUnits, groupElements, remapGroupIds, ungroupElements } from '../slides/js/object-commands.js';
     import { applyLayoutToSlide, applyThemeToPresentation, getTheme } from '../slides/js/presentation-design.js';
-    import { normalizePresentation, parsePresentationText } from '../slides/js/project.js';
+    import { normalizePresentation, normalizeTransition, parsePresentationText } from '../slides/js/project.js';
+    import { buildPptxPresentation } from '../slides/js/pptx-export.js';
     import { renderSlideThumbnail } from '../slides/js/slide-list.js';
     import { applyPresentationData, serializePresentation, state } from '../slides/js/state.js';
     import { elementBounds } from '../slides/js/stage-interactions.js';
+    import { chartFromDelimitedText, chartToDelimitedText, createChartElement, normalizeChart } from '../slides/js/chart-element.js';
+    import { applyTableStylePreset, clearTableRange, clearTableRangeStyle, copyTableRange, createTableElement, deleteTableColumn, deleteTableRow, getTableMergeAt, getTableStylePresetKey, insertTableColumn, insertTableRow, mergeTableRange, normalizeTable, pasteTableRange, resizeTable, setTableCellStyle, setTableCellText, setTableRangeStyle, setTableTrackWeights, splitTableCell, tableColumnHasData, TABLE_LIMITS, tableRangeIntersectsMerge, tableResizeLosesData, tableRowHasData } from '../slides/js/table-element.js';
 
     const result = document.getElementById('result');
 
@@ -88,6 +92,253 @@
       ];
       checks.push(check('object distribution spaces unit centers', distributeSelectionUnits(createSelectionUnits(distributionObjects, elementBounds), 'h') && distributionObjects[1].x === 150));
 
+      const tableElement = createTableElement(2, 3);
+      tableElement.table.cells[0][0] = 'Назва';
+      const resizedTable = resizeTable(tableElement.table, 3, 2);
+      checks.push(check('table domain creates requested dimensions', tableElement.table.rows === 2 && tableElement.table.cols === 3));
+      checks.push(check('table resize preserves intersecting cells', resizedTable.rows === 3 && resizedTable.cols === 2 && resizedTable.cells[0][0] === 'Назва'));
+      checks.push(check('table normalization clamps dimensions', normalizeTable({ rows: 100, cols: 100 }).rows === 20 && normalizeTable({ rows: 100, cols: 100 }).cols === 10));
+      checks.push(check('table normalization clamps cell text', normalizeTable({ rows: 1, cols: 1, cells: [['x'.repeat(3000)]] }).cells[0][0].length === 2000));
+      checks.push(check('table normalization clamps row and column weights', (() => {
+        const weighted = normalizeTable({ rows: 2, cols: 2, rowWeights: [0, 9], columnWeights: ['bad', 2] });
+        return weighted.rowWeights[0] === 0.25 && weighted.rowWeights[1] === 4 && weighted.columnWeights[0] === 1 && weighted.columnWeights[1] === 2;
+      })()));
+      checks.push(check('table normalization keeps only valid non-overlapping merges', (() => {
+        const merged = normalizeTable({ rows: 3, cols: 3, merges: [
+          { top: 0, bottom: 1, left: 0, right: 1 },
+          { top: 1, bottom: 2, left: 1, right: 2 },
+          { top: 2, bottom: 2, left: 2, right: 2 }
+        ] });
+        return merged.merges.length === 1 && merged.merges[0].bottom === 1 && merged.merges[0].right === 1;
+      })()));
+      checks.push(check('table normalization clears hidden content under imported merges', (() => {
+        const merged = normalizeTable({ rows: 1, cols: 2, cells: [['Anchor', 'Hidden']], merges: [{ top: 0, bottom: 0, left: 0, right: 1 }] });
+        return merged.cells[0][0] === 'Anchor' && merged.cells[0][1] === '' && splitTableCell(merged, 0, 0).cells[0][1] === '';
+      })()));
+      checks.push(check('project import rejects excessive table merge records', normalizePresentation({
+        slides: [{ id: 's1', elements: [{ type: 'table', table: { rows: 1, cols: 2, merges: Array.from({ length: TABLE_LIMITS.MAX_MERGES + 1 }, () => ({ top: 0, bottom: 0, left: 0, right: 1 })) } }] }]
+      }) === null));
+      checks.push(check('table merge joins content and split keeps anchor content', (() => {
+        const source = normalizeTable({ rows: 2, cols: 2, cells: [['A', 'B'], ['C', '']], cellStyles: [[{}, { fill: '#dc2626' }], [{ bold: true }, {}]] });
+        const merged = mergeTableRange(source, { startRow: 0, endRow: 1, startCol: 0, endCol: 1 });
+        const split = splitTableCell(merged, 0, 0);
+        return merged.merges.length === 1 && merged.cells[0][0] === 'A\nB\nC' && merged.cells[0][1] === '' &&
+          getTableMergeAt(merged, 1, 1)?.top === 0 && split.merges.length === 0 && split.cells[0][0] === 'A\nB\nC' &&
+          split.cellStyles[0][1].fill === '#dc2626' && split.cellStyles[1][0].bold;
+      })()));
+      checks.push(check('table merge refuses silent text truncation', (() => {
+        const source = normalizeTable({ rows: 1, cols: 2, cells: [['x'.repeat(1500), 'y'.repeat(1500)]] });
+        const merged = mergeTableRange(source, { startRow: 0, endRow: 0, startCol: 0, endCol: 1 });
+        return merged.merges.length === 0 && merged.cells[0][0].length === 1500 && merged.cells[0][1].length === 1500;
+      })()));
+      checks.push(check('table merge detects intersection and still blocks dimension resize', (() => {
+        const merged = mergeTableRange(tableElement.table, { startRow: 0, endRow: 0, startCol: 0, endCol: 1 });
+        return tableRangeIntersectsMerge(merged, { startRow: 0, endRow: 1, startCol: 1, endCol: 2 }) &&
+          resizeTable(merged, 3, 3).rows === merged.rows;
+      })()));
+      // Merge-aware вставка/видалення: трек поза merge зсуває його, всередині — ростить/усаджує,
+      // видалення єдиного треку схлопує merge.
+      checks.push(check('insert row above a merge shifts it down', (() => {
+        const r = insertTableRow(mergeTableRange(createTableElement(3, 2).table, { startRow: 1, endRow: 2, startCol: 0, endCol: 0 }), 0);
+        return r.rows === 4 && r.merges[0].top === 2 && r.merges[0].bottom === 3;
+      })()));
+      checks.push(check('insert row inside a merge grows it', (() => {
+        const r = insertTableRow(mergeTableRange(createTableElement(3, 2).table, { startRow: 0, endRow: 2, startCol: 0, endCol: 0 }), 1);
+        return r.rows === 4 && r.merges[0].top === 0 && r.merges[0].bottom === 3;
+      })()));
+      checks.push(check('delete row inside a multi-row merge shrinks it', (() => {
+        const r = deleteTableRow(mergeTableRange(createTableElement(3, 2).table, { startRow: 0, endRow: 2, startCol: 0, endCol: 0 }), 1);
+        return r.rows === 2 && r.merges.length === 1 && r.merges[0].top === 0 && r.merges[0].bottom === 1;
+      })()));
+      checks.push(check('deleting a surviving merge anchor row preserves content and style', (() => {
+        const source = createTableElement(3, 2).table;
+        source.cells[0][0] = 'Anchor';
+        source.cellStyles[0][0] = { fill: '#dc2626', bold: true };
+        const r = deleteTableRow(mergeTableRange(source, { startRow: 0, endRow: 2, startCol: 0, endCol: 0 }), 0);
+        return r.merges.length === 1 && r.cells[0][0] === 'Anchor' && r.cellStyles[0][0].fill === '#dc2626' && r.cellStyles[0][0].bold === true;
+      })()));
+      checks.push(check('delete the only row of a single-row merge drops it', (() => {
+        const r = deleteTableRow(mergeTableRange(createTableElement(2, 3).table, { startRow: 0, endRow: 0, startCol: 0, endCol: 1 }), 0);
+        return r.rows === 1 && r.merges.length === 0;
+      })()));
+      checks.push(check('insert column left of a merge shifts it right', (() => {
+        const r = insertTableColumn(mergeTableRange(createTableElement(2, 3).table, { startRow: 0, endRow: 1, startCol: 1, endCol: 2 }), 0);
+        return r.cols === 4 && r.merges[0].left === 2 && r.merges[0].right === 3;
+      })()));
+      checks.push(check('delete column collapsing a merge drops it', (() => {
+        const r = deleteTableColumn(mergeTableRange(createTableElement(2, 3).table, { startRow: 0, endRow: 0, startCol: 0, endCol: 1 }), 0);
+        return r.cols === 2 && r.merges.length === 0;
+      })()));
+      checks.push(check('deleting a surviving merge anchor column preserves content and style', (() => {
+        const source = createTableElement(2, 3).table;
+        source.cells[0][0] = 'Anchor';
+        source.cellStyles[0][0] = { color: '#dc2626', bold: true };
+        const r = deleteTableColumn(mergeTableRange(source, { startRow: 0, endRow: 0, startCol: 0, endCol: 2 }), 0);
+        return r.merges.length === 1 && r.cells[0][0] === 'Anchor' && r.cellStyles[0][0].color === '#dc2626' && r.cellStyles[0][0].bold === true;
+      })()));
+      checks.push(check('table track sizing updates active row and column only', (() => {
+        const weighted = setTableTrackWeights(tableElement.table, 1, 2, 1.5, 2);
+        return weighted.rowWeights[1] === 1.5 && weighted.columnWeights[2] === 2 && weighted.rowWeights[0] === 1 && weighted.columnWeights[0] === 1;
+      })()));
+      checks.push(check('table resize preserves intersecting row and column weights', (() => {
+        const weighted = setTableTrackWeights(tableElement.table, 1, 1, 1.5, 2);
+        const resized = resizeTable(weighted, 3, 2);
+        return resized.rowWeights[1] === 1.5 && resized.rowWeights[2] === 1 && resized.columnWeights[1] === 2;
+      })()));
+      checks.push(check('table row operations preserve surrounding data', (() => {
+        const weighted = setTableTrackWeights(tableElement.table, 0, 0, 1.5, 2);
+        const inserted = insertTableRow(weighted, 1);
+        const deleted = deleteTableRow(inserted, 1);
+        return inserted.rows === 3 && inserted.cells[0][0] === 'Назва' && inserted.rowWeights[1] === 1 &&
+          deleted.rows === 2 && deleted.cells[0][0] === 'Назва' && deleted.rowWeights[0] === 1.5;
+      })()));
+      checks.push(check('table column operations preserve surrounding data', (() => {
+        const weighted = setTableTrackWeights(tableElement.table, 0, 0, 1.5, 2);
+        const inserted = insertTableColumn(weighted, 1);
+        const deleted = deleteTableColumn(inserted, 1);
+        return inserted.cols === 4 && inserted.cells[0][0] === 'Назва' && inserted.columnWeights[1] === 1 &&
+          deleted.cols === 3 && deleted.cells[0][0] === 'Назва' && deleted.columnWeights[0] === 2;
+      })()));
+      checks.push(check('table style presets are stable', getTableStylePresetKey(applyTableStylePreset(tableElement.table, 'green')) === 'green'));
+      checks.push(check('custom preset-owned color is not mistaken for a preset', getTableStylePresetKey(normalizeTable({ style: { headerFill: '#123456' } })) === null));
+      checks.push(check('preset detection ignores settings outside preset-owned colors', (() => {
+        const green = applyTableStylePreset(tableElement.table, 'green');
+        const tweaked = normalizeTable({ ...green, style: { ...green.style, headerRow: false, textColor: '#000000' } });
+        return getTableStylePresetKey(green) === 'green' && getTableStylePresetKey(tweaked) === 'green';
+      })()));
+      checks.push(check('table cell setter clamps and writes through the domain api', (() => {
+        const t = normalizeTable({ rows: 2, cols: 2 });
+        const written = setTableCellText(t, 0, 1, 'x'.repeat(TABLE_LIMITS.MAX_CELL_LENGTH + 50));
+        return t.cells[0][1] === written && written.length === TABLE_LIMITS.MAX_CELL_LENGTH && setTableCellText(t, 9, 9, 'oob') === '';
+      })()));
+      const formattedTable = setTableCellStyle(tableElement.table, 0, 0, { fill: '#dc2626', color: '#ffffff', bold: true, align: 'center', valign: 'bottom' });
+      checks.push(check('table cell formatting is normalized', formattedTable.cellStyles[0][0].fill === '#dc2626' && formattedTable.cellStyles[0][0].bold && formattedTable.cellStyles[0][0].align === 'center' && formattedTable.cellStyles[0][0].valign === 'bottom'));
+      checks.push(check('table cell formatting can override header bold', setTableCellStyle(tableElement.table, 0, 0, { bold: false }).cellStyles[0][0].bold === false));
+      checks.push(check('table range formatting applies rectangular selection', (() => {
+        const ranged = setTableRangeStyle(tableElement.table, { startRow: 0, endRow: 1, startCol: 1, endCol: 2 }, { fill: '#f59e0b' });
+        return ranged.cellStyles[0][1].fill === '#f59e0b' && ranged.cellStyles[1][2].fill === '#f59e0b' && !ranged.cellStyles[0][0].fill;
+      })()));
+      checks.push(check('table range formatting preserves unrelated cell styles', (() => {
+        const styled = setTableCellStyle(tableElement.table, 0, 1, { color: '#dc2626', bold: true });
+        const ranged = setTableRangeStyle(styled, { startRow: 0, endRow: 1, startCol: 1, endCol: 2 }, { fill: '#f59e0b' });
+        return ranged.cellStyles[0][1].fill === '#f59e0b' && ranged.cellStyles[0][1].color === '#dc2626' && ranged.cellStyles[0][1].bold === true;
+      })()));
+      checks.push(check('table formatting can return to inherited style', Object.keys(clearTableRangeStyle(formattedTable, { startRow: 0, endRow: 0, startCol: 0, endCol: 0 }).cellStyles[0][0]).length === 0));
+      checks.push(check('table range clipboard keeps rectangular values and styles', (() => {
+        const copied = copyTableRange(formattedTable, { startRow: 0, endRow: 1, startCol: 0, endCol: 1 });
+        return copied.rows === 2 && copied.cols === 2 && copied.cells[0][0] === 'Назва' && copied.cellStyles[0][0].fill === '#dc2626';
+      })()));
+      checks.push(check('table range clear preserves formatting and outside values', (() => {
+        const source = normalizeTable({ rows: 2, cols: 2, cells: [['A', 'B'], ['C', 'D']], cellStyles: [[{ bold: true }, {}], [{}, {}]] });
+        const cleared = clearTableRange(source, { startRow: 0, endRow: 1, startCol: 0, endCol: 0 });
+        return cleared.cells[0][0] === '' && cleared.cells[1][0] === '' && cleared.cells[0][1] === 'B' && cleared.cellStyles[0][0].bold;
+      })()));
+      checks.push(check('table range paste clips to target bounds and replaces styles', (() => {
+        const source = normalizeTable({ rows: 2, cols: 2, cells: [['A', 'B'], ['C', 'D']], cellStyles: [[{ bold: true }, {}], [{}, { fill: '#dc2626' }]] });
+        const copied = copyTableRange(source, { startRow: 0, endRow: 1, startCol: 0, endCol: 1 });
+        const pasted = pasteTableRange(normalizeTable({ rows: 2, cols: 3 }), 1, 2, copied);
+        return pasted.cells[1][2] === 'A' && pasted.cellStyles[1][2].bold && pasted.cells[1].length === 3;
+      })()));
+      checks.push(check('table cell formatting rejects unsafe values', Object.keys(setTableCellStyle(tableElement.table, 0, 0, { fill: 'url(evil)', align: 'bad', valign: 'bad' }).cellStyles[0][0]).length === 0));
+      checks.push(check('table structure operations preserve cell formatting', insertTableColumn(formattedTable, 1).cellStyles[0][0].fill === '#dc2626' && deleteTableRow(insertTableRow(formattedTable, 1), 1).cellStyles[0][0].fill === '#dc2626'));
+      checks.push(check('table detects destructive resize and structure deletion', (() => {
+        const populated = normalizeTable({ rows: 2, cols: 2, cells: [['A', ''], ['', 'B']], cellStyles: [[{}, {}], [{}, { bold: true }]] });
+        const weighted = setTableTrackWeights(normalizeTable({ rows: 2, cols: 2 }), 1, 1, 1.5, 2);
+        return tableResizeLosesData(populated, 1, 2) && tableResizeLosesData(populated, 2, 1) &&
+          tableRowHasData(populated, 1) && tableColumnHasData(populated, 1) &&
+          tableResizeLosesData(weighted, 1, 2) && tableResizeLosesData(weighted, 2, 1) &&
+          tableRowHasData(weighted, 1) && tableColumnHasData(weighted, 1);
+      })()));
+      checks.push(check('table snapshot keeps inline print layout', (() => {
+        const snapshot = createSlideSnapshot({ background: '#fff', elements: [tableElement] });
+        const table = snapshot.querySelector('.slide-table');
+        return table?.style.display === 'grid' && table.getAttribute('role') === 'grid' &&
+          table.querySelectorAll('[role="gridcell"]').length === 6 &&
+          createSlideSnapshot({ background: '#fff', elements: [{ ...tableElement, table: formattedTable }] }).querySelector('.slide-table-cell')?.style.alignContent === 'end';
+      })()));
+      checks.push(check('maximum supported table renders bounded cell count', createSlideSnapshot({ background: '#fff', elements: [createTableElement(20, 10)] }).querySelectorAll('.slide-table-cell').length === 200));
+      checks.push(check('table snapshot renders relative row and column weights', (() => {
+        const weighted = setTableTrackWeights(tableElement.table, 0, 0, 1.5, 2);
+        const table = createSlideSnapshot({ background: '#fff', elements: [{ ...tableElement, table: weighted }] }).querySelector('.slide-table');
+        return table?.style.gridTemplateRows.includes('1.5fr') && table?.style.gridTemplateColumns.includes('2fr');
+      })()));
+      checks.push(check('table snapshot renders merged cells as grid spans', (() => {
+        const merged = mergeTableRange(tableElement.table, { startRow: 0, endRow: 1, startCol: 0, endCol: 1 });
+        const table = createSlideSnapshot({ background: '#fff', elements: [{ ...tableElement, table: merged }] }).querySelector('.slide-table');
+        return table?.querySelectorAll('.slide-table-cell').length === 3 &&
+          table.querySelector('.slide-table-cell')?.style.gridRow === '1 / 3' &&
+          table.querySelector('.slide-table-cell')?.getAttribute('aria-colspan') === '2';
+      })()));
+
+      const chartElement = createChartElement({ chart: { type: 'line', title: 'Успішність', categories: ['Вересень', 'Жовтень'], series: [{ name: '7-А', values: [8, 10] }] } });
+      checks.push(check('chart normalization clamps categories and series', (() => {
+        const chart = normalizeChart({
+          categories: Array.from({ length: 20 }, (_, index) => `C${index}`),
+          series: Array.from({ length: 8 }, (_, index) => ({ name: `S${index}`, values: ['bad', 2e12] }))
+        });
+        return chart.categories.length === 12 && chart.series.length === 4 && chart.series[0].values[0] === 0 && chart.series[0].values[1] === 1000000000;
+      })()));
+      checks.push(check('chart delimited parser round-trips bounded data', (() => {
+        const parsed = chartFromDelimitedText(chartToDelimitedText(chartElement.chart), { type: 'line', title: 'Успішність' });
+        return parsed?.type === 'line' && parsed.categories[1] === 'Жовтень' && parsed.series[0].values[1] === 10;
+      })()));
+      checks.push(check('column, line and pie charts share snapshot rendering', ['column', 'line', 'pie'].every(type => {
+        const snapshot = createSlideSnapshot({ background: '#fff', elements: [{ ...chartElement, chart: normalizeChart({ ...chartElement.chart, type }) }] });
+        return !!snapshot.querySelector('.slide-chart[role="img"]');
+      })));
+      checks.push(check('pie chart renders a legend entry for every supported category', (() => {
+        const pie = createChartElement({ chart: { type: 'pie', categories: Array.from({ length: 12 }, (_, index) => `C${index}`), series: [{ name: 'S', values: Array(12).fill(1) }] } });
+        return createSlideSnapshot({ background: '#fff', elements: [pie] }).querySelectorAll('.slide-chart text').length >= 13;
+      })()));
+
+      class FakePptx {
+        constructor() {
+          this.ShapeType = { rect: 'rect', ellipse: 'ellipse', triangle: 'triangle', line: 'line' };
+          this.ChartType = { bar: 'bar', line: 'line', pie: 'pie' };
+          this.slides = [];
+        }
+        addSlide() {
+          const calls = [];
+          const slide = {
+            calls,
+            addText: (...args) => calls.push(['text', ...args]),
+            addShape: (...args) => calls.push(['shape', ...args]),
+            addImage: (...args) => calls.push(['image', ...args]),
+            addTable: (...args) => calls.push(['table', ...args]),
+            addChart: (...args) => calls.push(['chart', ...args]),
+            addNotes: (...args) => calls.push(['notes', ...args])
+          };
+          this.slides.push(slide);
+          return slide;
+        }
+      }
+      const pptxFixture = normalizePresentation({
+        slides: [{
+          id: 'pptx-a',
+          background: '#f0fdf4',
+          notes: 'Speaker note',
+          transition: { type: 'fade', duration: 'normal' },
+          elements: [
+            { type: 'text', content: 'Linked title', link: { kind: 'slide', slideId: 'pptx-b' }, x: 0, y: 0, w: 480, h: 100, style: { fontSize: 40, bold: true } },
+            { type: 'shape', shape: 'arrow', x: 20, y: 120, w: 200, h: 40, style: { stroke: '#dc2626' } },
+            { type: 'image', content: 'data:image/png;base64,AAAA', x: 250, y: 120, w: 200, h: 120, crop: { l: 0.1 }, style: { opacity: 0.5, objectFit: 'contain' } },
+            { type: 'table', x: 20, y: 270, w: 400, h: 180, table: { rows: 2, cols: 2, cells: [['A', ''], ['1', '2']], merges: [{ top: 0, bottom: 0, left: 0, right: 1 }] } },
+            { type: 'chart', x: 460, y: 240, w: 400, h: 220, chart: { type: 'column', title: 'Result', categories: ['A'], series: [{ name: 'S', values: [5] }] } },
+            { type: 'text', content: '', isPlaceholder: true, x: 0, y: 0, w: 100, h: 50 }
+          ]
+        }, { id: 'pptx-b', elements: [] }]
+      });
+      const pptxBuilt = buildPptxPresentation('School', pptxFixture.slides, FakePptx);
+      const pptxCalls = pptxBuilt.presentation.slides[0].calls;
+      checks.push(check('pptx adapter creates wide editable slides', pptxBuilt.presentation.layout === 'LAYOUT_WIDE' && pptxBuilt.presentation.slides.length === 2));
+      checks.push(check('pptx adapter exports supported editable objects', ['text', 'shape', 'image', 'table', 'chart', 'notes'].every(type => pptxCalls.some(call => call[0] === type))));
+      checks.push(check('pptx adapter maps internal slide hyperlinks', pptxCalls.find(call => call[0] === 'text')?.[2]?.hyperlink?.slide === 2));
+      checks.push(check('pptx adapter maps merged cells and native charts', pptxCalls.find(call => call[0] === 'table')?.[1]?.[0]?.[0]?.options?.colspan === 2 && pptxCalls.find(call => call[0] === 'chart')?.[1] === 'bar'));
+      checks.push(check('pptx adapter reports honest approximations and placeholders', pptxBuilt.report.skippedPlaceholders === 1 && pptxBuilt.report.warnings.length >= 3));
+      const realPptx = buildPptxPresentation('School', pptxFixture.slides, window.PptxGenJS);
+      const realPptxBlob = await realPptx.presentation.write({ outputType: 'blob', compression: true });
+      checks.push(check('vendored PptxGenJS builds a non-empty presentation offline', realPptxBlob instanceof Blob && realPptxBlob.size > 1000));
+
       const roundTripFixture = {
         schemaVersion: SCHEMA_VERSION,
         textModelVersion: TEXT_MODEL_VERSION,
@@ -98,17 +349,29 @@
           id: 'slide-a',
           background: '#f0fdf4',
           layout: 'title-image',
+          transition: { type: 'slide-left', duration: 'slow' },
+          notes: 'Нагадати про домашнє завдання',
           elements: [
             { id: 'title', type: 'text', x: 10, y: 10, w: 500, h: 80, z: 1, content: 'Title', isPlaceholder: false, placeholderType: 'title', groupId: 'group-1', style: { fontSize: 40, bold: true } },
             { id: 'shape', type: 'shape', shape: 'rect', x: 20, y: 120, w: 200, h: 120, z: 2, content: 'Shape text', groupId: 'group-1', style: { fill: '#dbeafe', stroke: '#1d4ed8' } },
-            { id: 'image', type: 'image', x: 250, y: 120, w: 300, h: 200, z: 3, content: 'data:image/png;base64,AAAA', alt: 'Diagram', crop: { l: 0.1, t: 0.2, r: 0.1, b: 0 }, style: { objectFit: 'cover', opacity: 0.7 } }
+            { id: 'image', type: 'image', x: 250, y: 120, w: 300, h: 200, z: 3, content: 'data:image/png;base64,AAAA', alt: 'Diagram', crop: { l: 0.1, t: 0.2, r: 0.1, b: 0 }, style: { objectFit: 'cover', opacity: 0.7 } },
+            { id: 'table', type: 'table', x: 50, y: 340, w: 500, h: 120, z: 4, table: { rows: 2, cols: 2, rowWeights: [1.5, 1], columnWeights: [2, 1], merges: [{ top: 0, bottom: 0, left: 0, right: 1 }], cells: [['A', ''], ['1', '2']], cellStyles: [[{ fill: '#dc2626', bold: true, valign: 'bottom' }, {}], [{}, {}]] } },
+            { id: 'chart', type: 'chart', x: 400, y: 100, w: 400, h: 220, z: 5, chart: { type: 'pie', title: 'Вибір', categories: ['A', 'B'], series: [{ name: 'Учні', values: [6, 4] }] } }
           ]
         }]
       };
       const roundTrip = parsePresentationText(JSON.stringify(roundTripFixture));
       checks.push(check('project round-trip keeps theme and layout', roundTrip?.theme === 'forest' && roundTrip.slides[0].layout === 'title-image'));
+      checks.push(check('project round-trip keeps slide transition', roundTrip?.slides[0].transition.type === 'slide-left' && roundTrip.slides[0].transition.duration === 'slow'));
+      checks.push(check('transition normalization uses strict allowlists', normalizeTransition({ type: 'bad', duration: 'instant' }).type === 'none' && normalizeTransition({ type: 'zoom', duration: 'fast' }).duration === 'fast'));
+      checks.push(check('project round-trip keeps presenter notes', roundTrip?.slides[0].notes === 'Нагадати про домашнє завдання'));
       checks.push(check('project round-trip keeps groups and shape text', roundTrip?.slides[0].elements[0].groupId === 'group-1' && roundTrip.slides[0].elements[1].content === 'Shape text'));
       checks.push(check('project round-trip keeps image metadata', roundTrip?.slides[0].elements[2].alt === 'Diagram' && roundTrip.slides[0].elements[2].crop.t === 0.2 && roundTrip.slides[0].elements[2].style.opacity === 0.7));
+      checks.push(check('project round-trip keeps table data', roundTrip?.slides[0].elements[3].table.cells[1][1] === '2'));
+      checks.push(check('project round-trip keeps table cell formatting', roundTrip?.slides[0].elements[3].table.cellStyles[0][0].fill === '#dc2626' && roundTrip?.slides[0].elements[3].table.cellStyles[0][0].bold && roundTrip?.slides[0].elements[3].table.cellStyles[0][0].valign === 'bottom'));
+      checks.push(check('project round-trip keeps table row and column weights', roundTrip?.slides[0].elements[3].table.rowWeights[0] === 1.5 && roundTrip?.slides[0].elements[3].table.columnWeights[0] === 2));
+      checks.push(check('project round-trip keeps merged table cells', roundTrip?.slides[0].elements[3].table.merges[0]?.right === 1));
+      checks.push(check('project round-trip keeps chart data', roundTrip?.slides[0].elements[4].chart.type === 'pie' && roundTrip.slides[0].elements[4].chart.series[0].values[1] === 4));
 
       const largeFixture = {
         slides: Array.from({ length: 50 }, (_, slideIndex) => ({

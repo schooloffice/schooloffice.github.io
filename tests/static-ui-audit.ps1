@@ -9,7 +9,7 @@ $services = @(
   @{ Key = 'text'; Path = 'text'; Menu = @('file', 'edit', 'insert', 'view', 'help'); ActionFiles = @('text/ui/menu.js'); CommandFiles = @('text/js/app.js'); FilePickerFiles = @('text/ui/menu.js', 'text/ui/editor.js'); OptionalIds = @() },
   @{ Key = 'tables'; Path = 'tables'; Menu = @('file', 'edit', 'insert', 'format', 'data', 'view', 'help'); ActionFiles = @('tables/js/ui.js'); CommandFiles = @('tables/js/app.js'); FilePickerFiles = @('tables/js/ui.js', 'tables/js/workbook-file.js'); OptionalIds = @('header') },
   @{ Key = 'paint'; Path = 'paint'; Menu = @('file', 'edit', 'view', 'help'); ActionFiles = @('paint/js/app.js'); CommandFiles = @('paint/js/app.js'); FilePickerFiles = @('paint/js/document.js'); OptionalIds = @() },
-  @{ Key = 'slides'; Path = 'slides'; Menu = @('file', 'edit', 'insert', 'slide', 'view', 'help'); ActionFiles = @('slides/js/app.js'); CommandFiles = @('slides/js/app.js'); FilePickerFiles = @('slides/js/app.js'); OptionalIds = @('imageUrlField', 'imageAltField', 'imageSourceError', 'altEditField', 'pickImageFile') },
+  @{ Key = 'slides'; Path = 'slides'; Menu = @('file', 'edit', 'insert', 'slide', 'view', 'help'); ActionFiles = @('slides/js/app.js'); CommandFiles = @('slides/js/app.js'); FilePickerFiles = @('slides/js/app.js'); OptionalIds = @('imageUrlField', 'imageAltField', 'imageSourceError', 'altEditField', 'pickImageFile', 'linkUrlField', 'linkSlideField', 'linkError', 'tableRowsField', 'tableColsField', 'tableHeaderField', 'tableStyleField', 'tableResizeWarning', 'tableResizeConfirmField', 'tableCellFillField', 'tableCellColorField', 'tableCellAlignField', 'tableCellVAlignField', 'tableCellBoldField', 'tableCellClearField', 'tableApplyFillField', 'tableApplyColorField', 'tableApplyAlignField', 'tableApplyVAlignField', 'tableApplyBoldField', 'tableRowWeightField', 'tableColumnWeightField', 'chartTypeField', 'chartTitleField', 'chartLegendField', 'chartDataField', 'chartError', 'transitionType', 'transitionDuration', 'transitionApplyAll') },
   @{ Key = 'flowcharts'; Path = 'flowcharts'; Menu = @('file', 'edit', 'insert', 'view', 'help'); ActionFiles = @('flowcharts/js/editor.js', 'flowcharts/js/menu-actions.js'); CommandFiles = @('flowcharts/js/editor.js', 'flowcharts/js/project-io.js', 'flowcharts/js/menu-actions.js'); FilePickerFiles = @('flowcharts/js/editor.js', 'flowcharts/js/project-io.js'); OptionalIds = @('delete-button', 'help-button') },
   @{ Key = 'vector'; Path = 'vector'; Menu = @('file', 'edit', 'insert', 'format', 'help'); ActionFiles = @('vector/js/app.js'); CommandFiles = @('vector/js/app.js'); FilePickerFiles = @('vector/js/app.js'); OptionalIds = @() }
 )
@@ -512,16 +512,21 @@ $runtimeFiles = @(
   'tables/js/state.js',
   'tables/js/workbook.js',
   'slides/js/app.js',
+  'slides/js/chart-controller.js',
+  'slides/js/chart-element.js',
   'slides/js/element-rendering.js',
   'slides/js/image-geometry.js',
   'slides/js/modal-ui.js',
   'slides/js/object-commands.js',
   'slides/js/presentation-design.js',
+  'slides/js/pptx-export.js',
   'slides/js/project.js',
   'slides/js/runtime.js',
   'slides/js/slide-list.js',
   'slides/js/stage-interactions.js',
   'slides/js/stage-renderer.js',
+  'slides/js/table-controller.js',
+  'slides/js/table-element.js',
   'slides/js/text-list.js',
   'text/js/app.js',
   'text/js/runtime.js'
@@ -572,6 +577,17 @@ if (Test-Path $slidesIndexPath) {
   $slidesHtml = Get-Content -Raw -Encoding UTF8 $slidesIndexPath
   Assert-True ($slidesHtml -match 'type="module"\s+src="js/runtime\.js"|src="js/runtime\.js"\s+type="module"') "slides/index.html: should load runtime.js as the module entrypoint"
   Assert-True ($slidesHtml -notmatch 'src="js/app\.js"') "slides/index.html: should not load source app.js directly while runtime.js stays the stable entrypoint"
+  Assert-True ($slidesHtml -notmatch 'vendor/pptxgenjs/pptxgen\.bundle\.js') "slides/index.html: PPTX bundle should be lazy-loaded instead of delaying editor boot"
+}
+
+$slidesPptxExportPath = Join-Path $Root 'slides/js/pptx-export.js'
+if (Test-Path $slidesPptxExportPath) {
+  $slidesPptxExport = Get-Content -Raw -Encoding UTF8 $slidesPptxExportPath
+  Assert-True ($slidesPptxExport -match 'export function buildPptxPresentation\(') "slides/js/pptx-export.js: should expose a testable PPTX builder"
+  Assert-True ($slidesPptxExport -match 'export function loadPptxLibrary\(') "slides/js/pptx-export.js: should lazy-load the vendored PPTX bundle"
+  Assert-True ($slidesPptxExport -match 'export async function exportPresentationPptx\(') "slides/js/pptx-export.js: should own PPTX file writing"
+  Assert-True ($slidesPptxExport -match 'normalizeTable\(') "slides/js/pptx-export.js: should export normalized table data"
+  Assert-True ($slidesPptxExport -match 'normalizeChart\(') "slides/js/pptx-export.js: should export normalized chart data"
 }
 
 $slidesRuntimePath = Join-Path $Root 'slides/js/runtime.js'
@@ -661,6 +677,22 @@ if (Test-Path $slidesStageInteractionsPath) {
     Assert-True ($slidesStageInteractions -match "export function $stageInteractionFunction\(") "slides/js/stage-interactions.js: should own $stageInteractionFunction"
   }
   Assert-True ($slidesStageInteractions -match 'const pointer\s*=') "slides/js/stage-interactions.js: should own pointer interaction state"
+}
+
+$slidesTableControllerPath = Join-Path $Root 'slides/js/table-controller.js'
+if (Test-Path $slidesTableControllerPath) {
+  $slidesTableController = Get-Content -Raw -Encoding UTF8 $slidesTableControllerPath
+  Assert-True ($slidesTableController -match 'export function createTableController\(') "slides/js/table-controller.js: should expose the table orchestration boundary"
+  foreach ($tableControllerFunction in @('selectCell', 'navigateCell', 'showTableModal', 'changeStructure', 'copySelectedRange', 'pasteCopiedRange', 'mergeSelectedCells', 'splitActiveCell')) {
+    Assert-True ($slidesTableController -match "function $tableControllerFunction\(") "slides/js/table-controller.js: should own $tableControllerFunction"
+  }
+}
+
+$slidesChartControllerPath = Join-Path $Root 'slides/js/chart-controller.js'
+if (Test-Path $slidesChartControllerPath) {
+  $slidesChartController = Get-Content -Raw -Encoding UTF8 $slidesChartControllerPath
+  Assert-True ($slidesChartController -match 'export function createChartController\(') "slides/js/chart-controller.js: should expose the chart orchestration boundary"
+  Assert-True ($slidesChartController -match 'function showChartModal\(') "slides/js/chart-controller.js: should own chart modal orchestration"
 }
 
 $paintIndexPath = Join-Path $Root 'paint/index.html'
@@ -1001,6 +1033,10 @@ if (Test-Path $slidesAppPath) {
   Assert-True ($slidesApp -match 'function\s+renderAll\(\)\s*\{[\s\S]*?renderFileName\(\);[\s\S]*?renderColorPalette\(\);[\s\S]*?renderWorkspace\(\);[\s\S]*?\}') "slides/js/app.js: full render should delegate workspace rendering after filename and palette"
   Assert-True ($slidesApp -match 'function\s+renderWorkspace\(\)\s*\{[\s\S]*?renderStage\(\);[\s\S]*?renderSlideList\(\);[\s\S]*?renderToolbarState\(\);[\s\S]*?renderStatus\(\);[\s\S]*?\}') "slides/js/app.js: workspace render should keep stage, thumbnails, toolbar, and status together"
   Assert-True ($slidesApp -match 'function\s+renderCurrentSlideWorkspace\(\)\s*\{[\s\S]*?renderStage\(\);[\s\S]*?renderCurrentSlideThumbnail\(\);[\s\S]*?renderToolbarState\(\);[\s\S]*?renderStatus\(\);[\s\S]*?\}') "slides/js/app.js: current-slide changes should update only the active thumbnail"
+  Assert-True ($slidesApp -match "import\s+\{\s*createTableController\s*\}\s+from\s+['""]\.\/table-controller\.js['""]") "slides/js/app.js: should delegate table orchestration to table-controller.js"
+  Assert-True ($slidesApp -notmatch "from\s+['""]\.\/table-element\.js['""]") "slides/js/app.js: should not import table domain operations directly"
+  Assert-True ($slidesApp -match "import\s+\{\s*createChartController\s*\}\s+from\s+['""]\.\/chart-controller\.js['""]") "slides/js/app.js: should delegate chart orchestration to chart-controller.js"
+  Assert-True ($slidesApp -notmatch "from\s+['""]\.\/chart-element\.js['""]") "slides/js/app.js: should not import chart domain operations directly"
 }
 
 $slidesRuntimePath = Join-Path $Root 'slides/js/runtime.js'

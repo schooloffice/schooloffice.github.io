@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v13';
+const CACHE_VERSION = 'office-plus-v20';
 const PRECACHE_NAME = `${CACHE_VERSION}-precache`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const MAX_RUNTIME_ENTRIES = 80;
@@ -64,6 +64,8 @@ const CORE_ASSETS = [
   './SERVICE_THEME_MAP.json',
   './slides/index.html',
   './slides/js/app.js',
+  './slides/js/chart-controller.js',
+  './slides/js/chart-element.js',
   './slides/js/constants.js',
   './slides/js/element-rendering.js',
   './slides/js/export.js',
@@ -72,12 +74,15 @@ const CORE_ASSETS = [
   './slides/js/modal-ui.js',
   './slides/js/object-commands.js',
   './slides/js/presentation-design.js',
+  './slides/js/pptx-export.js',
   './slides/js/project.js',
   './slides/js/runtime.js',
   './slides/js/slide-list.js',
   './slides/js/stage-interactions.js',
   './slides/js/stage-renderer.js',
   './slides/js/text-list.js',
+  './slides/js/table-controller.js',
+  './slides/js/table-element.js',
   './slides/js/state.js',
   './slides/js/storage.js',
   './slides/js/templates.js',
@@ -153,7 +158,9 @@ const CORE_ASSETS = [
   './vendor/fontawesome/webfonts/fa-solid-900.woff2',
   './vendor/html2canvas/html2canvas.min.js',
   './vendor/html2pdf/html2pdf.bundle.min.js',
-  './vendor/mammoth/mammoth.browser.min.js'
+  './vendor/mammoth/mammoth.browser.min.js',
+  './vendor/pptxgenjs/LICENSE',
+  './vendor/pptxgenjs/pptxgen.bundle.js'
 ];
 
 const ASSET_EXTENSIONS = /\.(?:css|js|json|png|jpg|jpeg|svg|woff2|ico|webmanifest)$/i;

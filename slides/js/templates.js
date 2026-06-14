@@ -1,4 +1,6 @@
-import { DEFAULT_IMAGE_STYLE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, LAYOUTS, PLACEHOLDER_PROMPTS } from './constants.js';
+import { DEFAULT_IMAGE_STYLE, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, DEFAULT_TRANSITION, LAYOUTS, PLACEHOLDER_PROMPTS } from './constants.js';
+export { createChartElement } from './chart-element.js';
+export { createTableElement } from './table-element.js';
 import { uid } from './utils.js';
 
 function mergeTextStyle(style = {}) {
@@ -124,6 +126,8 @@ export function createSlide(overrides = {}) {
     id: uid(),
     background: '#ffffff',
     layout: 'title-body',
+    transition: { ...DEFAULT_TRANSITION },
+    notes: '',
     elements: providedElements,
     ...overrides,
     elements: providedElements

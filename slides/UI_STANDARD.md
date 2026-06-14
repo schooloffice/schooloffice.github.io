@@ -7,7 +7,7 @@
 ## Специфіка
 
 - Тип: редактор презентацій.
-- Основні сценарії: створення слайдів, редагування тексту/фігур/зображень, збереження проєкту, PDF export і презентаційний режим.
+- Основні сценарії: створення слайдів, редагування тексту/фігур/зображень, збереження проєкту, PDF/PPTX export і презентаційний режим.
 - Меню: Файл, Редагування, Вставка, Слайд, Перегляд, Допомога.
 - Runtime bundle: `slides/js/runtime.js` є стабільним deployed entry.
 - Standard commands мають лишатися синхронними між меню, toolbar і hotkeys.
@@ -25,13 +25,18 @@
 - `slides/style.css` — локальні стилі редактора.
 - `slides/js/runtime.js` — стабільний module entrypoint, який лише піднімає застосунок.
 - `slides/js/app.js` — coordinator для `SlidesApp.boot`, shell-adapter, command dispatch, stage UI та взаємодій.
+- `slides/js/chart-controller.js` — вставлення й редагування діаграм через callbacks coordinator-а.
+- `slides/js/chart-element.js` — модель, нормалізація, bounded data parser і спільний SVG-рендер діаграм.
 - `slides/js/project.js` — нормалізація презентації та елементів, збереження `.artslides.json`, парсинг відкритих файлів.
 - `slides/js/element-rendering.js` — спільні visual text styles і SVG-геометрія фігур stage/export.
 - `slides/js/image-geometry.js` — спільна crop-геометрія stage та export.
 - `slides/js/object-commands.js` — чисті правила групування, вирівнювання та розподілу.
 - `slides/js/presentation-design.js` — чисті доменні операції застосування тем і макетів.
+- `slides/js/pptx-export.js` — ізольований adapter для контрольованого PPTX export; не володіє моделлю редактора.
 - `slides/js/slide-list.js` — список слайдів, thumbnails, reorder, move/duplicate/delete actions.
 - `slides/js/stage-renderer.js` — рендеринг сцени, елементів, handles і selected-state.
+- `slides/js/table-controller.js` — table-specific selection, clipboard, modal і command orchestration через callbacks coordinator-а.
+- `slides/js/table-element.js` — модель, нормалізація, доменні операції та DOM-рендер таблиць.
 - `slides/js/text-list.js` — безпечне створення, рендеринг і читання маркованих/нумерованих текстових блоків.
 - `slides/js/stage-interactions.js` — pointer interactions для drag/resize.
 - `slides/js/modal-ui.js` — modal open/close/info/confirm поведінка.
@@ -60,4 +65,4 @@ History використовує повні відокремлені snapshot-и
 Перед повною заміною документа pending autosave скасовується, а завершення старих записів
 ігноруються через покоління autosave-запитів.
 
-`slides/js/app.js` лишається найбільшим coordinator-файлом, але з нього вже винесено project file layer, slide list, stage rendering, stage interactions і modal UI. Залишкові змішані ролі: menu/color popover UI, presentation mode, object commands і частина toolbar state. Наступні зміни варто робити через стабілізацію сценаріїв або точкове винесення одного з цих шарів.
+`slides/js/app.js` лишається найбільшим coordinator-файлом, але з нього вже винесено project file layer, slide list, stage rendering, stage interactions, modal UI, table-specific orchestration та PPTX export. Залишкові змішані ролі: menu/color popover UI, presentation mode, object commands і частина toolbar state. Наступні зміни варто робити через стабілізацію сценаріїв або точкове винесення одного з цих шарів.

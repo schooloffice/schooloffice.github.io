@@ -1,5 +1,7 @@
-import { DEFAULT_IMAGE_STYLE, DEFAULT_LAYOUT, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, DEFAULT_THEME, FONT_FAMILY_KEYS, IMAGE_FIT_MODES, LAYOUT_KEYS, LIMITS, LIST_TYPES, SCHEMA_VERSION, SHAPE_TYPES, TEXT_MODEL_VERSION, TEXT_SHAPE_TYPES, THEME_KEYS } from './constants.js';
+import { DEFAULT_IMAGE_STYLE, DEFAULT_LAYOUT, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, DEFAULT_THEME, DEFAULT_TRANSITION, FONT_FAMILY_KEYS, IMAGE_FIT_MODES, LAYOUT_KEYS, LIMITS, LIST_TYPES, SCHEMA_VERSION, SHAPE_TYPES, TEXT_MODEL_VERSION, TEXT_SHAPE_TYPES, THEME_KEYS, TRANSITION_DURATIONS, TRANSITION_TYPES } from './constants.js';
 import { clamp, downloadTextFile } from './utils.js';
+import { normalizeChart } from './chart-element.js';
+import { normalizeTable, TABLE_LIMITS } from './table-element.js';
 
 const DEFAULT_PRESENTATION_NAME = 'моя презентація';
 
@@ -66,13 +68,28 @@ export function normalizePresentation(raw, { trusted = false } = {}) {
   if (raw.slides.length > LIMITS.MAX_SLIDES) return null;
 
   let totalElements = 0;
+  let totalTableCells = 0;
   for (const slide of raw.slides) {
     if (slide && Array.isArray(slide.elements)) {
       if (slide.elements.length > LIMITS.MAX_ELEMENTS_PER_SLIDE) return null;
       totalElements += slide.elements.length;
+      let slideTableCells = 0;
+      slide.elements.forEach(element => {
+        if (element?.type !== 'table') return;
+        if (Array.isArray(element.table?.merges) && element.table.merges.length > TABLE_LIMITS.MAX_MERGES) {
+          slideTableCells = LIMITS.MAX_TABLE_CELLS_PER_SLIDE + 1;
+          return;
+        }
+        const rows = clamp(Number.isInteger(element.table?.rows) ? element.table.rows : 3, TABLE_LIMITS.MIN_ROWS, TABLE_LIMITS.MAX_ROWS);
+        const cols = clamp(Number.isInteger(element.table?.cols) ? element.table.cols : 4, TABLE_LIMITS.MIN_COLS, TABLE_LIMITS.MAX_COLS);
+        slideTableCells += rows * cols;
+      });
+      if (slideTableCells > LIMITS.MAX_TABLE_CELLS_PER_SLIDE) return null;
+      totalTableCells += slideTableCells;
     }
   }
   if (totalElements > LIMITS.MAX_TOTAL_ELEMENTS) return null;
+  if (totalTableCells > LIMITS.MAX_TOTAL_TABLE_CELLS) return null;
 
   const slides = raw.slides.map((rawSlide, slideIndex) => {
     const slide = rawSlide && typeof rawSlide === 'object' ? rawSlide : {};
@@ -80,6 +97,8 @@ export function normalizePresentation(raw, { trusted = false } = {}) {
       id: typeof slide.id === 'string' ? slide.id.slice(0, 64) : `slide_${slideIndex}`,
       background: sanitizeColor(slide.background, '#ffffff'),
       layout: LAYOUT_KEYS.includes(slide.layout) ? slide.layout : DEFAULT_LAYOUT,
+      transition: normalizeTransition(slide.transition),
+      notes: clampText(slide.notes),
       elements: Array.isArray(slide.elements)
         ? slide.elements.slice(0, LIMITS.MAX_ELEMENTS_PER_SLIDE).map((element, elementIndex) => normalizeElement(element, elementIndex, { trusted }))
         : []
@@ -102,6 +121,13 @@ export function normalizePresentation(raw, { trusted = false } = {}) {
     }
   }
 
+  // Посилання на слайд лишаємо лише якщо ціль існує (інакше «битий» перехід).
+  for (const slide of slides) {
+    for (const element of slide.elements) {
+      if (element.link?.kind === 'slide' && !usedSlideIds.has(element.link.slideId)) element.link = null;
+    }
+  }
+
   return {
     fileName: typeof raw.fileName === 'string' && raw.fileName.trim() ? raw.fileName.trim().slice(0, 200) : DEFAULT_PRESENTATION_NAME,
     theme: THEME_KEYS.includes(raw.theme) ? raw.theme : DEFAULT_THEME,
@@ -112,7 +138,7 @@ export function normalizePresentation(raw, { trusted = false } = {}) {
 }
 
 export function normalizeElement(element, index, { trusted = false } = {}) {
-  const type = ['text', 'image', 'shape'].includes(element?.type) ? element.type : 'text';
+  const type = ['text', 'image', 'shape', 'table', 'chart'].includes(element?.type) ? element.type : 'text';
   const shape = SHAPE_TYPES.includes(element?.shape) ? element.shape : 'rect';
   const supportsText = type === 'text' || (type === 'shape' && TEXT_SHAPE_TYPES.includes(shape));
   const placeholder = typeof element?.placeholder === 'string' && element.placeholder.trim()
@@ -147,9 +173,12 @@ export function normalizeElement(element, index, { trusted = false } = {}) {
     placeholder,
     isPlaceholder,
     placeholderType: normalizePlaceholderType(element?.placeholderType, type),
+    link: normalizeLink(element?.link),
     groupId: typeof element?.groupId === 'string' && element.groupId ? element.groupId.slice(0, 64) : null,
     alt: type === 'image' && typeof element?.alt === 'string' ? clampText(element.alt) : '',
     crop: type === 'image' ? normalizeCrop(element?.crop) : null,
+    table: type === 'table' ? normalizeTable(element?.table) : null,
+    chart: type === 'chart' ? normalizeChart(element?.chart) : null,
     style: normalizeStyle(element?.style)
   };
 }
@@ -157,6 +186,44 @@ export function normalizeElement(element, index, { trusted = false } = {}) {
 // placeholderType має відповідати типу елемента: title/subtitle/body — лише для
 // тексту, image — лише для зображення. Інакше зловмисний/пошкоджений файл міг би
 // «закрити» слот макета невідповідним елементом.
+// Гіперпосилання: лише https-URL (блокує javascript:/data:/http — безпека) або
+// перехід на слайд за id (валідність slideId перевіряється у normalizePresentation).
+function isValidHttpsUrl(value) {
+  if (typeof value !== 'string' || value.length > 2000) return false;
+  const trimmed = value.trim();
+  // Пробіли в URL недопустимі (мали б бути %20); відхиляємо «https://x bad».
+  // Браузерний і node-парсери трактують такі рядки по-різному, тож блокуємо явно.
+  if (/\s/.test(trimmed)) return false;
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return false;
+  }
+  // Лише https і реальний хост — блокує javascript:/http:/data: та порожні
+  // адреси на кшталт «https://?», «https://#».
+  return parsed.protocol === 'https:' && !!parsed.hostname;
+}
+
+export function normalizeLink(link) {
+  if (!link || typeof link !== 'object') return null;
+  if (link.kind === 'url' && isValidHttpsUrl(link.href)) {
+    return { kind: 'url', href: link.href.trim().slice(0, 2000) };
+  }
+  if (link.kind === 'slide' && typeof link.slideId === 'string' && link.slideId) {
+    return { kind: 'slide', slideId: link.slideId.slice(0, 64) };
+  }
+  return null;
+}
+
+export function normalizeTransition(value) {
+  const transition = value && typeof value === 'object' ? value : {};
+  return {
+    type: TRANSITION_TYPES.includes(transition.type) ? transition.type : DEFAULT_TRANSITION.type,
+    duration: TRANSITION_DURATIONS.includes(transition.duration) ? transition.duration : DEFAULT_TRANSITION.duration
+  };
+}
+
 function normalizePlaceholderType(value, type) {
   if (type === 'text' && ['title', 'subtitle', 'body'].includes(value)) return value;
   if (type === 'image' && value === 'image') return 'image';

@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ПЛЮС Слайди — редактор презентацій</title>
   <meta name="description" content="ПЛЮС Слайди — простий редактор презентацій для шкільного офісного пакета.">
-<link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css">
+  <link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css">
   <script src="../vendor/html2pdf/html2pdf.bundle.min.js"></script>
   <link rel="stylesheet" href="../UI_TOKENS.css">
   <link rel="stylesheet" href="style.css">
@@ -40,6 +40,20 @@
 
   <div id="presentOverlay" class="present-overlay hidden" aria-hidden="true">
     <div class="present-stage-wrap" id="presentStageWrap"></div>
+    <aside id="presenterPanel" class="presenter-panel hidden" aria-label="Панель доповідача">
+      <div class="presenter-status">
+        <span id="presentTimer" aria-label="Час показу">00:00</span>
+        <span id="presentSlideCounter" aria-live="polite"></span>
+      </div>
+      <div class="presenter-section">
+        <div class="presenter-label">Наступний слайд</div>
+        <div id="presentNextPreview" class="presenter-next-preview"></div>
+      </div>
+      <div class="presenter-section presenter-notes-section">
+        <div class="presenter-label">Нотатки доповідача</div>
+        <div id="presenterNotes" class="presenter-notes-text" aria-live="polite"></div>
+      </div>
+    </aside>
     <button id="presentPrev" class="present-nav left" title="Попередній слайд" aria-label="Попередній слайд">
       <i class="fa-solid fa-chevron-left"></i>
     </button>
@@ -49,7 +63,12 @@
     <button id="presentClose" class="present-close" title="Закрити показ" aria-label="Закрити показ">
       <i class="fa-solid fa-xmark"></i>
     </button>
-    <div id="presentHint" class="present-hint">← → або пробіл — перемикати слайди • Esc — вихід</div>
+    <button id="presentModeToggle" class="present-mode-toggle" title="Перемкнути режим доповідача"
+      aria-label="Перемкнути режим доповідача">
+      <i class="fa-solid fa-person-chalkboard"></i>
+    </button>
+    <div id="presentHint" class="present-hint">← → або пробіл — перемикати • P — режим доповідача • N — нотатки • Esc — вихід</div>
+    <div id="presentNotes" class="present-notes hidden" aria-live="polite" aria-label="Нотатки доповідача"></div>
   </div>
 
   <header class="app-header office-header">
@@ -81,6 +100,8 @@
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="export-pdf"><span><i class="fa-solid fa-file-pdf fa-fw"></i> Експорт у
             PDF</span></button>
+        <button class="menu-item" data-action="export-pptx"><span><i class="fa-solid fa-file-powerpoint fa-fw"></i>
+            Експорт у PPTX</span></button>
         <button class="menu-item" data-action="print"><span><i class="fa-solid fa-print fa-fw"></i> Друк</span><span
             class="shortcut">Ctrl+P</span></button>
         <div class="menu-sep"></div>
@@ -120,6 +141,10 @@
             поле</span></button>
         <button class="menu-item" data-action="insert-image"><span><i class="fa-solid fa-image fa-fw"></i>
             Зображення…</span></button>
+        <button class="menu-item" data-action="insert-table"><span><i class="fa-solid fa-table-cells fa-fw"></i>
+            Таблиця…</span></button>
+        <button class="menu-item" data-action="insert-chart"><span><i class="fa-solid fa-chart-column fa-fw"></i>
+            Діаграма…</span></button>
         <button class="menu-item" data-action="replace-image"><span><i class="fa-solid fa-arrows-rotate fa-fw"></i>
             Замінити вибране зображення…</span></button>
         <button class="menu-item" data-action="insert-rect"><span><i class="fa-regular fa-square fa-fw"></i>
@@ -132,6 +157,9 @@
             Лінія</span></button>
         <button class="menu-item" data-action="insert-arrow"><span><i class="fa-solid fa-arrow-right-long fa-fw"></i>
             Стрілка</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="edit-link"><span><i class="fa-solid fa-link fa-fw"></i> Посилання на
+            вибраному…</span></button>
       </div>
     </div>
 
@@ -161,6 +189,8 @@
             Макет слайда…</span></button>
         <button class="menu-item" data-action="show-themes"><span><i class="fa-solid fa-palette fa-fw"></i> Тема
             оформлення…</span></button>
+        <button class="menu-item" data-action="slide-transition"><span><i class="fa-solid fa-wand-magic-sparkles fa-fw"></i>
+            Перехід між слайдами…</span></button>
       </div>
     </div>
 
@@ -178,11 +208,15 @@
         <div class="menu-sep"></div>
         <button class="menu-item" id="snapToggleItem" data-action="toggle-snap"><span><i
               class="fa-solid fa-check fa-fw menu-check"></i> Прив'язка до сітки</span></button>
+        <button class="menu-item" id="notesToggleItem" data-action="toggle-notes"><span><i
+              class="fa-solid fa-check fa-fw menu-check"></i> Нотатки доповідача</span></button>
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="slide-background"><span><i class="fa-solid fa-fill-drip fa-fw"></i> Фон
             слайда…</span></button>
         <button class="menu-item" data-action="present"><span><i class="fa-solid fa-play fa-fw"></i> Почати
             показ</span><span class="shortcut">F5</span></button>
+        <button class="menu-item" data-action="presenter-mode"><span><i class="fa-solid fa-person-chalkboard fa-fw"></i>
+            Режим доповідача</span><span class="shortcut">Shift+F5</span></button>
       </div>
     </div>
 
@@ -216,6 +250,8 @@
     <div class="tb-group">
       <button class="tb-btn" data-action="insert-text" title="Текстове поле"><i class="fa-solid fa-font"></i></button>
       <button class="tb-btn" data-action="insert-image" title="Зображення"><i class="fa-regular fa-image"></i></button>
+      <button class="tb-btn" data-action="insert-table" title="Таблиця"><i class="fa-solid fa-table-cells"></i></button>
+      <button class="tb-btn" data-action="insert-chart" title="Діаграма"><i class="fa-solid fa-chart-column"></i></button>
       <button class="tb-btn" data-action="insert-rect" title="Прямокутник"><i class="fa-regular fa-square"></i></button>
       <button class="tb-btn" data-action="insert-circle" title="Коло"><i class="fa-regular fa-circle"></i></button>
       <button class="tb-btn" data-action="insert-triangle" title="Трикутник"><i
@@ -350,14 +386,46 @@
         </div>
       </div>
 
+      <div id="notesPanel" class="notes-panel hidden">
+        <label class="notes-label" for="notesField">Нотатки доповідача (видно лише в режимі показу)</label>
+        <textarea id="notesField" class="notes-field" placeholder="Нотатки для цього слайда…"
+          aria-label="Нотатки доповідача для поточного слайда"></textarea>
+      </div>
+
       <div id="contextMenu" class="context-menu hidden" role="menu" aria-label="Дії з об’єктом">
         <button class="menu-item" data-action="copy"><span><i class="fa-regular fa-copy fa-fw"></i> Копіювати</span></button>
         <button class="menu-item" data-action="paste"><span><i class="fa-solid fa-paste fa-fw"></i> Вставити</span></button>
         <button class="menu-item" data-action="duplicate-element"><span><i class="fa-regular fa-clone fa-fw"></i>
             Дублювати</span></button>
-        <button class="menu-item" data-action="edit-alt"><span><i class="fa-solid fa-closed-captioning fa-fw"></i> Опис
+        <button class="menu-item" data-action="edit-link"><span><i class="fa-solid fa-link fa-fw"></i>
+            Посилання…</span></button>
+        <button class="menu-item" data-action="edit-table" data-context-kind="table-object"><span><i class="fa-solid fa-table-cells fa-fw"></i>
+            Змінити таблицю…</span></button>
+        <button class="menu-item" data-action="edit-chart" data-context-kind="chart"><span><i class="fa-solid fa-chart-column fa-fw"></i>
+            Змінити діаграму…</span></button>
+        <button class="menu-item" data-action="table-cell-format" data-context-kind="table-cell"><span><i class="fa-solid fa-paintbrush fa-fw"></i>
+            Формат комірки…</span></button>
+        <button class="menu-item" data-action="table-track-size" data-context-kind="table-cell"><span><i class="fa-solid fa-arrows-left-right-to-line fa-fw"></i>
+            Розмір рядка та стовпця…</span></button>
+        <button class="menu-item" data-action="table-merge-cells" data-context-kind="table-cell"><span><i class="fa-solid fa-object-group fa-fw"></i>
+            Об’єднати комірки</span></button>
+        <button class="menu-item" data-action="table-split-cell" data-context-kind="table-cell"><span><i class="fa-solid fa-table-cells fa-fw"></i>
+            Розділити комірки</span></button>
+        <button class="menu-item" data-action="table-row-before" data-context-kind="table-cell"><span><i class="fa-solid fa-arrow-up fa-fw"></i>
+            Рядок вище</span></button>
+        <button class="menu-item" data-action="table-row-after" data-context-kind="table-cell"><span><i class="fa-solid fa-arrow-down fa-fw"></i>
+            Рядок нижче</span></button>
+        <button class="menu-item" data-action="table-row-delete" data-context-kind="table-cell"><span><i class="fa-solid fa-delete-left fa-fw"></i>
+            Видалити рядок</span></button>
+        <button class="menu-item" data-action="table-col-before" data-context-kind="table-cell"><span><i class="fa-solid fa-arrow-left fa-fw"></i>
+            Стовпець ліворуч</span></button>
+        <button class="menu-item" data-action="table-col-after" data-context-kind="table-cell"><span><i class="fa-solid fa-arrow-right fa-fw"></i>
+            Стовпець праворуч</span></button>
+        <button class="menu-item" data-action="table-col-delete" data-context-kind="table-cell"><span><i class="fa-solid fa-delete-left fa-rotate-90 fa-fw"></i>
+            Видалити стовпець</span></button>
+        <button class="menu-item" data-action="edit-alt" data-context-kind="image"><span><i class="fa-solid fa-closed-captioning fa-fw"></i> Опис
             зображення…</span></button>
-        <button class="menu-item" data-action="replace-image"><span><i class="fa-solid fa-arrows-rotate fa-fw"></i>
+        <button class="menu-item" data-action="replace-image" data-context-kind="image"><span><i class="fa-solid fa-arrows-rotate fa-fw"></i>
             Замінити зображення…</span></button>
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="bring-front"><span><i class="fa-solid fa-layer-group fa-fw"></i> На

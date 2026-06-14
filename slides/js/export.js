@@ -2,6 +2,8 @@ import { STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES } from './constants.js';
 import { appendShapeGraphic, applyTextVisualStyles } from './element-rendering.js';
 import { getCropGeometry } from './image-geometry.js';
 import { createTextContainer, setTextContainerContent } from './text-list.js';
+import { createChartNode } from './chart-element.js';
+import { createTableNode } from './table-element.js';
 
 function appendShape(svg, element, forThumb = false) {
   appendShapeGraphic(svg, element, {
@@ -94,6 +96,22 @@ function buildElementNode(element, forThumb = false) {
       applyTextSnapshotStyles(text, element, { showPlaceholder: forThumb });
       node.appendChild(text);
     }
+  }
+
+  if (element.type === 'table') {
+    node.appendChild(createTableNode(element));
+  }
+
+  if (element.type === 'chart') {
+    node.appendChild(createChartNode(element));
+  }
+
+  // Дані гіперпосилання для режиму показу (клік обробляє present-overlay).
+  if (element.link && !forThumb) {
+    node.dataset.linkKind = element.link.kind;
+    if (element.link.kind === 'url') node.dataset.linkHref = element.link.href;
+    else node.dataset.linkSlide = element.link.slideId;
+    node.style.cursor = 'pointer';
   }
 
   return node;

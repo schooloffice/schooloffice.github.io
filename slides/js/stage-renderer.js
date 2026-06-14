@@ -4,6 +4,8 @@ import { captureState, commitState } from './history.js';
 import { getCropFractions, getCropGeometry } from './image-geometry.js';
 import { getCurrentSlide, isSelected, state } from './state.js';
 import { createTextContainer, getTextFromTextContainer, setTextContainerContent, splitListItemAtSelection } from './text-list.js';
+import { createChartNode } from './chart-element.js';
+import { createTableNode, setTableCellText } from './table-element.js';
 
 export function renderStage({
   elementDomMap,
@@ -13,7 +15,11 @@ export function renderStage({
   onRotateHandlePointerDown,
   onCropHandlePointerDown,
   onImagePlaceholderActivate,
+  onTableCellSelect,
+  onTableArrowNav,
+  tableSelectionRange,
   renderCurrentSlideThumbnail,
+  scheduleTableThumbnail,
   selectElement,
   stage
 }) {
@@ -35,7 +41,11 @@ export function renderStage({
       onRotateHandlePointerDown,
       onCropHandlePointerDown,
       onImagePlaceholderActivate,
+      onTableCellSelect,
+      onTableArrowNav,
+      tableSelectionRange,
       renderCurrentSlideThumbnail,
+      scheduleTableThumbnail,
       selectElement
     });
     elementDomMap.set(element.id, node);
@@ -113,6 +123,44 @@ function renderElementNode(element, handlers) {
     if (TEXT_SHAPE_TYPES.includes(element.shape)) {
       content.appendChild(createTextNode(element, handlers, { shapeText: true }));
     }
+  }
+
+  if (element.type === 'table') {
+    let pendingSnapshot = null;
+    content.appendChild(createTableNode(element, {
+      editable: true,
+      onSelect: () => handlers.selectElement(element.id),
+      onSelectCell: (row, col, extend) => handlers.onTableCellSelect?.(element.id, row, col, extend),
+      onArrowNav: (row, col, dir, extend) => handlers.onTableArrowNav?.(element.id, row, col, dir, extend),
+      selectionRange: handlers.tableSelectionRange?.elementId === element.id ? handlers.tableSelectionRange : null,
+      onBeginEdit: () => { if (!pendingSnapshot) pendingSnapshot = captureState(); },
+      onCellInput: (row, col, value, cell) => {
+        if (pendingSnapshot) {
+          commitState(pendingSnapshot);
+          pendingSnapshot = null;
+        }
+        // Доменний сетер замість прямої мутації; мініатюру оновлюємо з дебаунсом.
+        const clean = setTableCellText(element.table, row, col, value);
+        if (clean !== value) cell.textContent = clean;
+        handlers.markDirty('Таблицю змінено');
+        if (handlers.scheduleTableThumbnail) handlers.scheduleTableThumbnail(slide.id);
+        else handlers.renderCurrentSlideThumbnail?.();
+      },
+      onEndEdit: () => { pendingSnapshot = null; }
+    }));
+  }
+
+  if (element.type === 'chart') {
+    content.appendChild(createChartNode(element));
+  }
+
+  if (element.link) {
+    wrap.classList.add('has-link');
+    const badge = document.createElement('span');
+    badge.className = 'link-badge';
+    badge.innerHTML = '<i class="fa-solid fa-link"></i>';
+    badge.title = element.link.kind === 'url' ? element.link.href : 'Перехід на слайд';
+    wrap.appendChild(badge);
   }
 
   wrap.appendChild(content);

@@ -13,9 +13,11 @@ export const LIMITS = {
   MAX_IMAGE_FILE_BYTES: 8 * 1024 * 1024,
   MAX_SLIDES: 200,
   MAX_ELEMENTS_PER_SLIDE: 100,
+  MAX_TABLE_CELLS_PER_SLIDE: 2000,
   // Сумарна межа об'єктів: усі thumbnails рендеряться одразу, тож обмежуємо
   // загальну кількість, щоб великий файл не вішав слабкі шкільні пристрої.
   MAX_TOTAL_ELEMENTS: 4000,
+  MAX_TOTAL_TABLE_CELLS: 20000,
   MAX_TEXT_LENGTH: 20000,
   MAX_DATA_URL_LENGTH: 12 * 1024 * 1024,
   MAX_COORD: 20000,
@@ -147,6 +149,9 @@ export const LAYOUTS = [
 ];
 export const LAYOUT_KEYS = LAYOUTS.map(layout => layout.key);
 export const DEFAULT_LAYOUT = 'blank';
+export const TRANSITION_TYPES = ['none', 'fade', 'slide-left', 'zoom'];
+export const TRANSITION_DURATIONS = ['fast', 'normal', 'slow'];
+export const DEFAULT_TRANSITION = { type: 'none', duration: 'normal' };
 export const SHAPE_TYPES = ['rect', 'circle', 'triangle', 'line', 'arrow'];
 export const LINE_SHAPE_TYPES = ['line', 'arrow'];
 export const TEXT_SHAPE_TYPES = ['rect', 'circle', 'triangle'];

@@ -1,6 +1,7 @@
-﻿import { DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILIES, FONT_SIZES, LAYOUTS, LAYOUT_KEYS, LIMITS, LINE_SHAPE_TYPES, STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES, THEMES, THEME_KEYS } from './constants.js';
-import { exportPresentationPdf, printPresentation, createSlideSnapshot } from './export.js';
-import { pushHistory, redo, resetHistory, undo } from './history.js';
+﻿import { DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILIES, FONT_SIZES, LAYOUTS, LAYOUT_KEYS, LIMITS, LINE_SHAPE_TYPES, STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES, THEMES, THEME_KEYS, TRANSITION_DURATIONS, TRANSITION_TYPES } from './constants.js';
+import { exportPresentationPdf, printPresentation, createSlideSnapshot, createThumbSnapshot } from './export.js';
+import { exportPresentationPptx } from './pptx-export.js';
+import { captureState, commitState, pushHistory, redo, resetHistory, undo } from './history.js';
 import {
   closeModal as closeModalUi,
   showConfirmModal as showConfirmModalUi,
@@ -8,7 +9,7 @@ import {
   showModal as showModalUi
 } from './modal-ui.js';
 import { alignSelectionUnits, createSelectionUnits, distributeSelectionUnits, groupElements, remapGroupIds, ungroupElements } from './object-commands.js';
-import { normalizeElement, normalizePresentation, parsePresentationText, savePresentationFile } from './project.js';
+import { normalizeElement, normalizeLink, normalizePresentation, parsePresentationText, savePresentationFile } from './project.js';
 import { applyLayoutToSlide, applyThemeToPresentation, getTheme } from './presentation-design.js';
 import { renderStage as renderStageView, syncSelectionUi as syncStageSelectionUi, applyImageCropToNode } from './stage-renderer.js';
 import { renderSlideList as renderSlideListView, renderSlideThumbnail as renderSlideThumbnailView } from './slide-list.js';
@@ -26,6 +27,8 @@ import {
 } from './stage-interactions.js';
 import { state, applyPresentationData, getCurrentSlide, getCurrentSlideIndex, getSelectedElement, getSelectedElements, isSelected, serializePresentation } from './state.js';
 import { clearDraft, loadDraft, saveDraft } from './storage.js';
+import { createChartController } from './chart-controller.js';
+import { createTableController } from './table-controller.js';
 import { createBasicSlideElements, createDefaultPresentation, createImageElement, createShapeElement, createSlide, createTemplateDefinition, createTextElement } from './templates.js';
 import { $, $$, clamp, debounce, deepClone, getTextFromContentEditable, readFileAsDataURL, readFileAsText, uid } from './utils.js';
 
@@ -36,6 +39,12 @@ const elementDomMap = new Map();
 
 let colorAnchorButton = null;
 let pendingImageOperation = { mode: 'insert', elementId: null, alt: '' };
+let notesEditSession = false;
+let presentNotesVisible = false;
+let presenterModeActive = false;
+let presentationStartedAt = 0;
+let presentationTimerId = 0;
+let pptxExportInProgress = false;
 
 // Масштаб полотна — лише вигляд (координати моделі лишаються логічними 960×540).
 // `autoFitZoom` тримає слайд вписаним у вікно, доки користувач не задасть масштаб вручну.
@@ -67,6 +76,28 @@ const autosave = debounce(generation => {
       if (generation === autosaveGeneration) setStatusRight('Чернетку не збережено: бракує локального місця');
     });
 }, 260);
+
+const tableController = createTableController({
+  elementDomMap,
+  findElementById,
+  markDirty,
+  pushHistory,
+  renderCurrentSlideWorkspace,
+  renderSlideList,
+  renderSlideThumbnail: slideId => renderSlideThumbnailView(dom.slideList, slideId),
+  setStatusRight,
+  showConfirmModal,
+  showInfoModal,
+  showModal
+});
+const chartController = createChartController({
+  elementDomMap,
+  markDirty,
+  pushHistory,
+  renderCurrentSlideWorkspace,
+  showInfoModal,
+  showModal
+});
 
 function invalidateAutosave({ cancelPending = false } = {}) {
   autosaveGeneration += 1;
@@ -168,6 +199,16 @@ function initDom() {
   dom.presentClose = $('#presentClose');
   dom.presentPrev = $('#presentPrev');
   dom.presentNext = $('#presentNext');
+  dom.presentNotes = $('#presentNotes');
+  dom.presenterPanel = $('#presenterPanel');
+  dom.presenterNotes = $('#presenterNotes');
+  dom.presentNextPreview = $('#presentNextPreview');
+  dom.presentTimer = $('#presentTimer');
+  dom.presentSlideCounter = $('#presentSlideCounter');
+  dom.presentModeToggle = $('#presentModeToggle');
+  dom.notesPanel = $('#notesPanel');
+  dom.notesField = $('#notesField');
+  dom.notesToggleItem = $('#notesToggleItem');
 }
 
 function initSlidesEditor() {
@@ -263,6 +304,20 @@ function renderWorkspace() {
   renderSlideList();
   renderToolbarState();
   renderStatus();
+  renderNotes();
+}
+
+function renderNotes() {
+  // Оновлюємо поле лише коли його значення РОЗХОДИТЬСЯ з моделлю (undo/redo/зміна
+  // слайда), щоб не збивати курсор під час друку (тоді значення вже збігаються).
+  const notes = getCurrentSlide()?.notes || '';
+  if (dom.notesField.value !== notes) dom.notesField.value = notes;
+}
+
+function toggleNotesPanel() {
+  const visible = dom.notesPanel.classList.toggle('hidden') === false;
+  dom.notesToggleItem?.classList.toggle('snap-on', visible);
+  if (visible) { renderNotes(); dom.notesField.focus(); }
 }
 
 function renderCurrentSlideWorkspace() {
@@ -292,6 +347,8 @@ function renderStatus() {
 function describeElement(element) {
   if (element.type === 'text') return 'текст';
   if (element.type === 'image') return 'зображення';
+  if (element.type === 'table') return 'таблиця';
+  if (element.type === 'chart') return 'діаграма';
   if (element.shape === 'circle') return 'коло';
   if (element.shape === 'triangle') return 'трикутник';
   if (element.shape === 'line') return 'лінія';
@@ -415,11 +472,134 @@ function showLayoutPicker() {
   });
 }
 
+function applySlideTransition(type, duration, applyToAll = false) {
+  if (!TRANSITION_TYPES.includes(type) || !TRANSITION_DURATIONS.includes(duration)) return;
+  const targets = applyToAll ? state.slides : [getCurrentSlide()].filter(Boolean);
+  if (!targets.length || targets.every(slide => slide.transition?.type === type && slide.transition?.duration === duration)) return;
+  pushHistory();
+  targets.forEach(slide => { slide.transition = { type, duration }; });
+  markDirty(applyToAll ? 'Переходи застосовано до всіх слайдів' : 'Перехід слайда змінено');
+}
+
+function showSlideTransitionModal() {
+  const transition = getCurrentSlide()?.transition || { type: 'none', duration: 'normal' };
+  showModal({
+    title: 'Перехід між слайдами',
+    text: 'Перехід відтворюється лише під час показу. PDF, друк і вміст слайдів не змінюються.',
+    body: `
+      <div class="transition-form">
+        <label>Ефект
+          <select id="transitionType">
+            <option value="none">Без переходу</option>
+            <option value="fade">Поява</option>
+            <option value="slide-left">Зсув ліворуч</option>
+            <option value="zoom">Наближення</option>
+          </select>
+        </label>
+        <label>Швидкість
+          <select id="transitionDuration">
+            <option value="fast">Швидко</option>
+            <option value="normal">Звичайно</option>
+            <option value="slow">Повільно</option>
+          </select>
+        </label>
+        <label class="transition-apply-all">
+          <input id="transitionApplyAll" type="checkbox">
+          Застосувати до всіх слайдів
+        </label>
+      </div>
+    `,
+    confirmText: 'Застосувати',
+    onMount: () => {
+      $('#transitionType').value = transition.type;
+      $('#transitionDuration').value = transition.duration;
+    },
+    onConfirm: () => applySlideTransition(
+      $('#transitionType').value,
+      $('#transitionDuration').value,
+      $('#transitionApplyAll').checked
+    )
+  });
+}
+
 // Подвійний клік по image-placeholder відкриває діалог заповнення (елемент є
 // image, тож працює через звичайний replace-флоу; заповнення знімає isPlaceholder).
 function activateImagePlaceholder(elementId) {
   selectElement(elementId);
   promptImageReplace();
+}
+
+function escapeHtmlAttr(value) {
+  return String(value).replace(/[&"<>]/g, char => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' }[char]));
+}
+
+function setElementLink(elementId, link) {
+  const element = findElementById(elementId);
+  if (!element) return;
+  // Нормалізуємо так само, як при імпорті (https-allowlist, ліміт довжини), щоб
+  // runtime-значення збігалося зі збереженим/імпортованим.
+  const next = link ? normalizeLink(link) : null;
+  // Незмінне посилання не створює порожній крок Undo.
+  if (JSON.stringify(element.link || null) === JSON.stringify(next)) return;
+  pushHistory();
+  element.link = next;
+  renderStage();
+  renderToolbarState();
+  markDirty(next ? 'Посилання додано' : 'Посилання прибрано');
+}
+
+function showLinkError(message) {
+  const box = $('#linkError');
+  if (!box) return;
+  box.textContent = message;
+  box.classList.remove('hidden');
+}
+
+// Гіперпосилання на вибраному об'єкті: https-URL або перехід на слайд. Активне
+// лише в режимі показу; у редакторі — бейдж. Безпека через normalizeLink при імпорті.
+function showLinkModal() {
+  const element = getSelectedElement();
+  if (!element) {
+    showInfoModal('Гіперпосилання', 'Виберіть об’єкт, щоб додати посилання.');
+    return;
+  }
+  const link = element.link || null;
+  const urlValue = link?.kind === 'url' ? link.href : '';
+  const slideOptions = state.slides.map((slide, index) => {
+    const selected = link?.kind === 'slide' && link.slideId === slide.id ? ' selected' : '';
+    return `<option value="${escapeHtmlAttr(slide.id)}"${selected}>Слайд ${index + 1}</option>`;
+  }).join('');
+  showModal({
+    title: 'Гіперпосилання',
+    text: 'Посилання на сайт (https) або перехід на слайд. Працює в режимі показу.',
+    body: `
+      <div class="form-stack">
+        <label class="radio-row"><input type="radio" name="linkKind" value="none"${!link ? ' checked' : ''}> Без посилання</label>
+        <label class="radio-row"><input type="radio" name="linkKind" value="url"${link?.kind === 'url' ? ' checked' : ''}> На сайт</label>
+        <input id="linkUrlField" class="input-like" type="text" placeholder="https://..." value="${escapeHtmlAttr(urlValue)}">
+        <label class="radio-row"><input type="radio" name="linkKind" value="slide"${link?.kind === 'slide' ? ' checked' : ''}> На слайд</label>
+        <select id="linkSlideField" class="input-like">${slideOptions}</select>
+        <div id="linkError" class="form-error hidden" role="alert"></div>
+      </div>
+    `,
+    confirmText: 'Зберегти',
+    cancelText: 'Скасувати',
+    onConfirm: () => {
+      const kind = $$('input[name="linkKind"]').find(input => input.checked)?.value;
+      if (kind === 'url') {
+        const clean = normalizeLink({ kind: 'url', href: $('#linkUrlField').value });
+        if (!clean) {
+          showLinkError('Введіть коректне https-посилання (напр. https://example.com).');
+          return false;
+        }
+        setElementLink(element.id, clean);
+      } else if (kind === 'slide') {
+        setElementLink(element.id, { kind: 'slide', slideId: $('#linkSlideField').value });
+      } else {
+        setElementLink(element.id, null);
+      }
+    }
+  });
 }
 
 function renderSlideList() {
@@ -435,8 +615,12 @@ function renderSlideList() {
   });
 }
 
+function renderSlideThumbnail(slideId = state.currentSlideId) {
+  if (!renderSlideThumbnailView(dom.slideList, slideId)) renderSlideList();
+}
+
 function renderCurrentSlideThumbnail() {
-  if (!renderSlideThumbnailView(dom.slideList)) renderSlideList();
+  renderSlideThumbnail();
 }
 
 function renderStage() {
@@ -449,6 +633,7 @@ function renderStage() {
     const stillCroppable = slide?.elements.some(el => el.id === state.cropElementId && el.type === 'image');
     if (!stillCroppable) state.cropElementId = null;
   }
+  tableController.normalizeSelection();
   renderStageView({
     elementDomMap,
     markDirty,
@@ -457,7 +642,11 @@ function renderStage() {
     onRotateHandlePointerDown,
     onCropHandlePointerDown,
     onImagePlaceholderActivate: activateImagePlaceholder,
+    onTableCellSelect: tableController.selectCell,
+    onTableArrowNav: tableController.navigateCell,
+    tableSelectionRange: tableController.getSelectionRange(),
     renderCurrentSlideThumbnail,
+    scheduleTableThumbnail: tableController.scheduleThumbnail,
     selectElement,
     stage: dom.stage
   });
@@ -525,6 +714,7 @@ function setSelection(ids) {
   const leftCrop = state.cropElementId && !next.includes(state.cropElementId);
   if (leftCrop) state.cropElementId = null;
   state.selectedElementIds = next;
+  tableController.selectionChanged(next);
   if (leftCrop) renderStage();
   syncSelectionUi();
   renderToolbarState();
@@ -703,7 +893,7 @@ function bindContextMenu() {
   });
   // Клавіатурна навігація всередині контекст-меню.
   dom.contextMenu.addEventListener('keydown', event => {
-    const items = $$('.menu-item', dom.contextMenu);
+    const items = $$('.menu-item:not(.hidden)', dom.contextMenu);
     const index = items.indexOf(document.activeElement);
     if (event.key === 'ArrowDown') { event.preventDefault(); items[(index + 1) % items.length]?.focus(); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); items[(index - 1 + items.length) % items.length]?.focus(); }
@@ -728,6 +918,8 @@ function onStageContextMenu(event) {
   if (!wrap) { hideContextMenu(); return; }
   event.preventDefault();
   if (wrap.dataset.id) makePrimary(wrap.dataset.id);
+  const cell = event.target.closest('.slide-table-cell');
+  if (cell && wrap.dataset.id) tableController.selectCell(wrap.dataset.id, Number(cell.dataset.row), Number(cell.dataset.col), event.shiftKey);
   showContextMenu(event.clientX, event.clientY);
 }
 
@@ -743,6 +935,16 @@ function openContextMenuForSelection() {
 
 function showContextMenu(clientX, clientY, focusFirst = false) {
   const menu = dom.contextMenu;
+  const element = getSelectedElement();
+  const tableCellActive = tableController.isActiveForElement(element);
+  $$('[data-context-kind]', menu).forEach(item => {
+    const kind = item.dataset.contextKind;
+    item.classList.toggle('hidden',
+      (kind === 'table-object' && element?.type !== 'table') ||
+      (kind === 'table-cell' && !tableCellActive) ||
+      (kind === 'chart' && element?.type !== 'chart') ||
+      (kind === 'image' && element?.type !== 'image'));
+  });
   menu.classList.remove('hidden');
   // Тримаємо меню в межах вікна.
   const width = menu.offsetWidth || 200;
@@ -751,7 +953,7 @@ function showContextMenu(clientX, clientY, focusFirst = false) {
   const top = Math.min(clientY, window.innerHeight - height - 8);
   menu.style.left = `${Math.max(8, left)}px`;
   menu.style.top = `${Math.max(8, top)}px`;
-  if (focusFirst) menu.querySelector('.menu-item')?.focus();
+  if (focusFirst) menu.querySelector('.menu-item:not(.hidden)')?.focus();
 }
 
 function hideContextMenu({ restoreFocus = false } = {}) {
@@ -784,6 +986,20 @@ function bindInputs() {
   });
   dom.projectFileInput.addEventListener('change', onProjectFileSelected);
   dom.imageFileInput.addEventListener('change', onImageFileSelected);
+
+  // Нотатки доповідача — редагування поточного слайда; історія коаліс­ується в
+  // один крок на сесію редагування: на ПЕРШІЙ зміні фіксуємо пре-стан (модель ще
+  // не оновлена), далі — без нових кроків. Undo/Redo завершують сесію.
+  dom.notesField.addEventListener('input', () => {
+    const slide = getCurrentSlide();
+    if (!slide) return;
+    if (!notesEditSession) { commitState(captureState()); notesEditSession = true; }
+    const value = dom.notesField.value.slice(0, LIMITS.MAX_TEXT_LENGTH);
+    if (value !== dom.notesField.value) dom.notesField.value = value;
+    slide.notes = value;
+    markDirty('Нотатки змінено');
+  });
+  dom.notesField.addEventListener('blur', () => { notesEditSession = false; });
 
   $('#closeColorPopover').addEventListener('click', closeColorPopover);
   $('#applyCustomColor').addEventListener('click', () => {
@@ -823,6 +1039,19 @@ function bindPresentation() {
   dom.presentClose.addEventListener('click', stopPresentation);
   dom.presentPrev.addEventListener('click', showPreviousPresentationSlide);
   dom.presentNext.addEventListener('click', showNextPresentationSlide);
+  dom.presentModeToggle.addEventListener('click', togglePresenterMode);
+  // Клік по об'єкту з посиланням у режимі показу: https — нова вкладка; слайд — перехід.
+  dom.presentStageWrap.addEventListener('click', event => {
+    const target = event.target.closest('[data-link-kind]');
+    if (!target) return;
+    event.stopPropagation();
+    if (target.dataset.linkKind === 'url' && /^https:\/\//i.test(target.dataset.linkHref || '')) {
+      window.open(target.dataset.linkHref, '_blank', 'noopener,noreferrer');
+    } else if (target.dataset.linkKind === 'slide') {
+      const index = state.slides.findIndex(slide => slide.id === target.dataset.linkSlide);
+      if (index >= 0) { state.presentationIndex = index; renderPresentationSlide(); }
+    }
+  });
 }
 
 function toggleMenu(name) {
@@ -947,13 +1176,14 @@ function beginRenameFile() {
 
 function handleKeyboardShortcuts(event) {
   const activeElement = document.activeElement;
-  const isTypingInText = activeElement?.classList?.contains('text-element');
+  const isTypingInText = activeElement?.isContentEditable || activeElement?.classList?.contains('text-element');
   const isTypingInInput = activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeElement.tagName);
   const ctrlOrMeta = event.ctrlKey || event.metaKey;
+  const tableCellFocused = activeElement?.classList?.contains('slide-table-cell');
 
   if (event.key === 'F5') {
     event.preventDefault();
-    startPresentation();
+    startPresentation({ presenter: event.shiftKey });
     return;
   }
 
@@ -963,6 +1193,14 @@ function handleKeyboardShortcuts(event) {
     if (event.key === 'ArrowRight' || event.key === ' ') {
       event.preventDefault();
       showNextPresentationSlide();
+    }
+    if (event.key === 'n' || event.key === 'N' || event.key === 'т' || event.key === 'Т') {
+      event.preventDefault();
+      togglePresentNotes();
+    }
+    if (event.key === 'p' || event.key === 'P' || event.key === 'з' || event.key === 'З') {
+      event.preventDefault();
+      togglePresenterMode();
     }
     return;
   }
@@ -979,8 +1217,25 @@ function handleKeyboardShortcuts(event) {
 
   if (event.key === 'Escape') hideContextMenu();
 
+  if (tableCellFocused && !ctrlOrMeta && (event.key === 'Delete' || event.key === 'Backspace') && tableController.getActiveRange()?.count > 1) {
+    event.preventDefault();
+    tableController.clearSelectedRange();
+    return;
+  }
+
   if (ctrlOrMeta) {
     const key = event.key.toLowerCase();
+    if (key === 'c' && !(tableCellFocused && tableController.getActiveRange()?.count > 1)) tableController.clearClipboard();
+    if (tableCellFocused && key === 'c' && tableController.getActiveRange()?.count > 1) {
+      event.preventDefault();
+      tableController.copySelectedRange();
+      return;
+    }
+    if (tableCellFocused && key === 'v' && tableController.hasClipboard()) {
+      event.preventDefault();
+      tableController.pasteCopiedRange();
+      return;
+    }
     if (key === 'z') {
       event.preventDefault();
       if (event.shiftKey) runOfficeCommand('redo') || handleRedo(); else runOfficeCommand('undo') || handleUndo();
@@ -1120,6 +1375,7 @@ function dispatchAction(action, trigger = null) {
     case 'open-project': runOfficeCommand('open') || openProjectPicker(); break;
     case 'save-project': runOfficeCommand('save') || saveProjectFile(); break;
     case 'export-pdf': handleExportPdf(); break;
+    case 'export-pptx': handleExportPptx(); break;
     case 'print': handlePrint(); break;
     case 'clear-draft': confirmClearDraft(); break;
     case 'undo': runOfficeCommand('undo') || handleUndo(); break;
@@ -1130,8 +1386,23 @@ function dispatchAction(action, trigger = null) {
     case 'delete-element': deleteSelectedElement(); break;
     case 'insert-text': addTextElement(); break;
     case 'insert-image': promptImageInsert(); break;
+    case 'insert-table': tableController.showTableModal('insert'); break;
+    case 'edit-table': tableController.showTableModal('edit'); break;
+    case 'insert-chart': chartController.showChartModal('insert'); break;
+    case 'edit-chart': chartController.showChartModal('edit'); break;
+    case 'table-row-before': tableController.changeStructure('row-before'); break;
+    case 'table-row-after': tableController.changeStructure('row-after'); break;
+    case 'table-row-delete': tableController.changeStructure('row-delete'); break;
+    case 'table-col-before': tableController.changeStructure('col-before'); break;
+    case 'table-col-after': tableController.changeStructure('col-after'); break;
+    case 'table-col-delete': tableController.changeStructure('col-delete'); break;
+    case 'table-cell-format': tableController.showCellFormatModal(); break;
+    case 'table-track-size': tableController.showTrackSizeModal(); break;
+    case 'table-merge-cells': tableController.mergeSelectedCells(); break;
+    case 'table-split-cell': tableController.splitActiveCell(); break;
     case 'replace-image': promptImageReplace(); break;
     case 'edit-alt': editImageAlt(); break;
+    case 'edit-link': showLinkModal(); break;
     case 'insert-rect': addShape('rect'); break;
     case 'insert-circle': addShape('circle'); break;
     case 'insert-triangle': addShape('triangle'); break;
@@ -1145,17 +1416,20 @@ function dispatchAction(action, trigger = null) {
     case 'show-templates': showTemplatesPicker(); break;
     case 'show-themes': showThemePicker(); break;
     case 'show-layouts': showLayoutPicker(); break;
+    case 'slide-transition': showSlideTransitionModal(); break;
     case 'template-title': applyTemplate('title'); break;
     case 'template-text-image': applyTemplate('text-image'); break;
     case 'template-three-blocks': applyTemplate('three-blocks'); break;
     case 'color-panel': openColorPopover(null, trigger); break;
     case 'slide-background': openColorPopover('background', trigger || dom.colorPanelBtn); break;
     case 'present': startPresentation(); break;
+    case 'presenter-mode': startPresentation({ presenter: true }); break;
     case 'zoom-in': zoomIn(); break;
     case 'zoom-out': zoomOut(); break;
     case 'zoom-100': zoomTo100(); break;
     case 'zoom-fit': fitStageToWorkspace(); break;
     case 'toggle-snap': toggleSnapToGrid(); break;
+    case 'toggle-notes': toggleNotesPanel(); break;
     case 'bold': toggleTextStyle('bold'); break;
     case 'italic': toggleTextStyle('italic'); break;
     case 'underline': toggleTextStyle('underline'); break;
@@ -1189,12 +1463,14 @@ function dispatchAction(action, trigger = null) {
 
 function handleUndo() {
   if (!undo()) return;
+  notesEditSession = false; // завершуємо сесію нотаток, щоб поле синхронізувалось
   renderAll();
   markDirty('Скасовано');
 }
 
 function handleRedo() {
   if (!redo()) return;
+  notesEditSession = false;
   renderAll();
   markDirty('Повернуто');
 }
@@ -1329,11 +1605,21 @@ function deleteSlide(slideId) {
   const index = state.slides.findIndex(slide => slide.id === slideId);
   if (index === -1) return;
   state.slides.splice(index, 1);
+  // Прибираємо гіперпосилання, що вказували на видалений слайд (інакше «битий» перехід).
+  pruneSlideLinks(slideId);
   const nextIndex = clamp(index, 0, state.slides.length - 1);
   state.currentSlideId = state.slides[nextIndex].id;
   state.selectedElementIds = [];
   renderWorkspace();
   markDirty('Слайд видалено');
+}
+
+function pruneSlideLinks(slideId) {
+  state.slides.forEach(slide => {
+    slide.elements.forEach(element => {
+      if (element.link?.kind === 'slide' && element.link.slideId === slideId) element.link = null;
+    });
+  });
 }
 
 function moveSlide(direction) {
@@ -1937,20 +2223,84 @@ function handleExportPdf() {
   });
 }
 
+async function handleExportPptx() {
+  if (pptxExportInProgress) {
+    setStatusRight('PPTX уже створюється…');
+    return;
+  }
+  pptxExportInProgress = true;
+  setStatusRight('Створюємо PPTX…');
+  try {
+    const report = await exportPresentationPptx(state.fileName, state.slides);
+    const details = report.warnings.length
+      ? `\n\nЗверніть увагу:\n• ${report.warnings.join('\n• ')}`
+      : '';
+    showInfoModal(
+      'PPTX створено',
+      `Експортовано ${report.slideCount} слайдів і ${report.exportedElements} об’єктів.${details}`
+    );
+    setStatusRight('PPTX експортовано');
+  } catch (error) {
+    console.error('PPTX export failed', error);
+    showInfoModal('Експорт не вдався', 'Не вдалося створити PPTX. Презентація ПЛЮС Слайди не змінена.');
+    setStatusRight('PPTX не створено');
+  } finally {
+    pptxExportInProgress = false;
+  }
+}
+
 function handlePrint() {
   const ok = printPresentation(state.fileName, state.slides);
   if (!ok) showInfoModal('Друк заблоковано', 'Браузер не відкрив вікно друку. Дозвольте спливаючі вікна для цієї сторінки.');
 }
 
-function startPresentation() {
+function startPresentation({ presenter = false } = {}) {
   state.presentationIndex = getCurrentSlideIndex();
+  presentNotesVisible = false;
+  presenterModeActive = presenter;
+  presentationStartedAt = Date.now();
+  clearInterval(presentationTimerId);
+  presentationTimerId = window.setInterval(renderPresentationTimer, 1000);
   dom.presentOverlay.classList.remove('hidden');
+  dom.presentOverlay.setAttribute('aria-hidden', 'false');
+  renderPresenterMode();
+  renderPresentationTimer();
   renderPresentationSlide();
 }
 
+function togglePresentNotes() {
+  presentNotesVisible = !presentNotesVisible;
+  renderPresentationSlide();
+}
+
+function togglePresenterMode() {
+  presenterModeActive = !presenterModeActive;
+  renderPresenterMode();
+  renderPresentationSlide();
+}
+
+function renderPresenterMode() {
+  dom.presentOverlay.classList.toggle('presenter-mode', presenterModeActive);
+  dom.presenterPanel.classList.toggle('hidden', !presenterModeActive);
+  dom.presentModeToggle.setAttribute('aria-pressed', String(presenterModeActive));
+}
+
+function renderPresentationTimer() {
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - presentationStartedAt) / 1000));
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  dom.presentTimer.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
 function stopPresentation() {
+  clearInterval(presentationTimerId);
+  presentationTimerId = 0;
   dom.presentOverlay.classList.add('hidden');
+  dom.presentOverlay.classList.remove('presenter-mode');
+  dom.presentOverlay.setAttribute('aria-hidden', 'true');
+  dom.presenterPanel.classList.add('hidden');
   dom.presentStageWrap.innerHTML = '';
+  dom.presentNextPreview.innerHTML = '';
 }
 
 function showPreviousPresentationSlide() {
@@ -1975,7 +2325,23 @@ function renderPresentationSlide() {
   if (!slide) return;
   const snapshot = createSlideSnapshot(slide);
   snapshot.classList.add('present-stage');
+  if (slide.transition?.type && slide.transition.type !== 'none') {
+    snapshot.classList.add(`present-transition-${slide.transition.type}`, `present-transition-${slide.transition.duration || 'normal'}`);
+  }
   dom.presentStageWrap.appendChild(snapshot);
+  // Нотатки доповідача — нижня смуга, вмикається клавішею N (за наявності тексту).
+  const notes = slide.notes || '';
+  dom.presentNotes.textContent = notes;
+  dom.presentNotes.classList.toggle('hidden', !(presentNotesVisible && notes));
+  dom.presenterNotes.textContent = notes || 'Для цього слайда нотаток немає.';
+  dom.presentSlideCounter.textContent = `Слайд ${state.presentationIndex + 1} із ${state.slides.length}`;
+  dom.presentNextPreview.innerHTML = '';
+  const nextSlide = state.slides[state.presentationIndex + 1];
+  if (nextSlide) {
+    dom.presentNextPreview.appendChild(createThumbSnapshot(nextSlide));
+  } else {
+    dom.presentNextPreview.textContent = 'Кінець показу';
+  }
 }
 
 
@@ -2013,7 +2379,7 @@ function showTemplatesPicker() {
 }
 
 function showAbout() {
-  showInfoModal('Про ПЛЮС Слайди', 'ПЛЮС Слайди — простий редактор презентацій для шкільного офісного пакета. Є базові макети, текст, зображення, фігури, PDF і режим показу.');
+  showInfoModal('Про ПЛЮС Слайди', 'ПЛЮС Слайди — простий редактор презентацій для шкільного офісного пакета. Є макети, текст, зображення, фігури, таблиці, діаграми, PDF/PPTX і режим показу.');
 }
 
 function showShortcuts() {
