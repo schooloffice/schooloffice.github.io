@@ -1,53 +1,13 @@
-import { FONT_FAMILY_CSS, LINE_SHAPE_TYPES, STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES } from './constants.js';
+import { STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES } from './constants.js';
+import { appendShapeGraphic, applyTextVisualStyles } from './element-rendering.js';
+import { getCropGeometry } from './image-geometry.js';
 import { createTextContainer, setTextContainerContent } from './text-list.js';
 
-function normalizeCropFractions(crop) {
-  const c = crop && typeof crop === 'object' ? crop : {};
-  const f = value => (Number.isFinite(value) ? Math.min(Math.max(value, 0), 0.9) : 0);
-  return { l: f(c.l), t: f(c.t), r: f(c.r), b: f(c.b) };
-}
-
 function appendShape(svg, element, forThumb = false) {
-  const strokeWidth = forThumb ? '8' : '10';
-  let shape;
-  const isLine = LINE_SHAPE_TYPES.includes(element.shape);
-  if (isLine) {
-    svg.setAttribute('preserveAspectRatio', 'none');
-    shape = document.createElementNS('http://www.w3.org/2000/svg', element.shape === 'arrow' ? 'path' : 'line');
-    shape.setAttribute('data-shape-kind', element.shape);
-    shape.setAttribute('stroke-linecap', 'round');
-    shape.setAttribute('vector-effect', 'non-scaling-stroke');
-    if (element.shape === 'arrow') {
-      shape.setAttribute('d', 'M 4 50 H 92 M 78 30 L 96 50 L 78 70');
-      shape.setAttribute('stroke-linejoin', 'round');
-    } else {
-      shape.setAttribute('x1', '4');
-      shape.setAttribute('y1', '50');
-      shape.setAttribute('x2', '96');
-      shape.setAttribute('y2', '50');
-    }
-  } else if (element.shape === 'circle') {
-    shape = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
-    shape.setAttribute('cx', '50%');
-    shape.setAttribute('cy', '50%');
-    shape.setAttribute('rx', '48%');
-    shape.setAttribute('ry', '48%');
-  } else if (element.shape === 'triangle') {
-    shape = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-    shape.setAttribute('points', '50,4 96,96 4,96');
-  } else {
-    shape = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    shape.setAttribute('x', '2%');
-    shape.setAttribute('y', '2%');
-    shape.setAttribute('width', '96%');
-    shape.setAttribute('height', '96%');
-    shape.setAttribute('rx', forThumb ? '6' : '12');
-    shape.setAttribute('ry', forThumb ? '6' : '12');
-  }
-  shape.setAttribute('fill', isLine ? 'none' : (element.style.fill || '#dbeafe'));
-  shape.setAttribute('stroke', element.style.stroke || '#1d4ed8');
-  shape.setAttribute('stroke-width', isLine ? '6' : strokeWidth);
-  svg.appendChild(shape);
+  appendShapeGraphic(svg, element, {
+    rectRadius: forThumb ? 6 : 12,
+    shapeStrokeWidth: forThumb ? 8 : 10
+  });
 }
 
 function applyTextSnapshotStyles(node, element, { showPlaceholder = false } = {}) {
@@ -56,15 +16,7 @@ function applyTextSnapshotStyles(node, element, { showPlaceholder = false } = {}
   node.style.padding = element.style.listType === 'none' ? '8px' : '8px 8px 8px 1.55em';
   node.style.whiteSpace = 'pre-wrap';
   node.style.wordBreak = 'break-word';
-  node.style.lineHeight = String(element.style.lineHeight || 1.15);
-  node.style.fontSize = `${element.style.fontSize || 28}px`;
-  node.style.fontFamily = FONT_FAMILY_CSS[element.style.fontFamily] || 'inherit';
-  node.style.fontWeight = element.style.bold ? '700' : '400';
-  node.style.fontStyle = isVisiblePlaceholder ? 'normal' : (element.style.italic ? 'italic' : 'normal');
-  node.style.textDecoration = isVisiblePlaceholder ? 'none' : (element.style.underline ? 'underline' : 'none');
-  node.style.textAlign = element.style.align || 'left';
-  node.style.color = isVisiblePlaceholder ? '#94a3b8' : (element.style.color || '#111827');
-  node.classList.toggle('is-placeholder', isVisiblePlaceholder);
+  applyTextVisualStyles(node, element, { visiblePlaceholder: isVisiblePlaceholder });
   setTextContainerContent(node, element.isPlaceholder && !showPlaceholder ? '' : element.content, element.style.listType);
 }
 
@@ -99,24 +51,22 @@ function buildElementNode(element, forThumb = false) {
   if (element.type === 'image') {
     // Кадрування: вікно з overflow:hidden показує підпрямокутник, а зображення
     // лишається розміром у повну рамку й зсувається (однаково зі сценою).
-    const crop = normalizeCropFractions(element.crop);
-    const visW = Math.max(0.0001, 1 - crop.l - crop.r);
-    const visH = Math.max(0.0001, 1 - crop.t - crop.b);
+    const crop = getCropGeometry(element.crop);
     const win = document.createElement('div');
     win.style.position = 'absolute';
     win.style.overflow = 'hidden';
     win.style.left = `${crop.l * 100}%`;
     win.style.top = `${crop.t * 100}%`;
-    win.style.width = `${visW * 100}%`;
-    win.style.height = `${visH * 100}%`;
+    win.style.width = `${crop.visibleWidth * 100}%`;
+    win.style.height = `${crop.visibleHeight * 100}%`;
     const img = document.createElement('img');
     img.src = element.content;
     img.alt = element.alt || '';
     img.style.position = 'absolute';
-    img.style.width = `${(1 / visW) * 100}%`;
-    img.style.height = `${(1 / visH) * 100}%`;
-    img.style.left = `${-(crop.l / visW) * 100}%`;
-    img.style.top = `${-(crop.t / visH) * 100}%`;
+    img.style.width = `${crop.imageWidth * 100}%`;
+    img.style.height = `${crop.imageHeight * 100}%`;
+    img.style.left = `${crop.imageLeft * 100}%`;
+    img.style.top = `${crop.imageTop * 100}%`;
     img.style.objectFit = element.style?.objectFit || 'cover';
     img.style.opacity = String(element.style?.opacity ?? 1);
     win.appendChild(img);

@@ -512,7 +512,11 @@ $runtimeFiles = @(
   'tables/js/state.js',
   'tables/js/workbook.js',
   'slides/js/app.js',
+  'slides/js/element-rendering.js',
+  'slides/js/image-geometry.js',
   'slides/js/modal-ui.js',
+  'slides/js/object-commands.js',
+  'slides/js/presentation-design.js',
   'slides/js/project.js',
   'slides/js/runtime.js',
   'slides/js/slide-list.js',
@@ -582,6 +586,44 @@ if (Test-Path $slidesProjectPath) {
   $slidesProject = Get-Content -Raw -Encoding UTF8 $slidesProjectPath
   foreach ($projectFunction in @('normalizeElement', 'normalizePresentation', 'parsePresentationText', 'savePresentationFile', 'slugify')) {
     Assert-True ($slidesProject -match "export function $projectFunction\(") "slides/js/project.js: should own $projectFunction"
+  }
+}
+
+$slidesHistoryPath = Join-Path $Root 'slides/js/history.js'
+if (Test-Path $slidesHistoryPath) {
+  $slidesHistory = Get-Content -Raw -Encoding UTF8 $slidesHistoryPath
+  Assert-True ($slidesHistory -notmatch 'deepClone\(serializePresentation\(\)\)') "slides/js/history.js: serializePresentation already returns a detached snapshot and must not be cloned twice"
+}
+
+$slidesElementRenderingPath = Join-Path $Root 'slides/js/element-rendering.js'
+if (Test-Path $slidesElementRenderingPath) {
+  $slidesElementRendering = Get-Content -Raw -Encoding UTF8 $slidesElementRenderingPath
+  foreach ($renderFunction in @('appendShapeGraphic', 'applyTextVisualStyles')) {
+    Assert-True ($slidesElementRendering -match "export function $renderFunction\(") "slides/js/element-rendering.js: should own $renderFunction"
+  }
+}
+
+$slidesImageGeometryPath = Join-Path $Root 'slides/js/image-geometry.js'
+if (Test-Path $slidesImageGeometryPath) {
+  $slidesImageGeometry = Get-Content -Raw -Encoding UTF8 $slidesImageGeometryPath
+  foreach ($geometryFunction in @('getCropFractions', 'getCropGeometry')) {
+    Assert-True ($slidesImageGeometry -match "export function $geometryFunction\(") "slides/js/image-geometry.js: should own $geometryFunction"
+  }
+}
+
+$slidesPresentationDesignPath = Join-Path $Root 'slides/js/presentation-design.js'
+if (Test-Path $slidesPresentationDesignPath) {
+  $slidesPresentationDesign = Get-Content -Raw -Encoding UTF8 $slidesPresentationDesignPath
+  foreach ($designFunction in @('getTheme', 'applyThemeToPresentation', 'applyLayoutToSlide')) {
+    Assert-True ($slidesPresentationDesign -match "export function $designFunction\(") "slides/js/presentation-design.js: should own $designFunction"
+  }
+}
+
+$slidesObjectCommandsPath = Join-Path $Root 'slides/js/object-commands.js'
+if (Test-Path $slidesObjectCommandsPath) {
+  $slidesObjectCommands = Get-Content -Raw -Encoding UTF8 $slidesObjectCommandsPath
+  foreach ($objectCommand in @('groupElements', 'ungroupElements', 'remapGroupIds', 'createSelectionUnits', 'alignSelectionUnits', 'distributeSelectionUnits')) {
+    Assert-True ($slidesObjectCommands -match "export function $objectCommand\(") "slides/js/object-commands.js: should own $objectCommand"
   }
 }
 
@@ -956,6 +998,9 @@ if (Test-Path $slidesAppPath) {
   Assert-True ($slidesApp -match 'window\.SlidesApp\s*=\s*window\.SlidesApp\s*\|\|\s*\{\}') "slides/js/app.js: should expose a stable SlidesApp facade"
   Assert-True ($slidesApp -match 'window\.SlidesApp\.boot\s*=') "slides/js/app.js: should expose SlidesApp.boot as the stable boot function"
   Assert-True ($slidesApp -notmatch 'DOMContentLoaded') "slides/js/app.js: app module should not self-boot after runtime split"
+  Assert-True ($slidesApp -match 'function\s+renderAll\(\)\s*\{[\s\S]*?renderFileName\(\);[\s\S]*?renderColorPalette\(\);[\s\S]*?renderWorkspace\(\);[\s\S]*?\}') "slides/js/app.js: full render should delegate workspace rendering after filename and palette"
+  Assert-True ($slidesApp -match 'function\s+renderWorkspace\(\)\s*\{[\s\S]*?renderStage\(\);[\s\S]*?renderSlideList\(\);[\s\S]*?renderToolbarState\(\);[\s\S]*?renderStatus\(\);[\s\S]*?\}') "slides/js/app.js: workspace render should keep stage, thumbnails, toolbar, and status together"
+  Assert-True ($slidesApp -match 'function\s+renderCurrentSlideWorkspace\(\)\s*\{[\s\S]*?renderStage\(\);[\s\S]*?renderCurrentSlideThumbnail\(\);[\s\S]*?renderToolbarState\(\);[\s\S]*?renderStatus\(\);[\s\S]*?\}') "slides/js/app.js: current-slide changes should update only the active thumbnail"
 }
 
 $slidesRuntimePath = Join-Path $Root 'slides/js/runtime.js'

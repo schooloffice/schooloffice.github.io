@@ -1,6 +1,5 @@
 import { MAX_HISTORY } from './constants.js';
 import { state, applyPresentationData, serializePresentation } from './state.js';
-import { deepClone } from './utils.js';
 
 // Модель історії: вершина undoStack — це завжди ЗАВЕРШЕНИЙ попередній стан.
 // `pushHistory()` викликається перед мутацією й зберігає поточний (ще не змінений)
@@ -16,7 +15,7 @@ export function resetHistory() {
 // захопити раніше за саму зміну (напр. до очищення плейсхолдера на focus), а
 // записати — лише якщо зміна справді відбулася.
 export function captureState() {
-  return deepClone(serializePresentation());
+  return serializePresentation();
 }
 
 // Записати раніше захоплений знімок як попередній стан історії.
@@ -44,7 +43,7 @@ export function canRedo() {
 
 export function undo() {
   if (!state.undoStack.length) return false;
-  const current = deepClone(serializePresentation());
+  const current = serializePresentation();
   const previous = state.undoStack.pop();
   state.redoStack.push(current);
   applyPresentationData(previous);
@@ -53,7 +52,7 @@ export function undo() {
 
 export function redo() {
   if (!state.redoStack.length) return false;
-  const current = deepClone(serializePresentation());
+  const current = serializePresentation();
   const next = state.redoStack.pop();
   state.undoStack.push(current);
   applyPresentationData(next);

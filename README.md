@@ -72,7 +72,7 @@
 
 `tables/` уже пройшов великий етап декомпозиції: `core.js` став фасадом, формульне ядро розділене на parser/references/functions/engine, а UI, clipboard, formatting, structure, charts, sorting, workbook file і calculation винесені в окремі модулі.
 
-`slides/` також отримав керовану структуру: project helpers, slide list, stage renderer, stage interactions і modal UI винесені з `app.js`, runtime boot став стійким до timing-проблем, а `tests/slides-behavior.html` фіксує browser-runtime boot, stage render і project helpers. Подальше механічне дроблення Слайдів не є пріоритетом; наступні кроки там мають бути функціональними: теми, макети, вирівнювання об'єктів, transitions/animations, таблиці/діаграми у слайдах і presenter/export сценарії.
+`slides/` завершив стабілізаційну Хвилю 4.5 і має керовану структуру: project helpers, presentation design, object-команди, спільні visual render helpers, crop-геометрія, slide list, stage renderer, stage interactions і modal UI винесені з `app.js`, runtime boot став стійким до timing-проблем. `tests/slides-behavior.html` перевіряє UI/runtime сценарії, а окремий `tests/slides-domain-behavior.html` — pure-domain правила, `.artslides` round-trip і normalization/render/history performance baseline. Подальше механічне дроблення Слайдів не є пріоритетом.
 
 Наступний рекомендований фокус для зменшення техборгу перед нарощуванням функціоналу — `paint/`. У ньому найбільший практичний виграш дасть обережне відокремлення file/export, tool actions і canvas interaction від великого `app.js`/`canvas.js` без створення зайвих дрібних модулів.
 

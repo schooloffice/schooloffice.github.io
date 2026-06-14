@@ -438,6 +438,10 @@
       await waitFor(() => /Чернетку збережено/.test(doc.querySelector('#statusRight').textContent), 'autosave persists draft', 5000);
       checks.push(check('autosave reports draft (not file) saved', /Чернетку збережено/.test(doc.querySelector('#statusRight').textContent)));
       checks.push(check('autosave keeps the file marked dirty', doc.querySelector('#saveBadge').textContent.trim() === 'Є зміни'));
+      clickAction('insert-rect');
+      clickAction('save-project');
+      await wait(500);
+      checks.push(check('stale autosave completion does not overwrite file-saved status', doc.querySelector('#statusRight').textContent === 'Файл збережено'));
 
       // Мультивибір: Ctrl+A обирає всі об'єкти, Delete видаляє всіх вибраних
       // одним кроком історії, Undo повертає; shift-клік перемикає об'єкт у вибірці.
@@ -990,6 +994,11 @@
       clickAction('template-title');
       await waitFor(() => doc.querySelector('#stage .shape-element'), 'legacy template applied under active theme');
       checks.push(check('legacy template keeps active theme background', win.getComputedStyle(themeStage).backgroundColor === 'rgb(239, 246, 255)'));
+      clickAction('show-layouts');
+      await waitFor(() => doc.querySelector('.layout-card'), 'layout picker opens after template');
+      checks.push(check('destructive template resets stale layout metadata', !!doc.querySelector('.layout-card.active[data-layout="blank"]')));
+      doc.querySelector('#modalConfirm').click();
+      await waitFor(() => doc.querySelector('#modalOverlay').classList.contains('hidden'), 'layout picker closes after template check');
       clickAction('undo');
       clickAction('undo');
       clickAction('undo');
@@ -1166,7 +1175,11 @@
       // (hydration). Зберігаємо маркерну чернетку й перезавантажуємо редактор.
       // Чекаємо завершення останнього debounce з активного iframe, щоб він не
       // перезаписав маркерну чернетку вже після її збереження.
-      await wait(400);
+      clickAction('insert-rect');
+      clickAction('new-project');
+      doc.querySelector('#modalConfirm').click();
+      await wait(600);
+      checks.push(check('new project cancels pending autosave before clearing draft', await loadDraft() === null));
       await clearDraft();
       const draftMarker = 'Чернетка-' + Date.now();
       await saveDraft({ schemaVersion: 1, fileName: draftMarker, slides: [{ id: 's1', background: '#ffffff', elements: [{ type: 'text', content: 'Текст', x: 100, y: 100, w: 200, h: 80 }] }], currentSlideId: 's1' });

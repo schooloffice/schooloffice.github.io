@@ -26,6 +26,10 @@
 - `slides/js/runtime.js` — стабільний module entrypoint, який лише піднімає застосунок.
 - `slides/js/app.js` — coordinator для `SlidesApp.boot`, shell-adapter, command dispatch, stage UI та взаємодій.
 - `slides/js/project.js` — нормалізація презентації та елементів, збереження `.artslides.json`, парсинг відкритих файлів.
+- `slides/js/element-rendering.js` — спільні visual text styles і SVG-геометрія фігур stage/export.
+- `slides/js/image-geometry.js` — спільна crop-геометрія stage та export.
+- `slides/js/object-commands.js` — чисті правила групування, вирівнювання та розподілу.
+- `slides/js/presentation-design.js` — чисті доменні операції застосування тем і макетів.
 - `slides/js/slide-list.js` — список слайдів, thumbnails, reorder, move/duplicate/delete actions.
 - `slides/js/stage-renderer.js` — рендеринг сцени, елементів, handles і selected-state.
 - `slides/js/text-list.js` — безпечне створення, рендеринг і читання маркованих/нумерованих текстових блоків.
@@ -39,5 +43,21 @@
 - `slides/js/utils.js` — DOM, file і utility helpers.
 
 ## Поточна оцінка технічного боргу
+
+Готові «шаблони» руйнівно замінюють вміст поточного слайда та встановлюють
+`slide.layout = blank`. «Макет слайда» є окремою неруйнівною операцією над типізованими
+placeholder-слотами.
+
+History використовує повні відокремлені snapshot-и з лімітом `MAX_HISTORY=80`.
+`serializePresentation()` уже повертає detached slides, тому history не має клонувати його
+результат повторно.
+
+Повний `renderSlideList()` потрібен для теми, навігації та структурних змін списку слайдів.
+Локальні зміни об'єктів поточного слайда мають оновлювати лише його мініатюру через
+`renderCurrentSlideThumbnail()`, щоб не перебудовувати DOM сусідніх карток.
+
+Відкладений autosave не має відроджувати очищену чернетку або перезаписувати новіший status.
+Перед повною заміною документа pending autosave скасовується, а завершення старих записів
+ігноруються через покоління autosave-запитів.
 
 `slides/js/app.js` лишається найбільшим coordinator-файлом, але з нього вже винесено project file layer, slide list, stage rendering, stage interactions і modal UI. Залишкові змішані ролі: menu/color popover UI, presentation mode, object commands і частина toolbar state. Наступні зміни варто робити через стабілізацію сценаріїв або точкове винесення одного з цих шарів.

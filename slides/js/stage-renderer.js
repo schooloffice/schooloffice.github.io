@@ -1,5 +1,7 @@
-import { DEFAULT_SHAPE_STYLE, FONT_FAMILY_CSS, LINE_SHAPE_TYPES, STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES } from './constants.js';
+import { LINE_SHAPE_TYPES, STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES } from './constants.js';
+import { appendShapeGraphic, applyTextVisualStyles } from './element-rendering.js';
 import { captureState, commitState } from './history.js';
+import { getCropFractions, getCropGeometry } from './image-geometry.js';
 import { getCurrentSlide, isSelected, state } from './state.js';
 import { createTextContainer, getTextFromTextContainer, setTextContainerContent, splitListItemAtSelection } from './text-list.js';
 
@@ -11,7 +13,7 @@ export function renderStage({
   onRotateHandlePointerDown,
   onCropHandlePointerDown,
   onImagePlaceholderActivate,
-  renderSlideList,
+  renderCurrentSlideThumbnail,
   selectElement,
   stage
 }) {
@@ -33,7 +35,7 @@ export function renderStage({
       onRotateHandlePointerDown,
       onCropHandlePointerDown,
       onImagePlaceholderActivate,
-      renderSlideList,
+      renderCurrentSlideThumbnail,
       selectElement
     });
     elementDomMap.set(element.id, node);
@@ -119,7 +121,7 @@ function renderElementNode(element, handlers) {
   return wrap;
 }
 
-function createTextNode(element, { markDirty, renderSlideList, selectElement }, { shapeText = false } = {}) {
+function createTextNode(element, { markDirty, renderCurrentSlideThumbnail, selectElement }, { shapeText = false } = {}) {
   const textBox = createTextContainer(element.style.listType);
   textBox.className = `text-element${shapeText ? ' shape-text-element' : ''}`;
   textBox.contentEditable = shapeText ? 'false' : 'true';
@@ -174,7 +176,7 @@ function createTextNode(element, { markDirty, renderSlideList, selectElement }, 
     element.content = value;
     element.isPlaceholder = false;
     markDirty('Текст змінено');
-    renderSlideList();
+    renderCurrentSlideThumbnail();
   };
   textBox.addEventListener('keydown', event => {
     if (element.style.listType === 'none' || event.key !== 'Enter' || event.shiftKey) return;
@@ -190,7 +192,7 @@ function createTextNode(element, { markDirty, renderSlideList, selectElement }, 
       element.isPlaceholder = true;
       setTextContainerContent(textBox, element.placeholder, element.style.listType);
       applyTextStylesToNode(textBox, element);
-      renderSlideList();
+      renderCurrentSlideThumbnail();
       markDirty('Поле очищено');
     }
   });
@@ -204,45 +206,7 @@ function createShapeNode(element) {
   svg.setAttribute('height', '100%');
   svg.setAttribute('viewBox', '0 0 100 100');
   svg.setAttribute('class', 'shape-element');
-  let shape;
-  const isLine = LINE_SHAPE_TYPES.includes(element.shape);
-  if (isLine) {
-    svg.setAttribute('preserveAspectRatio', 'none');
-    shape = document.createElementNS('http://www.w3.org/2000/svg', element.shape === 'arrow' ? 'path' : 'line');
-    shape.setAttribute('data-shape-kind', element.shape);
-    shape.setAttribute('stroke-linecap', 'round');
-    shape.setAttribute('vector-effect', 'non-scaling-stroke');
-    if (element.shape === 'arrow') {
-      shape.setAttribute('d', 'M 4 50 H 92 M 78 30 L 96 50 L 78 70');
-      shape.setAttribute('stroke-linejoin', 'round');
-    } else {
-      shape.setAttribute('x1', '4');
-      shape.setAttribute('y1', '50');
-      shape.setAttribute('x2', '96');
-      shape.setAttribute('y2', '50');
-    }
-  } else if (element.shape === 'circle') {
-    shape = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
-    shape.setAttribute('cx', '50%');
-    shape.setAttribute('cy', '50%');
-    shape.setAttribute('rx', '48%');
-    shape.setAttribute('ry', '48%');
-  } else if (element.shape === 'triangle') {
-    shape = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-    shape.setAttribute('points', '50,4 96,96 4,96');
-  } else {
-    shape = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    shape.setAttribute('x', '2%');
-    shape.setAttribute('y', '2%');
-    shape.setAttribute('width', '96%');
-    shape.setAttribute('height', '96%');
-    shape.setAttribute('rx', '12');
-    shape.setAttribute('ry', '12');
-  }
-  shape.setAttribute('fill', isLine ? 'none' : (element.style.fill || DEFAULT_SHAPE_STYLE.fill));
-  shape.setAttribute('stroke', element.style.stroke || DEFAULT_SHAPE_STYLE.stroke);
-  shape.setAttribute('stroke-width', isLine ? '6' : '8');
-  svg.appendChild(shape);
+  appendShapeGraphic(svg, element);
   return svg;
 }
 
@@ -272,28 +236,17 @@ function createHandles(element, onHandlePointerDown, onRotateHandlePointerDown) 
 
 // Кадрування у просторі рамки: вікно показує підпрямокутник, а зображення
 // всередині лишається розміром у повну рамку й зсувається — тож обрізаються краї.
-function getCrop(element) {
-  const c = element.crop || {};
-  return {
-    l: Number.isFinite(c.l) ? c.l : 0,
-    t: Number.isFinite(c.t) ? c.t : 0,
-    r: Number.isFinite(c.r) ? c.r : 0,
-    b: Number.isFinite(c.b) ? c.b : 0
-  };
-}
-
 function setCropGeometry(win, img, element) {
-  const { l, t, r, b } = getCrop(element);
-  const visW = Math.max(0.0001, 1 - l - r);
-  const visH = Math.max(0.0001, 1 - t - b);
+  const crop = getCropGeometry(element.crop);
+  const { l, t } = crop;
   win.style.left = `${l * 100}%`;
   win.style.top = `${t * 100}%`;
-  win.style.width = `${visW * 100}%`;
-  win.style.height = `${visH * 100}%`;
-  img.style.width = `${(1 / visW) * 100}%`;
-  img.style.height = `${(1 / visH) * 100}%`;
-  img.style.left = `${-(l / visW) * 100}%`;
-  img.style.top = `${-(t / visH) * 100}%`;
+  win.style.width = `${crop.visibleWidth * 100}%`;
+  win.style.height = `${crop.visibleHeight * 100}%`;
+  img.style.width = `${crop.imageWidth * 100}%`;
+  img.style.height = `${crop.imageHeight * 100}%`;
+  img.style.left = `${crop.imageLeft * 100}%`;
+  img.style.top = `${crop.imageTop * 100}%`;
 }
 
 const CROP_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
@@ -306,7 +259,7 @@ function cropHandlePosition(name, crop) {
 }
 
 function positionCropHandles(handles, element) {
-  const crop = getCrop(element);
+  const crop = getCropFractions(element.crop);
   handles.querySelectorAll('.crop-handle').forEach(handle => {
     const { left, top } = cropHandlePosition(handle.dataset.handle, crop);
     handle.style.left = `${left * 100}%`;
@@ -340,16 +293,7 @@ export function applyImageCropToNode(node, element) {
 }
 
 function applyTextStylesToNode(node, element) {
-  node.style.fontSize = `${element.style.fontSize || 28}px`;
-  node.style.color = element.isPlaceholder ? '#94a3b8' : (element.style.color || '#111827');
-  // Звичайний текст — нормальної ваги (400), жирний — 700 (раніше все було 700+).
-  node.style.fontWeight = element.style.bold ? '700' : '400';
-  node.style.fontFamily = FONT_FAMILY_CSS[element.style.fontFamily] || 'inherit';
-  node.style.lineHeight = String(element.style.lineHeight || 1.15);
-  node.style.fontStyle = element.isPlaceholder ? 'normal' : (element.style.italic ? 'italic' : 'normal');
-  node.style.textDecoration = element.isPlaceholder ? 'none' : (element.style.underline ? 'underline' : 'none');
-  node.style.textAlign = element.style.align || 'left';
-  node.classList.toggle('is-placeholder', !!element.isPlaceholder);
+  applyTextVisualStyles(node, element);
 }
 
 export function syncSelectionUi(elementDomMap) {

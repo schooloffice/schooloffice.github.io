@@ -7,9 +7,11 @@ import {
   showInfoModal as showInfoModalUi,
   showModal as showModalUi
 } from './modal-ui.js';
+import { alignSelectionUnits, createSelectionUnits, distributeSelectionUnits, groupElements, remapGroupIds, ungroupElements } from './object-commands.js';
 import { normalizeElement, normalizePresentation, parsePresentationText, savePresentationFile } from './project.js';
+import { applyLayoutToSlide, applyThemeToPresentation, getTheme } from './presentation-design.js';
 import { renderStage as renderStageView, syncSelectionUi as syncStageSelectionUi, applyImageCropToNode } from './stage-renderer.js';
-import { renderSlideList as renderSlideListView } from './slide-list.js';
+import { renderSlideList as renderSlideListView, renderSlideThumbnail as renderSlideThumbnailView } from './slide-list.js';
 import {
   bindStage as bindStageInteractions,
   elementBounds,
@@ -24,7 +26,7 @@ import {
 } from './stage-interactions.js';
 import { state, applyPresentationData, getCurrentSlide, getCurrentSlideIndex, getSelectedElement, getSelectedElements, isSelected, serializePresentation } from './state.js';
 import { clearDraft, loadDraft, saveDraft } from './storage.js';
-import { createBasicSlideElements, createDefaultPresentation, createImageElement, createPlaceholderElement, createShapeElement, createSlide, createTemplateDefinition, createTextElement } from './templates.js';
+import { createBasicSlideElements, createDefaultPresentation, createImageElement, createShapeElement, createSlide, createTemplateDefinition, createTextElement } from './templates.js';
 import { $, $$, clamp, debounce, deepClone, getTextFromContentEditable, readFileAsDataURL, readFileAsText, uid } from './utils.js';
 
 window.SlidesApp = window.SlidesApp || {};
@@ -39,6 +41,7 @@ let pendingImageOperation = { mode: 'insert', elementId: null, alt: '' };
 // `autoFitZoom` тримає слайд вписаним у вікно, доки користувач не задасть масштаб вручну.
 let stageZoom = 1;
 let autoFitZoom = true;
+let autosaveGeneration = 0;
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 3;
 const ZOOM_STEP = 0.1;
@@ -54,12 +57,21 @@ function cancelDraftHydration() {
 // Автозбереження оновлює лише браузерну ЧЕРНЕТКУ — це не збереження файла.
 // Тому воно не чіпає `unsavedChanges` і бейдж збереження файла: незбережені
 // зміни лишаються незбереженими, доки користувач не завантажить файл.
-const autosave = debounce(() => {
+const autosave = debounce(generation => {
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   saveDraft(serializePresentation())
-    .then(() => setStatusRight(`Чернетку збережено • ${time}`))
-    .catch(() => setStatusRight('Чернетку не збережено: бракує локального місця'));
+    .then(() => {
+      if (generation === autosaveGeneration) setStatusRight(`Чернетку збережено • ${time}`);
+    })
+    .catch(() => {
+      if (generation === autosaveGeneration) setStatusRight('Чернетку не збережено: бракує локального місця');
+    });
 }, 260);
+
+function invalidateAutosave({ cancelPending = false } = {}) {
+  autosaveGeneration += 1;
+  if (cancelPending) autosave.cancel();
+}
 
 function setStatusRight(text) {
   dom.statusRight.textContent = text;
@@ -75,7 +87,8 @@ function markDirty(statusText = 'Є незбережені зміни') {
   state.unsavedChanges = true;
   updateDirtyUi();
   setStatusRight(statusText);
-  autosave();
+  autosaveGeneration += 1;
+  autosave(autosaveGeneration);
 }
 
 function applyZoom() {
@@ -242,8 +255,19 @@ function renderAll() {
   renderFileName();
   // Палітра залежить від теми — оновлюємо разом зі станом (undo/redo/open/import).
   renderColorPalette();
+  renderWorkspace();
+}
+
+function renderWorkspace() {
   renderStage();
   renderSlideList();
+  renderToolbarState();
+  renderStatus();
+}
+
+function renderCurrentSlideWorkspace() {
+  renderStage();
+  renderCurrentSlideThumbnail();
   renderToolbarState();
   renderStatus();
 }
@@ -288,7 +312,7 @@ function renderTextControls() {
 }
 
 function getActiveTheme() {
-  return THEMES.find(theme => theme.key === state.theme) || THEMES[0];
+  return getTheme(state.theme);
 }
 
 function renderColorPalette() {
@@ -312,10 +336,8 @@ function renderColorPalette() {
 // чіпається. Один крок історії (theme серіалізується, тож undo/redo повертають).
 function applyTheme(themeKey) {
   if (!THEME_KEYS.includes(themeKey) || themeKey === state.theme) return;
-  const theme = THEMES.find(item => item.key === themeKey);
   pushHistory();
-  state.theme = themeKey;
-  state.slides.forEach(slide => { slide.background = theme.background; });
+  applyThemeToPresentation(state, themeKey);
   renderColorPalette();
   renderStage();
   renderSlideList();
@@ -355,27 +377,11 @@ function applyLayout(layoutKey) {
   if (!LAYOUT_KEYS.includes(layoutKey)) return;
   const slide = getCurrentSlide();
   if (!slide) return;
-  const layout = LAYOUTS.find(item => item.key === layoutKey);
   pushHistory();
-  // Прибираємо ЛИШЕ порожні типізовані placeholder-и макета (isPlaceholder +
-  // placeholderType). Реальні фігури, фігури з текстовою підказкою та порожні
-  // ручні текстові поля (placeholderType=null) зберігаються.
-  const kept = slide.elements.filter(element => !(element.isPlaceholder && element.placeholderType));
-  const satisfied = {};
-  kept.forEach(element => {
-    if (element.placeholderType) satisfied[element.placeholderType] = (satisfied[element.placeholderType] || 0) + 1;
-  });
-  let z = kept.reduce((max, element) => Math.max(max, element.z || 1), 0) + 1;
-  const placeholders = [];
-  layout.slots.forEach(slot => {
-    if (satisfied[slot.type] > 0) { satisfied[slot.type] -= 1; return; }
-    placeholders.push(createPlaceholderElement(slot, z++));
-  });
-  slide.elements = [...kept, ...placeholders];
-  slide.layout = layoutKey;
+  applyLayoutToSlide(slide, layoutKey);
   state.selectedElementIds = [];
   state.cropElementId = null;
-  renderAll();
+  renderCurrentSlideWorkspace();
   markDirty('Макет застосовано');
 }
 
@@ -424,9 +430,13 @@ function renderSlideList() {
     duplicateSlide,
     markDirty,
     moveSlide,
-    renderAll,
+    renderWorkspace,
     setStatusRight
   });
+}
+
+function renderCurrentSlideThumbnail() {
+  if (!renderSlideThumbnailView(dom.slideList)) renderSlideList();
 }
 
 function renderStage() {
@@ -447,7 +457,7 @@ function renderStage() {
     onRotateHandlePointerDown,
     onCropHandlePointerDown,
     onImagePlaceholderActivate: activateImagePlaceholder,
-    renderSlideList,
+    renderCurrentSlideThumbnail,
     selectElement,
     stage: dom.stage
   });
@@ -550,8 +560,7 @@ function groupSelected() {
   const targets = getSelectedElements();
   if (targets.length < 2) return;
   pushHistory();
-  const groupId = uid();
-  targets.forEach(element => { element.groupId = groupId; });
+  groupElements(targets);
   renderStage();
   renderToolbarState();
   markDirty('Згруповано');
@@ -561,21 +570,10 @@ function ungroupSelected() {
   const targets = getSelectedElements().filter(element => element.groupId);
   if (!targets.length) return;
   pushHistory();
-  targets.forEach(element => { element.groupId = null; });
+  ungroupElements(targets);
   renderStage();
   renderToolbarState();
   markDirty('Розгруповано');
-}
-
-// Копії групи мають утворювати НОВУ групу, а не зливатися з оригіналом: один
-// старий groupId → один новий у межах партії клонів.
-function remapGroupIds(elements) {
-  const map = new Map();
-  elements.forEach(element => {
-    if (!element.groupId) return;
-    if (!map.has(element.groupId)) map.set(element.groupId, uid());
-    element.groupId = map.get(element.groupId);
-  });
 }
 
 function clearSelection() {
@@ -613,7 +611,7 @@ function moveSlideFocus(direction) {
   state.currentSlideId = state.slides[next].id;
   state.selectedElementIds = [];
   closeColorPopover();
-  renderAll();
+  renderWorkspace();
   setStatusRight('Слайд вибрано');
   $('.slide-card.active .slide-thumb-button')?.focus();
 }
@@ -661,7 +659,7 @@ function onStagePointerMove(event) {
 }
 
 function onStagePointerUp(event) {
-  handleStagePointerUp(event, { elementDomMap, markDirty, renderSlideList, setSelection, getCurrentElements, stage: dom.stage });
+  handleStagePointerUp(event, { elementDomMap, markDirty, renderCurrentSlideThumbnail, setSelection, getCurrentElements, stage: dom.stage });
 }
 
 function bindMenus() {
@@ -1109,7 +1107,7 @@ function handleKeyboardShortcuts(event) {
       pushHistory();
       selected.forEach(el => { el.x += dx; el.y += dy; });
       renderStage();
-      renderSlideList();
+      renderCurrentSlideThumbnail();
       renderStatus();
       markDirty(selected.length > 1 ? 'Об’єкти переміщено' : 'Об’єкт переміщено');
     }
@@ -1208,6 +1206,7 @@ function confirmNewProject() {
     confirmText: 'Створити',
     onConfirm: () => {
       cancelDraftHydration();
+      invalidateAutosave({ cancelPending: true });
       clearDraft();
       applyPresentationData(createDefaultPresentation());
       resetHistory();
@@ -1221,6 +1220,7 @@ function confirmNewProject() {
 
 function saveProjectFile() {
   savePresentationFile(serializePresentation());
+  invalidateAutosave();
   state.unsavedChanges = false;
   updateDirtyUi();
   setStatusRight('Файл збережено');
@@ -1234,7 +1234,7 @@ function confirmClearDraft() {
     onConfirm: async () => {
       // Скасовуємо відкладене автозбереження, щоб воно не відродило чернетку
       // одразу після очищення.
-      autosave.cancel();
+      invalidateAutosave({ cancelPending: true });
       const ok = await clearDraft();
       setStatusRight(ok ? 'Чернетку очищено' : 'Не вдалося очистити чернетку');
     }
@@ -1264,6 +1264,7 @@ async function onProjectFileSelected() {
     const text = await readFileAsText(file);
     const parsed = parsePresentationText(text);
     if (!parsed) throw new Error('invalid');
+    invalidateAutosave({ cancelPending: true });
     applyPresentationData(parsed);
     resetHistory();
     state.unsavedChanges = false;
@@ -1287,7 +1288,7 @@ function addSlide() {
   state.slides.push(slide);
   state.currentSlideId = slide.id;
   state.selectedElementIds = slide.elements[0] ? [slide.elements[0].id] : [];
-  renderAll();
+  renderWorkspace();
   markDirty('Додано новий слайд');
   requestAnimationFrame(() => {
     const titleNode = slide.elements[0] ? elementDomMap.get(slide.elements[0].id)?.querySelector('.text-element') : null;
@@ -1306,7 +1307,7 @@ function duplicateSlide(slideId = state.currentSlideId) {
   state.slides.splice(index + 1, 0, clone);
   state.currentSlideId = clone.id;
   state.selectedElementIds = [];
-  renderAll();
+  renderWorkspace();
   markDirty('Слайд дубльовано');
 }
 
@@ -1331,7 +1332,7 @@ function deleteSlide(slideId) {
   const nextIndex = clamp(index, 0, state.slides.length - 1);
   state.currentSlideId = state.slides[nextIndex].id;
   state.selectedElementIds = [];
-  renderAll();
+  renderWorkspace();
   markDirty('Слайд видалено');
 }
 
@@ -1343,7 +1344,7 @@ function moveSlide(direction) {
   const [slide] = state.slides.splice(currentIndex, 1);
   state.slides.splice(nextIndex, 0, slide);
   state.currentSlideId = slide.id;
-  renderAll();
+  renderWorkspace();
   markDirty('Слайд переставлено');
 }
 
@@ -1353,7 +1354,7 @@ function addTextElement() {
   const element = createTextElement({ z: slide.elements.length + 1 });
   slide.elements.push(element);
   state.selectedElementIds = [element.id];
-  renderAll();
+  renderCurrentSlideWorkspace();
   markDirty('Додано текст');
   requestAnimationFrame(() => {
     const node = elementDomMap.get(element.id)?.querySelector('.text-element');
@@ -1558,7 +1559,7 @@ function insertImage(src, alt = '') {
   const element = createImageElement(src, { z: slide.elements.length + 1, alt });
   slide.elements.push(element);
   state.selectedElementIds = [element.id];
-  renderAll();
+  renderCurrentSlideWorkspace();
   markDirty('Додано зображення');
 }
 
@@ -1575,7 +1576,7 @@ function replaceImage(elementId, src, alt = '') {
   // Заповнення image-placeholder робить його реальним зображенням.
   element.isPlaceholder = false;
   state.selectedElementIds = [element.id];
-  renderAll();
+  renderCurrentSlideWorkspace();
   markDirty('Зображення замінено');
   return true;
 }
@@ -1625,7 +1626,7 @@ function addShape(kind) {
   base.y = clamp(base.y + (count % 4) * 18, 24, STAGE_HEIGHT - base.h - 24);
   slide.elements.push(base);
   state.selectedElementIds = [base.id];
-  renderAll();
+  renderCurrentSlideWorkspace();
   const labels = {
     rect: 'Додано прямокутник',
     circle: 'Додано коло',
@@ -1642,9 +1643,12 @@ function applyTemplate(type) {
   const template = createTemplateDefinition(type);
   slide.background = getActiveTheme().background;
   slide.elements = template.elements.map((element, index) => normalizeElement({ ...element, z: index + 1 }, index, { trusted: true }));
+  // Готовий шаблон руйнівно замінює вміст і більше не відповідає жодному
+  // неруйнівному placeholder-макету.
+  slide.layout = 'blank';
   state.selectedElementIds = [];
-  renderAll();
-  markDirty('Застосовано макет');
+  renderCurrentSlideWorkspace();
+  markDirty('Застосовано шаблон');
 }
 
 function findElementById(elementId) {
@@ -1662,7 +1666,7 @@ function setSelectedTextStyle(partial) {
   changedTargets.forEach(element => Object.assign(element.style, partial));
   renderStage();
   renderToolbarState();
-  renderSlideList();
+  renderCurrentSlideThumbnail();
   markDirty('Формат тексту змінено');
 }
 
@@ -1686,7 +1690,7 @@ function setSelectedImageStyle(partial) {
   changedTargets.forEach(element => Object.assign(element.style, partial));
   renderStage();
   renderToolbarState();
-  renderSlideList();
+  renderCurrentSlideThumbnail();
   markDirty('Зображення оформлено');
 }
 
@@ -1753,7 +1757,7 @@ function onCropHandlePointerDown(event, elementId, handle) {
     document.removeEventListener('pointermove', onMove);
     document.removeEventListener('pointerup', finishCrop);
     document.removeEventListener('pointercancel', finishCrop);
-    if (committed) { renderSlideList(); markDirty('Зображення кадровано'); }
+    if (committed) { renderCurrentSlideThumbnail(); markDirty('Зображення кадровано'); }
   };
   document.addEventListener('pointermove', onMove);
   document.addEventListener('pointerup', finishCrop);
@@ -1780,7 +1784,7 @@ function applyColor(color) {
     const slide = getCurrentSlide();
     slide.background = color;
     renderStage();
-    renderSlideList();
+    renderCurrentSlideThumbnail();
     renderColorModeButtons();
     markDirty('Фон змінено');
     return;
@@ -1795,7 +1799,7 @@ function applyColor(color) {
     if (state.currentColorTarget === 'stroke' && element.type === 'shape') element.style.stroke = color;
   });
   renderStage();
-  renderSlideList();
+  renderCurrentSlideThumbnail();
   renderToolbarState();
   renderColorModeButtons();
   markDirty('Колір змінено');
@@ -1809,7 +1813,7 @@ function rotateSelected(delta) {
     element.rotation = (((element.rotation || 0) + delta) % 360 + 360) % 360;
   });
   renderStage();
-  renderSlideList();
+  renderCurrentSlideThumbnail();
   markDirty('Об’єкт повернуто');
 }
 
@@ -1819,55 +1823,16 @@ function rotateSelected(delta) {
 // Одиниці вирівнювання/розподілу: кожна група — ОДНА одиниця зі спільним AABB
 // (зсувається цілісно, зберігаючи внутрішнє розташування); негруповані — окремо.
 function selectionUnits() {
-  const groups = new Map();
-  const units = [];
-  getSelectedElements().forEach(element => {
-    if (element.groupId) {
-      if (!groups.has(element.groupId)) {
-        const unit = { members: [] };
-        groups.set(element.groupId, unit);
-        units.push(unit);
-      }
-      groups.get(element.groupId).members.push(element);
-    } else {
-      units.push({ members: [element] });
-    }
-  });
-  units.forEach(unit => {
-    const bounds = unit.members.map(elementBounds);
-    const left = Math.min(...bounds.map(b => b.left));
-    const right = Math.max(...bounds.map(b => b.right));
-    const top = Math.min(...bounds.map(b => b.top));
-    const bottom = Math.max(...bounds.map(b => b.bottom));
-    unit.b = { left, right, top, bottom, cx: (left + right) / 2, cy: (top + bottom) / 2 };
-  });
-  return units;
-}
-
-function moveUnit(unit, dx, dy) {
-  unit.members.forEach(element => { element.x += dx; element.y += dy; });
+  return createSelectionUnits(getSelectedElements(), elementBounds);
 }
 
 function alignSelected(mode) {
   const units = selectionUnits();
   if (units.length < 2) return;
-  const minLeft = Math.min(...units.map(u => u.b.left));
-  const maxRight = Math.max(...units.map(u => u.b.right));
-  const minTop = Math.min(...units.map(u => u.b.top));
-  const maxBottom = Math.max(...units.map(u => u.b.bottom));
-  const centerX = (minLeft + maxRight) / 2;
-  const centerY = (minTop + maxBottom) / 2;
   pushHistory();
-  units.forEach(u => {
-    if (mode === 'left') moveUnit(u, minLeft - u.b.left, 0);
-    else if (mode === 'right') moveUnit(u, maxRight - u.b.right, 0);
-    else if (mode === 'center-h') moveUnit(u, centerX - u.b.cx, 0);
-    else if (mode === 'top') moveUnit(u, 0, minTop - u.b.top);
-    else if (mode === 'bottom') moveUnit(u, 0, maxBottom - u.b.bottom);
-    else if (mode === 'middle-v') moveUnit(u, 0, centerY - u.b.cy);
-  });
+  alignSelectionUnits(units, mode);
   renderStage();
-  renderSlideList();
+  renderCurrentSlideThumbnail();
   markDirty('Вирівняно');
 }
 
@@ -1875,20 +1840,10 @@ function alignSelected(mode) {
 function distributeSelected(axis) {
   const units = selectionUnits();
   if (units.length < 3) return;
-  const key = axis === 'h' ? 'cx' : 'cy';
-  units.sort((a, b) => a.b[key] - b.b[key]);
-  const first = units[0].b[key];
-  const last = units[units.length - 1].b[key];
-  const step = (last - first) / (units.length - 1);
   pushHistory();
-  units.forEach((unit, index) => {
-    if (index === 0 || index === units.length - 1) return;
-    const delta = (first + index * step) - unit.b[key];
-    if (axis === 'h') moveUnit(unit, delta, 0);
-    else moveUnit(unit, 0, delta);
-  });
+  distributeSelectionUnits(units, axis);
   renderStage();
-  renderSlideList();
+  renderCurrentSlideThumbnail();
   markDirty('Розподілено');
 }
 
@@ -1901,7 +1856,7 @@ function bringSelectedToFront() {
   // У порядку z — зберігаємо взаємний ВІЗУАЛЬНИЙ порядок вибраних об'єктів.
   targets.forEach(element => { element.z = z++; });
   normalizeZIndexes();
-  renderAll();
+  renderCurrentSlideWorkspace();
   markDirty('Змінено шар');
 }
 
@@ -1912,7 +1867,7 @@ function sendSelectedToBack() {
   let z = -targets.length;
   targets.forEach(element => { element.z = z++; });
   normalizeZIndexes();
-  renderAll();
+  renderCurrentSlideWorkspace();
   markDirty('Змінено шар');
 }
 
@@ -1954,7 +1909,7 @@ function pasteElement() {
   remapGroupIds(copies);
   const newIds = copies.map(copy => copy.id);
   state.selectedElementIds = newIds;
-  renderAll();
+  renderCurrentSlideWorkspace();
   markDirty(newIds.length > 1 ? 'Об’єкти вставлено' : 'Об’єкт вставлено');
 }
 
@@ -1972,7 +1927,7 @@ function deleteSelectedElement() {
   slide.elements = slide.elements.filter(element => !ids.has(element.id));
   state.selectedElementIds = [];
   normalizeZIndexes();
-  renderAll();
+  renderCurrentSlideWorkspace();
   markDirty(targets.length > 1 ? 'Об’єкти видалено' : 'Об’єкт видалено');
 }
 
@@ -2026,8 +1981,8 @@ function renderPresentationSlide() {
 
 function showTemplatesPicker() {
   showModal({
-    title: 'Макети слайдів',
-    text: 'Оберіть базовий шкільний макет і відразу редагуйте його.',
+    title: 'Готові шаблони',
+    text: 'Шаблон замінює весь вміст поточного слайда готовим прикладом.',
     body: `
       <div class="template-list">
         <button class="template-btn" data-template="title" type="button">

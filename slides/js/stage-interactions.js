@@ -403,7 +403,7 @@ export function onStagePointerMove(event, { elementDomMap, findElementById, stag
   }
 }
 
-export function onStagePointerUp(event, { elementDomMap, markDirty, renderSlideList, setSelection, getCurrentElements, stage }) {
+export function onStagePointerUp(event, { elementDomMap, markDirty, renderCurrentSlideThumbnail, setSelection, getCurrentElements, stage }) {
   if (pointer.mode === 'none' || pointer.pointerId !== event.pointerId) return;
 
   if (pointer.mode === 'marquee') {
@@ -438,7 +438,7 @@ export function onStagePointerUp(event, { elementDomMap, markDirty, renderSlideL
   resetPointer();
   if (!changed) return;
   normalizeZIndexes();
-  renderSlideList();
+  renderCurrentSlideThumbnail();
   markDirty(wasRotate ? 'Об’єкт повернуто' : (wasResize ? 'Розмір змінено' : 'Положення змінено'));
 }
 

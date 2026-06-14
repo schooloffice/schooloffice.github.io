@@ -12,7 +12,7 @@ export function renderSlideList({
   duplicateSlide,
   markDirty,
   moveSlide,
-  renderAll,
+  renderWorkspace,
   setStatusRight
 }) {
   host.innerHTML = '';
@@ -26,7 +26,7 @@ export function renderSlideList({
       state.currentSlideId = slide.id;
       state.selectedElementIds = [];
       closeColorPopover();
-      renderAll();
+      renderWorkspace();
       setStatusRight('Слайд вибрано');
     });
 
@@ -51,7 +51,7 @@ export function renderSlideList({
       event.preventDefault();
       card.classList.remove('drag-over');
       const fromId = draggedSlideId || event.dataTransfer.getData('text/plain');
-      if (fromId && fromId !== slide.id) reorderSlides(fromId, slide.id, { markDirty, renderAll });
+      if (fromId && fromId !== slide.id) reorderSlides(fromId, slide.id, { markDirty, renderWorkspace });
     });
 
     const head = document.createElement('div');
@@ -100,7 +100,16 @@ export function renderSlideList({
   });
 }
 
-function reorderSlides(fromId, toId, { markDirty, renderAll }) {
+export function renderSlideThumbnail(host, slideId = state.currentSlideId) {
+  const slide = state.slides.find(item => item.id === slideId);
+  const card = Array.from(host.querySelectorAll('.slide-card')).find(item => item.dataset.slideId === slideId);
+  const thumb = card?.querySelector('.slide-thumb');
+  if (!slide || !thumb) return false;
+  thumb.replaceChildren(createThumbSnapshot(slide));
+  return true;
+}
+
+function reorderSlides(fromId, toId, { markDirty, renderWorkspace }) {
   const fromIndex = state.slides.findIndex(slide => slide.id === fromId);
   const toIndex = state.slides.findIndex(slide => slide.id === toId);
   if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
@@ -108,7 +117,7 @@ function reorderSlides(fromId, toId, { markDirty, renderAll }) {
   const [slide] = state.slides.splice(fromIndex, 1);
   state.slides.splice(toIndex, 0, slide);
   state.currentSlideId = slide.id;
-  renderAll();
+  renderWorkspace();
   markDirty('Порядок слайдів змінено');
 }
 

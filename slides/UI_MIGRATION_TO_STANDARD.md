@@ -11,6 +11,10 @@
 - `slides/js/runtime.js` — module entrypoint, який стійко запускає `SlidesApp.boot`.
 - `slides/js/app.js` — boot, UI coordinator, command dispatch і зв'язування модулів.
 - `slides/js/project.js` — нормалізація презентації/елементів, import/export JSON payload, filename slug.
+- `slides/js/element-rendering.js` — спільні visual text styles і SVG-геометрія фігур для stage/export.
+- `slides/js/image-geometry.js` — спільна чиста crop-геометрія для stage та export.
+- `slides/js/object-commands.js` — чисті правила group/ungroup/remap, selection units, align і distribute.
+- `slides/js/presentation-design.js` — чисті доменні операції тем і макетів без DOM, history та runtime state.
 - `slides/js/slide-list.js` — thumbnails, drag reorder і кнопки керування слайдами.
 - `slides/js/stage-renderer.js` — DOM-рендеринг сцени, елементів, resize/rotate handles і selected-state.
 - `slides/js/text-list.js` — створення, рендеринг і читання маркованих/нумерованих текстових блоків.
@@ -44,7 +48,42 @@
 
 - `tests/run-tests.ps1` перевіряє статичний shell/module контракт (зокрема відповідність `$('#id')`-посилань HTML- id з allowlist динамічних).
 - `tests/run-browser-smoke.ps1` (бюджет virtual-time 35000) запускає `tests/slides-behavior.html`.
-- `tests/slides-behavior.html` (~190 перевірок) покриває: boot/рендер/стандартні команди; нормалізацію (ліміти, безпека, унікальність ID, alt, текстову модель); storage (IDB round-trip, quota, tombstone, reload-restore); undo/redo + коаліс­цію; мультивибір (Ctrl+A, multi-delete, shift-toggle, marquee, copy/paste, змішане форматування); zoom (масштаб, незмінність координат, drag/resize/marquee при zoom); smart guides + сітку; rotation/Shift-resize/rotation-aware resize/Alt-drag/контекст-меню; форматування і списки; заміну, вписування, прозорість і кадрування зображень; лінії/стрілки; текст у фігурах; snapshots без службових placeholder-ів; доступність (Tab-цикл, навігація слайдів, клавіатурне контекст-меню, aria-label).
+- `tests/slides-behavior.html` (~230 перевірок) покриває: boot/рендер/стандартні команди; нормалізацію (ліміти, безпека, унікальність ID, alt, текстову модель); storage (IDB round-trip, quota, tombstone, reload-restore); undo/redo + коаліс­цію; мультивибір (Ctrl+A, multi-delete, shift-toggle, marquee, copy/paste, змішане форматування); zoom (масштаб, незмінність координат, drag/resize/marquee при zoom); smart guides + сітку; rotation/Shift-resize/rotation-aware resize/Alt-drag/контекст-меню; форматування і списки; заміну, вписування, прозорість і кадрування зображень; лінії/стрілки; текст у фігурах; snapshots без службових placeholder-ів; доступність (Tab-цикл, навігація слайдів, клавіатурне контекст-меню, aria-label).
+
+## Хвиля 4.5 — стабілізація (ЗАВЕРШЕНО)
+
+Хвилю завершено після стабілізаційного проходу та фінального browser QA:
+
+- правила застосування тем і макетів винесено в `presentation-design.js`;
+- чисті group/ungroup/remap та align/distribute правила винесено в `object-commands.js`;
+- crop-математика stage/export узгоджена через `image-geometry.js`;
+- visual text styles і SVG-геометрія фігур stage/export узгоджені через `element-rendering.js`,
+  але layout, editability та DOM-контейнери лишаються відповідальністю окремих рендерерів;
+- додано окремий `tests/slides-domain-behavior.html` для pure-domain, `.artslides`
+  round-trip і normalization performance baseline 50 слайдів / 500 елементів;
+- history більше не клонує вдруге вже відокремлений результат `serializePresentation()`;
+  domain smoke перевіряє snapshot isolation, великий undo/redo, no-op deduplication,
+  ліміт `MAX_HISTORY=80` і видалення найстаріших кроків;
+- `renderAll()` зарезервовано для повної заміни стану (boot/open/undo/redo), а локальні
+  дії використовують `renderWorkspace()` без зайвої перебудови назви файлу та палітри;
+  domain smoke також має render-baseline для 50 мініатюр / 500 елементів;
+- зміни об'єктів поточного слайда використовують `renderCurrentSlideThumbnail()` замість
+  перебудови всього списку; повний `renderSlideList()` лишився для теми, навігації та
+  структурних операцій зі слайдами, а domain smoke перевіряє збереження DOM сусідніх карток;
+- autosave має покоління запитів: завершення старого запису не перезаписує актуальний status,
+  а pending debounce скасовується перед новим документом, успішним відкриттям та очищенням
+  чернетки; browser smoke перевіряє file-save status і відсутність воскресіння чернетки;
+- готові руйнівні пресети перейменовано на «шаблони»; після застосування вони скидають
+  `slide.layout` у `blank`, тоді як «макет слайда» лишається неруйнівною placeholder-операцією;
+- `app.js` залишає за собою history, render, modal, status і command orchestration.
+
+Подальше винесення робити лише за новою чіткою доменною межею. Не об'єднувати stage та
+export DOM-рендерери механічно: вони мають різні правила editability, placeholder visibility
+та layout.
+
+Поточну full-snapshot history-модель залишити, доки вимірювані сценарії вкладаються у
+baseline. Перехід на diff/command history потребує окремого рішення лише після відтвореного
+performance або memory bottleneck.
 
 ## Найближчий Борг
 
@@ -60,4 +99,6 @@
 
 Не повторювати помилку надмірного дроблення. Новий модуль у `slides/js` має з'являтися лише тоді, коли він забирає самостійну відповідальність з `app.js`, додається в `sw.js` за потреби і покривається статичним аудитом або browser-smoke тестом.
 
-Поточний висновок: Слайди достатньо стабілізовані для функціонального розвитку. Наступний редактор для техборгу перед нарощуванням можливостей — `paint/`.
+Поточний висновок: Хвилю 4.5 завершено. Слайди достатньо стабілізовані для функціонального
+розвитку; подальші зміни мають додавати можливості поверх зафіксованих domain/render/storage
+контрактів. Наступний редактор для окремого зменшення техборгу — `paint/`.

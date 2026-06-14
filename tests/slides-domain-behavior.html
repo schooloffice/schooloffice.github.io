@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Slides Domain Behavior</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Slides Domain Behavior</h1>
+  <pre id="result">Running...</pre>
+
+  <script type="module">
+    import { MAX_HISTORY, SCHEMA_VERSION, TEXT_MODEL_VERSION } from '../slides/js/constants.js';
+    import { appendShapeGraphic, applyTextVisualStyles } from '../slides/js/element-rendering.js';
+    import { createThumbSnapshot } from '../slides/js/export.js';
+    import { getCropFractions, getCropGeometry } from '../slides/js/image-geometry.js';
+    import { captureState, commitState, pushHistory, redo, resetHistory, undo } from '../slides/js/history.js';
+    import { alignSelectionUnits, createSelectionUnits, distributeSelectionUnits, groupElements, remapGroupIds, ungroupElements } from '../slides/js/object-commands.js';
+    import { applyLayoutToSlide, applyThemeToPresentation, getTheme } from '../slides/js/presentation-design.js';
+    import { normalizePresentation, parsePresentationText } from '../slides/js/project.js';
+    import { renderSlideThumbnail } from '../slides/js/slide-list.js';
+    import { applyPresentationData, serializePresentation, state } from '../slides/js/state.js';
+    import { elementBounds } from '../slides/js/stage-interactions.js';
+
+    const result = document.getElementById('result');
+
+    function check(name, ok) {
+      if (!ok) throw new Error(name);
+      return `PASS ${name}`;
+    }
+
+    try {
+      const checks = [];
+
+      const shapeSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const arrowGraphic = appendShapeGraphic(shapeSvg, { shape: 'arrow', style: { stroke: '#123456' } });
+      checks.push(check('element rendering creates shared arrow geometry', arrowGraphic.tagName === 'path' && arrowGraphic.getAttribute('d') === 'M 4 50 H 92 M 78 30 L 96 50 L 78 70' && arrowGraphic.getAttribute('fill') === 'none'));
+      const textVisual = document.createElement('div');
+      applyTextVisualStyles(textVisual, {
+        isPlaceholder: true,
+        style: { fontSize: 32, color: '#111111', bold: true, italic: true, underline: true, align: 'center', fontFamily: 'serif', lineHeight: 1.4 }
+      });
+      checks.push(check('element rendering applies shared placeholder text styles', textVisual.classList.contains('is-placeholder') && textVisual.style.color === 'rgb(148, 163, 184)' && textVisual.style.fontStyle === 'normal' && textVisual.style.textDecoration === 'none'));
+
+      const cropGeometry = getCropGeometry({ l: 0.1, t: 0.2, r: 0.3, b: 0.1 });
+      checks.push(check('image geometry normalizes crop fractions', getCropFractions({ l: -1, t: 'x', r: 2 }).r === 0.9));
+      checks.push(check('image geometry keeps stage and export crop math shared', Math.abs(cropGeometry.visibleWidth - 0.6) < 0.0001 && Math.abs(cropGeometry.imageLeft + (1 / 6)) < 0.0001));
+
+      const designPresentation = {
+        theme: 'classic',
+        slides: [{ id: 'design-slide', background: '#ffffff', layout: 'blank', elements: [] }]
+      };
+      const themeApplied = applyThemeToPresentation(designPresentation, 'ocean');
+      checks.push(check('design resolves unknown theme to classic', getTheme('unknown').key === 'classic'));
+      checks.push(check('design applies theme to presentation slides', themeApplied && designPresentation.theme === 'ocean' && designPresentation.slides[0].background === '#eff6ff'));
+      checks.push(check('design rejects unknown theme', !applyThemeToPresentation(designPresentation, 'unknown')));
+
+      const designSlide = designPresentation.slides[0];
+      checks.push(check('design applies typed layout placeholders', applyLayoutToSlide(designSlide, 'title-image') && designSlide.elements.some(element => element.placeholderType === 'image')));
+      const firstLayoutCount = designSlide.elements.length;
+      checks.push(check('design reapplies layout without duplicate placeholders', applyLayoutToSlide(designSlide, 'title-image') && designSlide.elements.length === firstLayoutCount));
+      checks.push(check('design rejects unknown layout', !applyLayoutToSlide(designSlide, 'unknown') && designSlide.layout === 'title-image'));
+
+      const groupedElements = [{ id: 'g1', groupId: null }, { id: 'g2', groupId: null }];
+      checks.push(check('group command assigns one group id', groupElements(groupedElements, () => 'group-a') && groupedElements.every(element => element.groupId === 'group-a')));
+      checks.push(check('group remap creates one new group id', remapGroupIds(groupedElements, () => 'group-copy') && groupedElements.every(element => element.groupId === 'group-copy')));
+      checks.push(check('ungroup command clears group ids', ungroupElements(groupedElements) && groupedElements.every(element => element.groupId === null)));
+
+      const layoutObjects = [
+        { id: 'a', groupId: 'group-layout', x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+        { id: 'b', groupId: 'group-layout', x: 20, y: 0, w: 10, h: 10, rotation: 0 },
+        { id: 'c', groupId: null, x: 100, y: 0, w: 10, h: 10, rotation: 0 }
+      ];
+      const layoutUnits = createSelectionUnits(layoutObjects, elementBounds);
+      checks.push(check('object layout treats a group as one unit', layoutUnits.length === 2));
+      checks.push(check('object alignment preserves group internal layout', alignSelectionUnits(layoutUnits, 'right') && layoutObjects[0].x === 80 && layoutObjects[1].x === 100));
+
+      const distributionObjects = [
+        { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+        { x: 100, y: 0, w: 10, h: 10, rotation: 0 },
+        { x: 300, y: 0, w: 10, h: 10, rotation: 0 }
+      ];
+      checks.push(check('object distribution spaces unit centers', distributeSelectionUnits(createSelectionUnits(distributionObjects, elementBounds), 'h') && distributionObjects[1].x === 150));
+
+      const roundTripFixture = {
+        schemaVersion: SCHEMA_VERSION,
+        textModelVersion: TEXT_MODEL_VERSION,
+        fileName: 'Round trip',
+        theme: 'forest',
+        currentSlideId: 'slide-a',
+        slides: [{
+          id: 'slide-a',
+          background: '#f0fdf4',
+          layout: 'title-image',
+          elements: [
+            { id: 'title', type: 'text', x: 10, y: 10, w: 500, h: 80, z: 1, content: 'Title', isPlaceholder: false, placeholderType: 'title', groupId: 'group-1', style: { fontSize: 40, bold: true } },
+            { id: 'shape', type: 'shape', shape: 'rect', x: 20, y: 120, w: 200, h: 120, z: 2, content: 'Shape text', groupId: 'group-1', style: { fill: '#dbeafe', stroke: '#1d4ed8' } },
+            { id: 'image', type: 'image', x: 250, y: 120, w: 300, h: 200, z: 3, content: 'data:image/png;base64,AAAA', alt: 'Diagram', crop: { l: 0.1, t: 0.2, r: 0.1, b: 0 }, style: { objectFit: 'cover', opacity: 0.7 } }
+          ]
+        }]
+      };
+      const roundTrip = parsePresentationText(JSON.stringify(roundTripFixture));
+      checks.push(check('project round-trip keeps theme and layout', roundTrip?.theme === 'forest' && roundTrip.slides[0].layout === 'title-image'));
+      checks.push(check('project round-trip keeps groups and shape text', roundTrip?.slides[0].elements[0].groupId === 'group-1' && roundTrip.slides[0].elements[1].content === 'Shape text'));
+      checks.push(check('project round-trip keeps image metadata', roundTrip?.slides[0].elements[2].alt === 'Diagram' && roundTrip.slides[0].elements[2].crop.t === 0.2 && roundTrip.slides[0].elements[2].style.opacity === 0.7));
+
+      const largeFixture = {
+        slides: Array.from({ length: 50 }, (_, slideIndex) => ({
+          id: `slide-${slideIndex}`,
+          elements: Array.from({ length: 10 }, (_, elementIndex) => ({
+            id: `element-${slideIndex}-${elementIndex}`,
+            type: 'text',
+            content: `Slide ${slideIndex}, element ${elementIndex}`,
+            x: elementIndex * 20,
+            y: elementIndex * 10,
+            w: 200,
+            h: 60
+          }))
+        }))
+      };
+      const started = performance.now();
+      const largeNormalized = normalizePresentation(largeFixture);
+      const elapsed = performance.now() - started;
+      checks.push(check('performance baseline normalizes 50 slides and 500 elements', largeNormalized?.slides.length === 50 && elapsed < 2000));
+      const renderStarted = performance.now();
+      const thumbHost = document.createDocumentFragment();
+      largeNormalized.slides.forEach(slide => thumbHost.appendChild(createThumbSnapshot(slide)));
+      const renderElapsed = performance.now() - renderStarted;
+      checks.push(check('render baseline builds 50 thumbnails and 500 elements', thumbHost.childNodes.length === 50 && renderElapsed < 3000));
+
+      const previousPresentation = serializePresentation();
+      const previousUndoStack = state.undoStack;
+      const previousRedoStack = state.redoStack;
+      try {
+        applyPresentationData(largeNormalized);
+        resetHistory();
+        const slideListHost = document.createElement('div');
+        state.slides.slice(0, 2).forEach(slide => {
+          const card = document.createElement('div');
+          card.className = 'slide-card';
+          card.dataset.slideId = slide.id;
+          const thumb = document.createElement('div');
+          thumb.className = 'slide-thumb';
+          thumb.appendChild(createThumbSnapshot(slide));
+          card.appendChild(thumb);
+          slideListHost.appendChild(card);
+        });
+        const untouchedThumb = slideListHost.querySelectorAll('.slide-thumb')[1].firstChild;
+        state.slides[0].elements[0].content = 'Targeted thumbnail update';
+        const targetedUpdated = renderSlideThumbnail(slideListHost, state.slides[0].id);
+        checks.push(check('targeted thumbnail render updates requested slide', targetedUpdated && slideListHost.querySelector('.slide-thumb').textContent.includes('Targeted thumbnail update')));
+        checks.push(check('targeted thumbnail render preserves other slide DOM', slideListHost.querySelectorAll('.slide-thumb')[1].firstChild === untouchedThumb));
+        checks.push(check('targeted thumbnail render reports missing card', !renderSlideThumbnail(slideListHost, 'missing-slide')));
+
+        const historyStarted = performance.now();
+        const detachedSnapshot = captureState();
+        state.slides[0].elements[0].content = 'Changed after capture';
+        const snapshotDetached = detachedSnapshot.slides[0].elements[0].content !== state.slides[0].elements[0].content;
+        pushHistory();
+        state.slides[0].elements[0].content = 'Changed for undo';
+        const undoWorked = undo() && state.slides[0].elements[0].content === 'Changed after capture';
+        const redoWorked = redo() && state.slides[0].elements[0].content === 'Changed for undo';
+        const historyElapsed = performance.now() - historyStarted;
+        checks.push(check('history snapshots remain detached', snapshotDetached));
+        checks.push(check('history undo and redo large presentation', undoWorked && redoWorked));
+        checks.push(check('history baseline handles 50 slides and 500 elements', historyElapsed < 2000));
+
+        applyPresentationData(normalizePresentation({ slides: [{ id: 'history-small', elements: [{ id: 'history-text', type: 'text', content: 'initial' }] }] }));
+        resetHistory();
+        commitState(captureState());
+        commitState(captureState());
+        checks.push(check('history deduplicates identical snapshots', state.undoStack.length === 1));
+        resetHistory();
+        for (let index = 0; index < MAX_HISTORY + 5; index += 1) {
+          state.slides[0].elements[0].content = `step-${index}`;
+          pushHistory();
+        }
+        checks.push(check('history keeps configured maximum snapshots', state.undoStack.length === MAX_HISTORY));
+        checks.push(check('history drops oldest snapshots first', state.undoStack[0].slides[0].elements[0].content === 'step-5'));
+      } finally {
+        applyPresentationData(previousPresentation);
+        state.undoStack = previousUndoStack;
+        state.redoStack = previousRedoStack;
+      }
+
+      result.className = 'pass';
+      result.dataset.slidesDomain = 'passed';
+      result.textContent = checks.join('\n');
+    } catch (error) {
+      result.className = 'fail';
+      result.dataset.slidesDomain = 'failed';
+      result.textContent = `FAIL ${error.message}\n${error.stack || ''}`;
+    }
+  </script>
+</body>
+</html>
