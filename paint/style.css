@@ -477,6 +477,28 @@ button, input, select { font: inherit; }
   opacity: 0;
   cursor: pointer;
 }
+.active-colors {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.active-color-stack {
+  position: relative;
+  width: 38px;
+  height: 32px;
+  flex-shrink: 0;
+}
+.active-color-chip {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .2);
+}
+.active-color-chip.foreground { left: 0; top: 0; z-index: 2; }
+.active-color-chip.background { right: 0; bottom: 0; z-index: 1; }
+.active-colors-hint { font-size: .72rem; color: var(--muted); line-height: 1.2; }
 .advanced-color-panel {
   margin-top: 4px;
   padding: 10px;

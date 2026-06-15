@@ -8,6 +8,7 @@ window.ArtMalyunky.constants = {
   HISTORY_MAX_BYTES: 128 * 1024 * 1024,
   DEFAULT_FILE_NAME: 'малюнок',
   DEFAULT_COLOR: '#1f2937',
+  DEFAULT_BG_COLOR: '#ffffff',
   DEFAULT_SIZE: 6,
   DEFAULT_OPACITY: 100,
   DEFAULT_GUIDE: 'none',

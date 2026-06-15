@@ -69,6 +69,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         stampGrid: utils.$('stampGrid'),
         colorPalette: utils.$('colorPalette'),
         nativeColorPicker: utils.$('nativeColorPicker'),
+        foregroundChip: utils.$('foregroundChip'),
+        backgroundChip: utils.$('backgroundChip'),
+        swapColorsBtn: utils.$('swapColorsBtn'),
         shuffleStampsBtn: utils.$('shuffleStampsBtn'),
         propSections: utils.$$('.prop-section[data-tool-section]'),
 
@@ -270,6 +273,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         button.classList.toggle('active', button.dataset.hex.toLowerCase() === state.currentColor.toLowerCase());
       });
       this.elements.nativeColorPicker.value = state.currentColor;
+      if (this.elements.foregroundChip) this.elements.foregroundChip.style.background = state.currentColor;
+      if (this.elements.backgroundChip) this.elements.backgroundChip.style.background = state.backgroundColor;
       const { r, g, b } = utils.hexToRgb(state.currentColor);
       const binary = `${utils.byteToBinary(r)} ${utils.byteToBinary(g)} ${utils.byteToBinary(b)}`;
       this.elements.colorPreview.style.background = state.currentColor;

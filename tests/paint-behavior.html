@@ -283,6 +283,29 @@
       }
       const textBakes = darkFound;
 
+      // --- Основний / додатковий колір (ліва / права кнопка миші) ---
+      const hasFgBgUI = !!doc.getElementById('foregroundChip') && !!doc.getElementById('backgroundChip') && !!doc.getElementById('swapColorsBtn');
+      canvasApi.setDocumentSize(100, 100, { clear: true });
+      state.currentTool = 'brush';
+      state.currentBrush = 'pen';
+      state.currentColor = '#ff0000';
+      state.backgroundColor = '#0000ff';
+      state.currentSize = 16;
+      canvasApi.setZoom(1);
+      const bgPt = canvasApi.docToClient(50, 50);
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: bgPt.x, clientY: bgPt.y, button: 2, pointerId: 5, bubbles: true }));
+      doc.dispatchEvent(new PointerEvent('pointerup', { clientX: bgPt.x, clientY: bgPt.y, button: 2, pointerId: 5, bubbles: true }));
+      const bgDrawn = canvasApi.ctx.getImageData(50, 50, 1, 1).data;
+      const rightClickUsesBackground = bgDrawn[2] > 180 && bgDrawn[0] < 80;
+      state.currentColor = '#112233';
+      state.backgroundColor = '#ccddee';
+      canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }));
+      const swapWorks = state.currentColor === '#ccddee' && state.backgroundColor === '#112233';
+      state.currentColor = '#1f2937';
+      state.backgroundColor = '#ffffff';
+      state.activeColor = null;
+      state.currentTool = 'brush';
+
       const checks = baseChecks.concat([
         check('setDocumentSize sets dimensions', sizeSet),
         check('window resize keeps document size', docStableAfterResize),
@@ -311,7 +334,10 @@
         check('eraser clears alpha on transparent document', eraserClearsAlpha),
         check('PNG export keeps alpha for transparent document', exportKeepsAlpha),
         check('text tool and panel present', hasTextTool),
-        check('text bakes into raster', textBakes)
+        check('text bakes into raster', textBakes),
+        check('foreground/background colors UI present', hasFgBgUI),
+        check('right button draws with background color', rightClickUsesBackground),
+        check('X swaps foreground and background', swapWorks)
       ]);
 
       result.className = 'pass';

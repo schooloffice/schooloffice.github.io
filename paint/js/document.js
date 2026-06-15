@@ -15,6 +15,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         currentShape: state.currentShape,
         currentStamp: state.currentStamp,
         currentColor: state.currentColor,
+        backgroundColor: state.backgroundColor,
         currentSize: state.currentSize,
         currentOpacity: state.currentOpacity,
         currentFontSize: state.currentFontSize,
@@ -94,6 +95,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         state.currentShape = draft.currentShape || 'line';
         state.currentStamp = draft.currentStamp || constants.DEFAULT_STAMP;
         state.currentColor = draft.currentColor || constants.DEFAULT_COLOR;
+        state.backgroundColor = draft.backgroundColor || constants.DEFAULT_BG_COLOR;
         state.currentSize = Number(draft.currentSize || constants.DEFAULT_SIZE);
         state.currentOpacity = Number(draft.currentOpacity || constants.DEFAULT_OPACITY);
         state.currentFontSize = Number(draft.currentFontSize || constants.DEFAULT_FONT_SIZE);

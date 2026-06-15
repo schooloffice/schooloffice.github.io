@@ -394,10 +394,15 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       };
     },
 
+    activeStrokeColor() {
+      return state.activeColor || state.currentColor;
+    },
+
     setRasterStyle() {
       const brush = constants.BRUSHES[state.currentBrush] || constants.BRUSHES.pencil;
-      this.ctx.strokeStyle = state.currentColor;
-      this.ctx.fillStyle = state.currentColor;
+      const color = this.activeStrokeColor();
+      this.ctx.strokeStyle = color;
+      this.ctx.fillStyle = color;
       this.ctx.lineWidth = Math.max(1, state.currentSize * brush.sizeMultiplier);
       this.ctx.lineCap = brush.lineCap;
       this.ctx.lineJoin = 'round';
@@ -489,7 +494,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         b: data[startIndex + 2],
         a: data[startIndex + 3]
       };
-      const fill = utils.hexToRgb(state.currentColor);
+      const fill = utils.hexToRgb(this.activeStrokeColor());
       if (target.r === fill.r && target.g === fill.g && target.b === fill.b && target.a === 255) return;
 
       const visited = new Uint8Array(width * height);
@@ -664,7 +669,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         h: rect.h,
         flipX: rect.flipX,
         flipY: rect.flipY,
-        color: state.currentColor,
+        color: this.activeStrokeColor(),
         opacity: state.currentOpacity,
         strokeWidth: state.currentSize
       };
@@ -675,7 +680,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       if (!state.pendingObject) return;
       const rect = utils.normalizeRect(x1, y1, x2, y2);
       Object.assign(state.pendingObject, rect, {
-        color: state.currentColor,
+        color: this.activeStrokeColor(),
         opacity: state.currentOpacity,
         strokeWidth: state.currentSize,
         shape: state.currentShape

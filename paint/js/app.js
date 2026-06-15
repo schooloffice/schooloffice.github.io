@@ -154,6 +154,21 @@ window.PaintApp = window.PaintApp || {};
     paintDocument.autosaveDraft();
   }
 
+  function setBackgroundColor(hex) {
+    state.backgroundColor = hex;
+    ui.updateColorUI();
+    paintDocument.autosaveDraft();
+  }
+
+  function swapColors() {
+    const fg = state.currentColor;
+    state.currentColor = state.backgroundColor;
+    state.backgroundColor = fg;
+    ui.updateColorUI();
+    syncTextBoxStyle();
+    paintDocument.autosaveDraft();
+  }
+
   function setSize(value) {
     state.currentSize = utils.clamp(Number(value), 1, 48);
     ui.updateSizeUI();
@@ -526,9 +541,14 @@ window.PaintApp = window.PaintApp || {};
     let spacePanning = false;
     let panOrigin = null;
 
+    canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+
     canvas.addEventListener('pointerdown', (event) => {
-      if (event.button !== undefined && event.button !== 0) return;
+      if (event.button === 1) return; // середня кнопка — панорамування
+      if (event.button !== 0 && event.button !== 2) return;
       if (spacePanning) return;
+      // Ліва кнопка малює основним кольором, права — додатковим.
+      state.activeColor = event.button === 2 ? state.backgroundColor : state.currentColor;
       const point = canvasApi.getPointerPosition(event);
       state.pointerId = event.pointerId ?? null;
       state.lastPointer = point;
@@ -567,6 +587,7 @@ window.PaintApp = window.PaintApp || {};
     });
 
     objectLayer.addEventListener('pointerdown', (event) => {
+      if (event.button !== undefined && event.button !== 0) return;
       const handle = event.target.closest('.resize-handle');
       const objectNode = event.target.closest('.art-object');
       if (!objectNode) return;
@@ -669,8 +690,12 @@ window.PaintApp = window.PaintApp || {};
       const swatch = event.target.closest('.color-swatch[data-hex]');
       if (!swatch) return;
       event.preventDefault();
-      setColor(swatch.dataset.hex);
+      // Ліва кнопка — основний колір, права — додатковий.
+      if (event.button === 2) setBackgroundColor(swatch.dataset.hex);
+      else setColor(swatch.dataset.hex);
     });
+    ui.elements.colorPalette.addEventListener('contextmenu', (event) => event.preventDefault());
+    ui.elements.swapColorsBtn?.addEventListener('click', () => swapColors());
 
     document.addEventListener('click', (event) => {
       const menuItem = event.target.closest('.menu-item[data-action]');
@@ -821,6 +846,9 @@ window.PaintApp = window.PaintApp || {};
           break;
         case ']':
           setSize(state.currentSize + 1);
+          break;
+        case 'x':
+          swapColors();
           break;
         case 'enter':
           if (state.selection) {

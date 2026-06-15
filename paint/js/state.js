@@ -12,6 +12,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     currentShape: 'line',
     currentStamp: constants.DEFAULT_STAMP,
     currentColor: constants.DEFAULT_COLOR,
+    backgroundColor: constants.DEFAULT_BG_COLOR,
+    // Колір активного штриха: основний (ліва кнопка) чи додатковий (права).
+    activeColor: null,
     currentSize: constants.DEFAULT_SIZE,
     currentOpacity: constants.DEFAULT_OPACITY,
     guideMode: constants.DEFAULT_GUIDE,
