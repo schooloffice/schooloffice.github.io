@@ -14,7 +14,7 @@
 
 **Ітерацію 3 виконано.** Зроблено: tool registry (`paint/js/tools.js`, контракт `begin/update/commit/cancel`; `app.js` делегує `tools.getActive()`), піпетка (`I`), поворот/відзеркалення (меню «Зображення», `canvasApi.rotate90/rotate180/flip` із `flattenObjects`), прямокутне виділення (інструмент `S`, оверлей `selectionCanvas`, move з підняттям пікселів, delete, Ctrl+C/X/V, flatten на Enter/Esc/зміні інструмента), crop до виділення, масштабування зображення, прибрано дубль `state.canvasWidth/Height`, чернетку перенесено в IndexedDB (`paint/js/storage.js`, fallback на localStorage).
 
-**Ітерація 4 — у процесі.** Зроблено: **прозорість** (гумка на прозорому документі очищає alpha через `destination-out`; checkerboard під документом; PNG-експорт зберігає alpha). **Лишилось:** текст, foreground/background кольори (ліва/права кнопка), оновлені фігури на operation-моделі (тимчасові, з flatten).
+**Ітерація 4 — у процесі.** Зроблено: **прозорість** (гумка очищає alpha через `destination-out`; checkerboard під документом; PNG-експорт зберігає alpha) і **текстовий інструмент** (редагований overlay `<textarea>`, запікається в растр через `canvasApi.drawText`; шрифт/розмір/жирний/курсив у боковій панелі; WYSIWYG при зміні zoom). **Лишилось:** foreground/background кольори (ліва/права кнопка), оновлені фігури на operation-моделі (тимчасові, з flatten).
 
 ## Поточна Структура
 

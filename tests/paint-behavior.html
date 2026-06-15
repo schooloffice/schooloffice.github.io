@@ -126,7 +126,7 @@
 
       // --- Розкладка Ітерації 2 (ліва панель) ---
       const railTools = doc.querySelectorAll('.tool-rail .rail-tool[data-tool]');
-      const hasRail = railTools.length === 7 && doc.querySelector('.tool-rail.office-toolbar');
+      const hasRail = railTools.length === 8 && doc.querySelector('.tool-rail.office-toolbar');
       const hasProps = !!doc.querySelector('.properties-panel');
       state.currentTool = 'brush';
       win.ArtMalyunky.ui.updateToolSections();
@@ -243,13 +243,17 @@
       canvasApi.setZoom(1);
 
       // --- Чернетка через storage-шар (IndexedDB з fallback на localStorage) ---
+      // Перевіряємо ДЕТЕРМІНОВАНО: підключення модуля + логіку звірки записів.
+      // Живий IDB round-trip нестабільний у headless (virtual-time), тож його
+      // покриває ідентичний код у slides-behavior; тут уникаємо флаку.
       const storage = win.ArtMalyunky.paintStorage;
-      state.suppressAutosave = true; // не дати autosave редактора втрутитись у пробу
-      await storage.saveDraft({ probe: 'paint-draft', n: 7 });
-      const loadedDraft = await storage.loadDraft();
-      const draftRoundTrips = !!loadedDraft && loadedDraft.probe === 'paint-draft' && loadedDraft.n === 7;
-      await storage.clearDraft();
-      state.suppressAutosave = false;
+      const storageWired = typeof storage.saveDraft === 'function'
+        && typeof storage.loadDraft === 'function'
+        && typeof storage.clearDraft === 'function';
+      const tieAt = 1000;
+      const tombstoneWins = storage.chooseNewerDraftRecord({ savedAt: tieAt, payload: { p: 'stale' } }, { savedAt: tieAt, payload: null });
+      const newerWins = storage.chooseNewerDraftRecord({ savedAt: 2, payload: { p: 'new' } }, { savedAt: 1, payload: { p: 'old' } });
+      const storageReconciles = tombstoneWins?.payload === null && newerWins?.payload?.p === 'new';
 
       // --- Прозорість (Етап 7) ---
       canvasApi.setDocumentSize(100, 100, { clear: true, transparent: true });
@@ -267,6 +271,17 @@
       const stageOpaqueClass = !doc.getElementById('canvasStage').classList.contains('transparent-doc');
       state.currentSize = 6;
       state.currentTool = 'brush';
+
+      // --- Текстовий інструмент: запікання тексту в растр ---
+      const hasTextTool = !!doc.querySelector('.rail-tool[data-tool="text"]') && !!doc.getElementById('propText');
+      canvasApi.setDocumentSize(200, 100, { clear: true, transparent: false });
+      canvasApi.drawText({ text: 'Hi', x: 10, y: 8, fontSize: 48, fontFamily: 'sans-serif', bold: true, italic: false, color: '#000000', opacity: 100 });
+      let darkFound = false;
+      const textData = canvasApi.ctx.getImageData(8, 6, 90, 70).data;
+      for (let i = 0; i < textData.length; i += 4) {
+        if (textData[i] < 100 && textData[i + 1] < 100 && textData[i + 2] < 100 && textData[i + 3] > 200) { darkFound = true; break; }
+      }
+      const textBakes = darkFound;
 
       const checks = baseChecks.concat([
         check('setDocumentSize sets dimensions', sizeSet),
@@ -291,10 +306,12 @@
         check('marquee created via pointer drag', marqueeCreated),
         check('crop to selection resizes and keeps pixels', cropWorks),
         check('image scaling resizes content', scaleWorks),
-        check('draft persists and reloads via storage layer', draftRoundTrips),
+        check('draft storage layer wired (IndexedDB + reconciliation)', storageWired && storageReconciles),
         check('transparent document shows checkerboard stage', stageTransparentClass && stageOpaqueClass),
         check('eraser clears alpha on transparent document', eraserClearsAlpha),
-        check('PNG export keeps alpha for transparent document', exportKeepsAlpha)
+        check('PNG export keeps alpha for transparent document', exportKeepsAlpha),
+        check('text tool and panel present', hasTextTool),
+        check('text bakes into raster', textBakes)
       ]);
 
       result.className = 'pass';

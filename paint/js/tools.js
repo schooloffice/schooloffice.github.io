@@ -8,7 +8,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 (() => {
   const { state, canvasApi, utils } = window.ArtMalyunky;
 
-  function createPaintTools({ pushUndo, markDirty, objectInteractions, setColor }) {
+  function createPaintTools({ pushUndo, markDirty, objectInteractions, setColor, createTextBox }) {
     let selDrag = null;
 
     // --- Прямокутне виділення (marquee): створення, переміщення з підняттям пікселів ---
@@ -138,6 +138,16 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       cancel() {}
     };
 
+    // --- Текст: клік створює редаговану область (overlay), що запікається в растр ---
+    const text = {
+      begin(point) {
+        createTextBox(point.x, point.y);
+      },
+      update() {},
+      commit() {},
+      cancel() {}
+    };
+
     // --- Піпетка: бере колір пікселя, нічого не змінює (без undo) ---
     const eyedropper = {
       begin(point) {
@@ -214,7 +224,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       }
     };
 
-    const registry = { select, brush, eraser, fill, eyedropper, shapes, stamps };
+    const registry = { select, brush, eraser, fill, eyedropper, text, shapes, stamps };
 
     return {
       registry,

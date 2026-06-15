@@ -262,6 +262,53 @@ button, input, select { font: inherit; }
 }
 .prop-range { display: flex; flex-direction: column; gap: 6px; }
 .prop-range input { width: 100%; accent-color: var(--accent); }
+.prop-range input[type="number"] {
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: var(--text);
+  font-weight: 700;
+}
+.prop-select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+.text-style-toggles { display: flex; gap: 6px; }
+.text-style-btn {
+  width: 42px;
+  height: 36px;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: var(--text);
+  font-size: 1rem;
+  cursor: pointer;
+}
+.text-style-btn:hover { background: var(--accent-soft-2); border-color: var(--accent); }
+.text-style-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-dark); }
+.prop-hint { margin: 0; font-size: .74rem; line-height: 1.35; color: var(--muted); }
+
+/* Редагований текстовий overlay (запікається в растр при підтвердженні). */
+.text-edit-box {
+  position: absolute;
+  z-index: 5;
+  box-sizing: content-box;
+  min-width: 6px;
+  margin: 0;
+  padding: 0 2px;
+  border: 1px dashed var(--accent);
+  background: rgba(255, 255, 255, .04);
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  white-space: pre;
+  line-height: 1.2;
+  caret-color: var(--accent);
+}
 
 .tool-btn,
 .tool-switch,

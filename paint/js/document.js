@@ -17,6 +17,10 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         currentColor: state.currentColor,
         currentSize: state.currentSize,
         currentOpacity: state.currentOpacity,
+        currentFontSize: state.currentFontSize,
+        currentFontFamily: state.currentFontFamily,
+        currentBold: state.currentBold,
+        currentItalic: state.currentItalic,
         guideMode: state.guideMode,
         canvas: canvasApi.toSerializable()
       };
@@ -92,6 +96,10 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         state.currentColor = draft.currentColor || constants.DEFAULT_COLOR;
         state.currentSize = Number(draft.currentSize || constants.DEFAULT_SIZE);
         state.currentOpacity = Number(draft.currentOpacity || constants.DEFAULT_OPACITY);
+        state.currentFontSize = Number(draft.currentFontSize || constants.DEFAULT_FONT_SIZE);
+        state.currentFontFamily = draft.currentFontFamily || constants.DEFAULT_FONT_FAMILY;
+        state.currentBold = !!draft.currentBold;
+        state.currentItalic = !!draft.currentItalic;
         state.guideMode = draft.guideMode || constants.DEFAULT_GUIDE;
         ui.renderBrushes();
         ui.renderStamps();
@@ -102,6 +110,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         ui.updateColorUI();
         ui.updateSizeUI();
         ui.updateOpacityUI();
+        ui.updateTextUI();
         ui.updateGuideUI();
         // Нова чернетка: draft.canvas (серіалізована). Старий формат: draft.snapshot (пласкі поля + raster dataURL).
         const serial = draft.canvas || (draft.snapshot ? {

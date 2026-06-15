@@ -157,6 +157,7 @@
         <button class="rail-btn rail-tool" data-tool="eraser" title="Гумка (E)"><i class="fa-solid fa-eraser"></i></button>
         <button class="rail-btn rail-tool" data-tool="fill" title="Заливка (F)"><i class="fa-solid fa-fill-drip"></i></button>
         <button class="rail-btn rail-tool" data-tool="eyedropper" title="Піпетка (I)"><i class="fa-solid fa-eye-dropper"></i></button>
+        <button class="rail-btn rail-tool" data-tool="text" title="Текст"><i class="fa-solid fa-font"></i></button>
         <button class="rail-btn rail-tool" data-tool="shapes" title="Фігури (G)"><i class="fa-solid fa-shapes"></i></button>
         <button class="rail-btn rail-tool" data-tool="stamps" title="Штампи (T)"><i class="fa-solid fa-stamp"></i></button>
       </div>
@@ -178,6 +179,20 @@
       <div id="propShape" class="prop-section" data-tool-section="shapes">
         <div class="prop-title">Фігура</div>
         <div id="shapeGrid" class="shape-grid"></div>
+      </div>
+
+      <div id="propText" class="prop-section" data-tool-section="text">
+        <div class="prop-title">Текст</div>
+        <select id="fontFamilySelect" class="prop-select" aria-label="Шрифт"></select>
+        <label class="prop-range">
+          <span class="prop-title">Розмір шрифту <span id="fontSizeValue" class="range-value">24</span></span>
+          <input id="fontSizeInput" type="number" min="8" max="200" step="1" value="24">
+        </label>
+        <div class="text-style-toggles">
+          <button id="boldBtn" class="text-style-btn" type="button" title="Жирний" aria-pressed="false"><b>Ж</b></button>
+          <button id="italicBtn" class="text-style-btn" type="button" title="Курсив" aria-pressed="false"><i>К</i></button>
+        </div>
+        <p class="prop-hint">Клікни на полотні, введи текст. Enter — новий рядок; Esc або зміна інструмента — застосувати.</p>
       </div>
 
       <div id="propStamp" class="prop-section" data-tool-section="stamps">

@@ -440,6 +440,25 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.ctx.restore();
     },
 
+    // Запікає текст у растр (raster-first: текстовий overlay лише до підтвердження).
+    drawText({ text, x, y, fontSize, fontFamily, bold, italic, color, opacity }) {
+      const value = String(text == null ? '' : text);
+      if (!value) return;
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = utils.clamp((Number(opacity) || 100) / 100, 0.05, 1);
+      ctx.fillStyle = utils.sanitizeHexColor(color, constants.DEFAULT_COLOR);
+      ctx.textBaseline = 'top';
+      const size = Math.max(1, Number(fontSize) || constants.DEFAULT_FONT_SIZE);
+      const weight = bold ? '700 ' : '';
+      const slant = italic ? 'italic ' : '';
+      ctx.font = `${slant}${weight}${size}px ${fontFamily || constants.DEFAULT_FONT_FAMILY}`;
+      const lineHeight = size * 1.2;
+      value.split('\n').forEach((line, index) => ctx.fillText(line, x, y + index * lineHeight));
+      ctx.restore();
+    },
+
     spray(x, y) {
       this.ctx.save();
       this.setRasterStyle();

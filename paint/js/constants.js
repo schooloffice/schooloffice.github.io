@@ -12,6 +12,14 @@ window.ArtMalyunky.constants = {
   DEFAULT_OPACITY: 100,
   DEFAULT_GUIDE: 'none',
   DEFAULT_STAMP: '⭐',
+  DEFAULT_FONT_SIZE: 24,
+  DEFAULT_FONT_FAMILY: 'sans-serif',
+  FONT_FAMILIES: [
+    { label: 'Без зарубок', value: 'sans-serif' },
+    { label: 'Із зарубками', value: 'serif' },
+    { label: 'Моноширинний', value: 'monospace' },
+    { label: 'Nunito', value: "'Nunito', sans-serif" }
+  ],
   DEFAULT_DOC_WIDTH: 800,
   DEFAULT_DOC_HEIGHT: 600,
   MIN_DOC_DIMENSION: 16,
@@ -79,6 +87,7 @@ window.ArtMalyunky.constants = {
     eraser: { label: 'Гумка', icon: 'fa-eraser', cursor: 'cell' },
     fill: { label: 'Заливка', icon: 'fa-fill-drip', cursor: 'cell' },
     eyedropper: { label: 'Піпетка', icon: 'fa-eye-dropper', cursor: 'crosshair' },
+    text: { label: 'Текст', icon: 'fa-font', cursor: 'text' },
     shapes: { label: 'Фігури', icon: 'fa-shapes', cursor: 'crosshair' },
     stamps: { label: 'Штампи', icon: 'fa-stamp', cursor: 'copy' }
   },

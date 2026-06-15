@@ -15,6 +15,13 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     currentSize: constants.DEFAULT_SIZE,
     currentOpacity: constants.DEFAULT_OPACITY,
     guideMode: constants.DEFAULT_GUIDE,
+    currentFontSize: constants.DEFAULT_FONT_SIZE,
+    currentFontFamily: constants.DEFAULT_FONT_FAMILY,
+    currentBold: false,
+    currentItalic: false,
+
+    // Активна редагована текстова область (overlay), що запікається в растр.
+    textEdit: null,
 
     document: {
       version: 1,

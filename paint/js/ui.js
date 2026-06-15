@@ -15,6 +15,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.renderShapes();
       this.renderPalette();
       this.renderStamps();
+      this.renderFontFamilies();
       this.bindMenus();
       this.bindAdvancedColorPanel();
       this.updateToolUI();
@@ -23,6 +24,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.updateColorUI();
       this.updateSizeUI();
       this.updateOpacityUI();
+      this.updateTextUI();
       this.updateGuideUI();
       this.updateZoomUI();
       this.updateFileNameUI();
@@ -74,6 +76,12 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         opacitySlider: utils.$('opacitySlider'),
         sizeValue: utils.$('sizeValue'),
         opacityValue: utils.$('opacityValue'),
+
+        fontFamilySelect: utils.$('fontFamilySelect'),
+        fontSizeInput: utils.$('fontSizeInput'),
+        fontSizeValue: utils.$('fontSizeValue'),
+        boldBtn: utils.$('boldBtn'),
+        italicBtn: utils.$('italicBtn'),
 
         advancedColorBtn: utils.$('advancedColorBtn'),
         advancedColorPanel: utils.$('advancedColorPanel'),
@@ -283,6 +291,28 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.elements.statusSize.textContent = `Товщина: ${state.currentSize}`;
     },
 
+    renderFontFamilies() {
+      const select = this.elements.fontFamilySelect;
+      if (!select) return;
+      select.innerHTML = constants.FONT_FAMILIES
+        .map((font) => `<option value="${utils.escapeHtml(font.value)}">${utils.escapeHtml(font.label)}</option>`)
+        .join('');
+    },
+
+    updateTextUI() {
+      if (this.elements.fontSizeInput) this.elements.fontSizeInput.value = String(state.currentFontSize);
+      if (this.elements.fontSizeValue) this.elements.fontSizeValue.textContent = String(state.currentFontSize);
+      if (this.elements.fontFamilySelect) this.elements.fontFamilySelect.value = state.currentFontFamily;
+      if (this.elements.boldBtn) {
+        this.elements.boldBtn.classList.toggle('active', state.currentBold);
+        this.elements.boldBtn.setAttribute('aria-pressed', state.currentBold ? 'true' : 'false');
+      }
+      if (this.elements.italicBtn) {
+        this.elements.italicBtn.classList.toggle('active', state.currentItalic);
+        this.elements.italicBtn.setAttribute('aria-pressed', state.currentItalic ? 'true' : 'false');
+      }
+    },
+
     updateOpacityUI() {
       this.elements.opacitySlider.value = String(state.currentOpacity);
       this.elements.opacityValue.textContent = `${state.currentOpacity}%`;
@@ -410,6 +440,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         this.elements.statusDetail.textContent = 'Режим: піпетка (клік бере колір)';
       } else if (state.currentTool === 'select') {
         this.elements.statusDetail.textContent = 'Режим: виділення (перетягни рамку; Del — видалити, Ctrl+C/V — копіювати/вставити)';
+      } else if (state.currentTool === 'text') {
+        this.elements.statusDetail.textContent = 'Режим: текст (клікни на полотні й введи текст)';
       }
     },
 
