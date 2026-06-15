@@ -29,5 +29,6 @@
 - `paint/js/app.js` — boot і shell-adapter (`PaintApp.boot`).
 - `paint/js/state.js` — локальний runtime state.
 - `paint/js/ui.js` — DOM/UI-шар редактора.
-- `paint/js/canvas.js` — canvas-логіка й інструменти малювання.
+- `paint/js/tools.js` — реєстр інструментів (контракт `begin/update/commit/cancel`).
+- `paint/js/canvas.js` — canvas-логіка, растрові операції, трансформації документа.
 - `paint/js/constants.js`, `paint/js/utils.js` — допоміжні модулі редактора.

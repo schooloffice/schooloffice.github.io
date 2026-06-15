@@ -74,9 +74,11 @@ window.ArtMalyunky.constants = {
     }
   },
   TOOLS: {
+    select: { label: 'Виділення', icon: 'fa-object-group', cursor: 'crosshair' },
     brush: { label: 'Пензлик', icon: 'fa-paintbrush', cursor: 'crosshair' },
     eraser: { label: 'Гумка', icon: 'fa-eraser', cursor: 'cell' },
     fill: { label: 'Заливка', icon: 'fa-fill-drip', cursor: 'cell' },
+    eyedropper: { label: 'Піпетка', icon: 'fa-eye-dropper', cursor: 'crosshair' },
     shapes: { label: 'Фігури', icon: 'fa-shapes', cursor: 'crosshair' },
     stamps: { label: 'Штампи', icon: 'fa-stamp', cursor: 'copy' }
   },

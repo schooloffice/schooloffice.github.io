@@ -47,6 +47,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         drawingCanvas: utils.$('drawingCanvas'),
         guideCanvas: utils.$('guideCanvas'),
         objectLayer: utils.$('objectLayer'),
+        selectionCanvas: utils.$('selectionCanvas'),
         canvasStage: utils.$('canvasStage'),
         canvasStageWrap: utils.$('canvasStageWrap'),
 
@@ -405,6 +406,10 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         this.elements.statusDetail.textContent = 'Режим: стирання';
       } else if (state.currentTool === 'fill') {
         this.elements.statusDetail.textContent = 'Режим: заливка області';
+      } else if (state.currentTool === 'eyedropper') {
+        this.elements.statusDetail.textContent = 'Режим: піпетка (клік бере колір)';
+      } else if (state.currentTool === 'select') {
+        this.elements.statusDetail.textContent = 'Режим: виділення (перетягни рамку; Del — видалити, Ctrl+C/V — копіювати/вставити)';
       }
     },
 

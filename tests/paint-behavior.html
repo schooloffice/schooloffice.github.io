@@ -126,7 +126,7 @@
 
       // --- Розкладка Ітерації 2 (ліва панель) ---
       const railTools = doc.querySelectorAll('.tool-rail .rail-tool[data-tool]');
-      const hasRail = railTools.length === 5 && doc.querySelector('.tool-rail.office-toolbar');
+      const hasRail = railTools.length === 7 && doc.querySelector('.tool-rail.office-toolbar');
       const hasProps = !!doc.querySelector('.properties-panel');
       state.currentTool = 'brush';
       win.ArtMalyunky.ui.updateToolSections();
@@ -166,6 +166,82 @@
       state.selectedObjectId = null;
       canvasApi.renderObjects();
 
+      // --- Ітерація 3: tool registry, піпетка, поворот, відзеркалення ---
+      const hasRegistry = typeof win.ArtMalyunky.paintTools?.createPaintTools === 'function'
+        && !!doc.querySelector('.rail-tool[data-tool="eyedropper"]');
+
+      // Піпетка бере колір пікселя через реальний pointer-pipeline.
+      canvasApi.setDocumentSize(400, 300, { clear: true });
+      canvasApi.ctx.fillStyle = '#1188cc';
+      canvasApi.ctx.fillRect(0, 0, 400, 300);
+      state.currentTool = 'eyedropper';
+      canvasApi.setZoom(1);
+      const epoint = canvasApi.docToClient(50, 50);
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: epoint.x, clientY: epoint.y, button: 0, pointerId: 2, bubbles: true }));
+      doc.dispatchEvent(new PointerEvent('pointerup', { clientX: epoint.x, clientY: epoint.y, button: 0, pointerId: 2, bubbles: true }));
+      const eyedropperPicked = String(state.currentColor).toLowerCase() === '#1188cc';
+
+      // Поворот 90° міняє розміри документа місцями.
+      canvasApi.setDocumentSize(800, 600, { clear: true });
+      canvasApi.rotate90('cw');
+      const rotateSwapsDims = canvasApi.canvas.width === 600 && canvasApi.canvas.height === 800;
+
+      // Відзеркалення переносить піксель на протилежний край.
+      canvasApi.setDocumentSize(200, 120, { clear: true });
+      canvasApi.ctx.fillStyle = '#ff0000';
+      canvasApi.ctx.fillRect(10, 12, 6, 6);
+      canvasApi.flip('horizontal');
+      const flippedPx = canvasApi.ctx.getImageData(187, 14, 1, 1).data;
+      const flipWorks = flippedPx[0] > 180 && flippedPx[1] < 80 && flippedPx[2] < 80;
+
+      // --- Виділення: copy / delete / paste + pointer-маркер ---
+      canvasApi.setDocumentSize(200, 200, { clear: true });
+      canvasApi.ctx.fillStyle = '#ff0000';
+      canvasApi.ctx.fillRect(20, 20, 30, 30);
+      state.selection = { x: 20, y: 20, w: 30, h: 30, floating: null };
+      const selBuffer = canvasApi.copySelectionToBuffer();
+      const selectionCopies = !!selBuffer && selBuffer.width === 30 && selBuffer.height === 30;
+      canvasApi.deleteSelection();
+      const selDelPx = canvasApi.ctx.getImageData(30, 30, 1, 1).data;
+      const selectionDeletes = selDelPx[0] > 240 && selDelPx[1] > 240 && selDelPx[2] > 240;
+      canvasApi.pasteBuffer(selBuffer);
+      const selPastePx = canvasApi.ctx.getImageData(5, 5, 1, 1).data;
+      const selectionPastes = selPastePx[0] > 180 && selPastePx[1] < 80 && selPastePx[2] < 80;
+      canvasApi.flattenSelection();
+
+      state.currentTool = 'select';
+      canvasApi.setZoom(1);
+      const sa = canvasApi.docToClient(40, 40);
+      const sb = canvasApi.docToClient(95, 85);
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: sa.x, clientY: sa.y, button: 0, pointerId: 3, bubbles: true }));
+      canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: sb.x, clientY: sb.y, button: 0, pointerId: 3, bubbles: true }));
+      doc.dispatchEvent(new PointerEvent('pointerup', { clientX: sb.x, clientY: sb.y, button: 0, pointerId: 3, bubbles: true }));
+      const marqueeCreated = !!state.selection && state.selection.w >= 50 && state.selection.h >= 40;
+      state.selection = null;
+      canvasApi.drawSelectionOverlay();
+      state.currentTool = 'brush';
+      canvasApi.setZoom(1);
+
+      // --- Crop до виділення ---
+      canvasApi.setDocumentSize(200, 200, { clear: true });
+      canvasApi.ctx.fillStyle = '#ff0000';
+      canvasApi.ctx.fillRect(50, 50, 60, 40);
+      state.selection = { x: 50, y: 50, w: 60, h: 40, floating: null };
+      canvasApi.cropToSelection();
+      const cropPx = canvasApi.ctx.getImageData(10, 10, 1, 1).data;
+      const cropWorks = canvasApi.canvas.width === 60 && canvasApi.canvas.height === 40
+        && cropPx[0] > 180 && cropPx[1] < 80 && cropPx[2] < 80;
+
+      // --- Масштабування зображення ---
+      canvasApi.setDocumentSize(100, 80, { clear: true });
+      canvasApi.ctx.fillStyle = '#00aa00';
+      canvasApi.ctx.fillRect(0, 0, 100, 80);
+      canvasApi.resizeDocument(200, 160, { scale: true });
+      const scalePx = canvasApi.ctx.getImageData(150, 120, 1, 1).data;
+      const scaleWorks = canvasApi.canvas.width === 200 && canvasApi.canvas.height === 160
+        && scalePx[1] > 120 && scalePx[0] < 120;
+      canvasApi.setZoom(1);
+
       const checks = baseChecks.concat([
         check('setDocumentSize sets dimensions', sizeSet),
         check('window resize keeps document size', docStableAfterResize),
@@ -178,7 +254,17 @@
         check('contextual prop sections toggle by tool', contextualSections),
         check('drawing at zoom hits correct pixel', drewAtZoom),
         check('synchronous undo reverts stroke', undoClearsDraw),
-        check('object values escaped against XSS', xssEscaped)
+        check('object values escaped against XSS', xssEscaped),
+        check('tool registry and eyedropper present', hasRegistry),
+        check('eyedropper picks pixel color', eyedropperPicked),
+        check('rotate 90 swaps document dimensions', rotateSwapsDims),
+        check('flip mirrors raster', flipWorks),
+        check('selection copies region', selectionCopies),
+        check('selection delete clears region', selectionDeletes),
+        check('selection paste restores pixels', selectionPastes),
+        check('marquee created via pointer drag', marqueeCreated),
+        check('crop to selection resizes and keeps pixels', cropWorks),
+        check('image scaling resizes content', scaleWorks)
       ]);
 
       result.className = 'pass';

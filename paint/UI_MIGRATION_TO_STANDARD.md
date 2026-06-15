@@ -12,7 +12,7 @@
 
 **Ітерацію 2.5 (зміцнення підмурку) виконано:** історія undo/redo синхронна, на canvas-снапшотах, із memory budget (`HISTORY_MAX_BYTES`); серіалізація чернетки відокремлена (`toSerializable`/`restoreSerializable`) від canvas-снапшотів історії; координатна трансформація централізована (`clientToDoc`/`docToClient`); закрито XSS-поверхню `innerHTML` (escape тексту/id, валідація кольору, числові координати).
 
-**Наступна — Ітерація 3:** tool registry (винести інструменти з `if/else`) + eyedropper, прямокутне виділення, crop, resize, rotate/flip. По ходу: чернетку в IndexedDB; прибрати дубль `state.canvasWidth/Height` (усюди `state.document.*`); за потреби — мінімізувати full-innerHTML rebuild під час перетягування об'єктів.
+**Ітерація 3 — майже завершено.** Зроблено: tool registry (`paint/js/tools.js`, контракт `begin/update/commit/cancel`; `app.js` делегує `tools.getActive()`), піпетка (`I`), поворот/відзеркалення (меню «Зображення», `canvasApi.rotate90/rotate180/flip` із `flattenObjects`), прямокутне виділення (інструмент `S`, оверлей `selectionCanvas`, move з підняттям пікселів, delete, Ctrl+C/X/V, flatten на Enter/Esc/зміні інструмента), crop до виділення, масштабування зображення, прибрано дубль `state.canvasWidth/Height`. **Лишилось:** чернетку в IndexedDB (storage-рефактор, `document.js`).
 
 ## Поточна Структура
 
@@ -20,7 +20,8 @@
 - `paint/js/app.js` — boot, command adapter, tool state coordination, canvas/object interaction wiring.
 - `paint/js/document.js` — autosave draft, restore draft, image import, PNG/JPG export і print.
 - `paint/js/object-interactions.js` — select, move, resize і delete для об'єктів на полотні.
-- `paint/js/canvas.js` — canvas API, raster drawing, object rendering, snapshots і guides.
+- `paint/js/tools.js` — реєстр інструментів (контракт `begin/update/commit/cancel`); пензлик/гумка/заливка/піпетка/фігури/штампи.
+- `paint/js/canvas.js` — canvas API, raster drawing, object rendering, snapshots, трансформації (rotate/flip), guides.
 - `paint/js/ui.js` — DOM cache, menu/picker/modal/statusbar UI.
 - `paint/js/state.js` — локальний runtime state.
 - `paint/js/constants.js` — інструменти, палітра, guides, brush/stamp definitions.

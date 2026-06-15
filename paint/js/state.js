@@ -30,9 +30,6 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       panY: 0
     },
 
-    // Дзеркала document.width/height для зворотної сумісності зі старим кодом.
-    canvasWidth: constants.DEFAULT_DOC_WIDTH,
-    canvasHeight: constants.DEFAULT_DOC_HEIGHT,
     isDrawing: false,
     lastX: 0,
     lastY: 0,
@@ -45,6 +42,10 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     selectedObjectId: null,
     pendingObject: null,
     objectInteraction: null,
+
+    // Прямокутне виділення растру: { x, y, w, h, floating: <canvas>|null }.
+    selection: null,
+    clipboard: null,
 
     undoStack: [],
     redoStack: [],

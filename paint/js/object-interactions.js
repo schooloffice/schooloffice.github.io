@@ -71,8 +71,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       const dy = point.y - interaction.startY;
 
       if (interaction.type === 'move') {
-        const nextX = utils.clamp(interaction.original.x + dx, 0, state.canvasWidth - interaction.original.w);
-        const nextY = utils.clamp(interaction.original.y + dy, 0, state.canvasHeight - interaction.original.h);
+        const nextX = utils.clamp(interaction.original.x + dx, 0, state.document.width - interaction.original.w);
+        const nextY = utils.clamp(interaction.original.y + dy, 0, state.document.height - interaction.original.h);
         canvasApi.updateObject(obj.id, { x: nextX, y: nextY });
         ui.updateDetailStatus(canvasApi.getObjectById(obj.id));
         return;
@@ -85,9 +85,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       let bottom = interaction.original.y + interaction.original.h;
 
       if (interaction.handle.includes('w')) left = utils.clamp(interaction.original.x + dx, 0, right - minSize);
-      if (interaction.handle.includes('e')) right = utils.clamp(interaction.original.x + interaction.original.w + dx, left + minSize, state.canvasWidth);
+      if (interaction.handle.includes('e')) right = utils.clamp(interaction.original.x + interaction.original.w + dx, left + minSize, state.document.width);
       if (interaction.handle.includes('n')) top = utils.clamp(interaction.original.y + dy, 0, bottom - minSize);
-      if (interaction.handle.includes('s')) bottom = utils.clamp(interaction.original.y + interaction.original.h + dy, top + minSize, state.canvasHeight);
+      if (interaction.handle.includes('s')) bottom = utils.clamp(interaction.original.y + interaction.original.h + dy, top + minSize, state.document.height);
 
       canvasApi.updateObject(obj.id, {
         x: left,

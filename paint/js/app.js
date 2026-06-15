@@ -7,6 +7,7 @@ window.PaintApp = window.PaintApp || {};
   const { constants, state, utils, canvasApi, ui } = window.ArtMalyunky;
   const paintDocument = window.ArtMalyunky.paintDocument.createPaintDocument({ markDirty, markSaved, pushUndo });
   const objectInteractions = window.ArtMalyunky.objectInteractions.createPaintObjectInteractions({ markDirty, pushUndo });
+  const tools = window.ArtMalyunky.paintTools.createPaintTools({ pushUndo, markDirty, objectInteractions, setColor });
 
   function markDirty() {
     state.unsavedChanges = true;
@@ -42,7 +43,7 @@ window.PaintApp = window.PaintApp || {};
     state.suppressAutosave = true;
     canvasApi.restoreSnapshot(snapshot);
     state.suppressAutosave = false;
-    ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
+    ui.updateCanvasInfo(state.document.width, state.document.height);
     ui.updateZoomUI();
     ui.updateDetailStatus();
     paintDocument.autosaveDraft();
@@ -63,9 +64,51 @@ window.PaintApp = window.PaintApp || {};
   }
 
   function setTool(toolName) {
+    // Вихід з інструмента виділення фіксує плаваюче виділення в растрі.
+    if (toolName !== 'select' && state.selection) {
+      if (canvasApi.flattenSelection()) markDirty();
+    }
     state.currentTool = toolName;
     ui.updateToolUI();
     paintDocument.autosaveDraft();
+  }
+
+  function commitSelection() {
+    if (state.selection && canvasApi.flattenSelection()) markDirty();
+  }
+
+  function copySelection() {
+    const buffer = canvasApi.copySelectionToBuffer();
+    if (buffer) state.clipboard = buffer;
+    return !!buffer;
+  }
+
+  function cutSelection() {
+    if (!state.selection || !copySelection()) return;
+    if (!state.selection.floating) pushUndo();
+    canvasApi.deleteSelection();
+    markDirty();
+  }
+
+  function pasteClipboard() {
+    if (!state.clipboard) return;
+    pushUndo();
+    canvasApi.pasteBuffer(state.clipboard);
+    setTool('select');
+    ui.updateDetailStatus();
+    markDirty();
+  }
+
+  function deleteSelectionOrObject() {
+    if (state.selection) {
+      if (!state.selection.floating) pushUndo();
+      canvasApi.deleteSelection();
+      markDirty();
+      return;
+    }
+    if (state.selectedObjectId) {
+      objectInteractions.deleteSelectedObject();
+    }
   }
 
   function setBrush(brushName) {
@@ -149,7 +192,7 @@ window.PaintApp = window.PaintApp || {};
     canvasApi.fitDocumentToViewport();
     state.fileName = constants.DEFAULT_FILE_NAME;
     ui.updateFileNameUI();
-    ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
+    ui.updateCanvasInfo(state.document.width, state.document.height);
     ui.updateZoomUI();
     state.unsavedChanges = false;
     ui.updateDirtyUI();
@@ -179,7 +222,7 @@ window.PaintApp = window.PaintApp || {};
 
   function fitToWindow() {
     canvasApi.fitDocumentToViewport();
-    ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
+    ui.updateCanvasInfo(state.document.width, state.document.height);
     applyZoomChange();
   }
 
@@ -197,9 +240,43 @@ window.PaintApp = window.PaintApp || {};
     state.document.background = choice.background;
     canvasApi.resizeDocument(choice.width, choice.height, { scale: false });
     canvasApi.fitDocumentToViewport();
-    ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
+    ui.updateCanvasInfo(state.document.width, state.document.height);
     ui.updateZoomUI();
     markDirty();
+  }
+
+  async function scaleImageDialog() {
+    const choice = await ui.showDocumentDialog({
+      title: 'Масштабувати зображення',
+      confirmText: 'Масштабувати',
+      width: state.document.width,
+      height: state.document.height,
+      transparent: state.document.transparent
+    });
+    if (!choice) return;
+    pushUndo();
+    state.document.transparent = choice.transparent;
+    state.document.background = choice.background;
+    canvasApi.flattenObjects();
+    canvasApi.resizeDocument(choice.width, choice.height, { scale: true });
+    canvasApi.fitDocumentToViewport();
+    ui.updateCanvasInfo(state.document.width, state.document.height);
+    ui.updateZoomUI();
+    markDirty();
+  }
+
+  function cropToSelectionAction() {
+    if (!state.selection) {
+      ui.showInfoModal('Обрізання', 'Спершу виділіть прямокутну ділянку інструментом «Виділення» (S).', 'ℹ️');
+      return;
+    }
+    pushUndo();
+    if (canvasApi.cropToSelection()) {
+      ui.updateCanvasInfo(state.document.width, state.document.height);
+      ui.updateZoomUI();
+      ui.updateDetailStatus();
+      markDirty();
+    }
   }
 
   function runOfficeCommand(command) {
@@ -269,8 +346,29 @@ window.PaintApp = window.PaintApp || {};
       case 'resize-canvas':
         resizeCanvasDialog();
         break;
+      case 'scale-image':
+        scaleImageDialog();
+        break;
+      case 'crop-selection':
+        cropToSelectionAction();
+        break;
+      case 'rotate-cw':
+        rotateCanvas('cw');
+        break;
+      case 'rotate-ccw':
+        rotateCanvas('ccw');
+        break;
+      case 'rotate-180':
+        rotateCanvas180();
+        break;
+      case 'flip-h':
+        flipCanvas('horizontal');
+        break;
+      case 'flip-v':
+        flipCanvas('vertical');
+        break;
       case 'show-shortcuts':
-        ui.showInfoModal('Клавіатурні скорочення', 'B — пензлик\nE — гумка\nF — заливка\nG — фігури\nT — штампи\nDelete / Backspace — видалити вибраний об\'єкт\n[ / ] — менша або більша товщина\nCtrl+Z — скасувати\nCtrl+Y — повернути\nCtrl+S — зберегти PNG\nCtrl+N — новий малюнок\nEsc — закрити меню або зняти виділення', '⌨️');
+        ui.showInfoModal('Клавіатурні скорочення', 'B — пензлик\nE — гумка\nF — заливка\nI — піпетка\nG — фігури\nT — штампи\nDelete / Backspace — видалити вибраний об\'єкт\n[ / ] — менша або більша товщина\nCtrl + колесо — масштаб\nПробіл + перетягування — панорамування\nCtrl+0 / Ctrl+± — масштаб\nCtrl+Z — скасувати\nCtrl+Y — повернути\nCtrl+S — зберегти PNG\nCtrl+N — новий малюнок\nEsc — закрити меню або зняти виділення', '⌨️');
         break;
       case 'show-about':
         ui.showInfoModal('Про ПЛЮС Малюнки', 'ПЛЮС Малюнки — графічний редактор у стилі вашого офісного набору. Основна палітра завжди видима, пензлик має кілька режимів, а фігури й штампи можна пересувати та змінювати за розміром.', '🎨');
@@ -281,102 +379,27 @@ window.PaintApp = window.PaintApp || {};
     ui.closeMenus();
   }
 
-  function beginRasterStroke(point, event) {
-    state.isDrawing = true;
-    state.pointerId = event.pointerId ?? null;
-    state.startX = point.x;
-    state.startY = point.y;
-    state.lastX = point.x;
-    state.lastY = point.y;
-
-    if (state.currentTool === 'fill') {
-      pushUndo();
-      canvasApi.floodFill(Math.floor(point.x), Math.floor(point.y));
-      state.isDrawing = false;
-      markDirty();
-      return;
-    }
-
-    if (state.currentTool === 'brush' || state.currentTool === 'eraser') {
-      pushUndo();
-      if (state.currentTool === 'brush') canvasApi.drawFreehand(point.x, point.y);
-      else canvasApi.erase(point.x, point.y);
-    }
-  }
-
-  function beginObjectCreation(point, event) {
-    state.isDrawing = true;
-    state.pointerId = event.pointerId ?? null;
-    state.startX = point.x;
-    state.startY = point.y;
+  function rotateCanvas(direction) {
     pushUndo();
-    if (state.currentTool === 'shapes') canvasApi.createPendingShape(point.x, point.y, point.x, point.y);
-    if (state.currentTool === 'stamps') canvasApi.createPendingStamp(point.x, point.y, point.x, point.y);
+    canvasApi.rotate90(direction);
+    ui.updateCanvasInfo(state.document.width, state.document.height);
+    ui.updateZoomUI();
+    ui.updateDetailStatus();
+    markDirty();
   }
 
-  function moveCanvasInteraction(point) {
-    if (!state.isDrawing) return;
-
-    if (state.currentTool === 'brush') {
-      canvasApi.drawFreehand(point.x, point.y);
-      state.lastX = point.x;
-      state.lastY = point.y;
-      return;
-    }
-
-    if (state.currentTool === 'eraser') {
-      canvasApi.erase(point.x, point.y);
-      state.lastX = point.x;
-      state.lastY = point.y;
-      return;
-    }
-
-    if (state.currentTool === 'shapes') {
-      canvasApi.updatePendingShape(state.startX, state.startY, point.x, point.y);
-      return;
-    }
-
-    if (state.currentTool === 'stamps') {
-      canvasApi.updatePendingStamp(state.startX, state.startY, point.x, point.y);
-    }
+  function rotateCanvas180() {
+    pushUndo();
+    canvasApi.rotate180();
+    ui.updateDetailStatus();
+    markDirty();
   }
 
-  function finishCanvasInteraction(point) {
-    if (!state.isDrawing) return;
-
-    if (state.currentTool === 'brush' || state.currentTool === 'eraser') {
-      state.isDrawing = false;
-      markDirty();
-      return;
-    }
-
-    if (state.currentTool === 'shapes') {
-      const obj = canvasApi.commitPendingObject();
-      state.isDrawing = false;
-      if (obj) {
-        objectInteractions.selectObject(obj.id);
-        markDirty();
-      }
-      return;
-    }
-
-    if (state.currentTool === 'stamps') {
-      const pending = state.pendingObject;
-      if (pending && pending.w < 8 && pending.h < 8) {
-        Object.assign(pending, {
-          x: utils.clamp(point.x - 36, 0, state.canvasWidth - 72),
-          y: utils.clamp(point.y - 36, 0, state.canvasHeight - 72),
-          w: 72,
-          h: 72
-        });
-      }
-      const obj = canvasApi.commitPendingObject();
-      state.isDrawing = false;
-      if (obj) {
-        objectInteractions.selectObject(obj.id);
-        markDirty();
-      }
-    }
+  function flipCanvas(axis) {
+    pushUndo();
+    canvasApi.flip(axis);
+    ui.updateDetailStatus();
+    markDirty();
   }
 
   function bindCanvas() {
@@ -390,18 +413,18 @@ window.PaintApp = window.PaintApp || {};
       if (event.button !== undefined && event.button !== 0) return;
       if (spacePanning) return;
       const point = canvasApi.getPointerPosition(event);
+      state.pointerId = event.pointerId ?? null;
       state.lastPointer = point;
       ui.updateCoords(point.x, point.y);
       objectInteractions.deselectObject();
-      if (state.currentTool === 'shapes' || state.currentTool === 'stamps') beginObjectCreation(point, event);
-      else beginRasterStroke(point, event);
+      tools.getActive().begin(point, event);
     });
 
     canvas.addEventListener('pointermove', (event) => {
       const point = canvasApi.getPointerPosition(event);
       state.lastPointer = point;
       ui.updateCoords(point.x, point.y);
-      moveCanvasInteraction(point);
+      tools.getActive().update(point, event);
     });
 
     document.addEventListener('pointermove', (event) => {
@@ -417,13 +440,12 @@ window.PaintApp = window.PaintApp || {};
       const point = canvasApi.getPointerPosition(event);
       state.lastPointer = point;
       ui.updateCoords(point.x, point.y);
-      finishCanvasInteraction(point);
+      tools.getActive().commit(point, event);
       objectInteractions.finishObjectInteraction();
     });
 
     document.addEventListener('pointercancel', () => {
-      state.isDrawing = false;
-      canvasApi.cancelPendingObject();
+      tools.getActive().cancel?.();
       objectInteractions.finishObjectInteraction();
     });
 
@@ -627,12 +649,33 @@ window.PaintApp = window.PaintApp || {};
             event.preventDefault();
             zoomOut();
             return;
+          case 'c':
+            if (state.selection) {
+              event.preventDefault();
+              copySelection();
+            }
+            return;
+          case 'x':
+            if (state.selection) {
+              event.preventDefault();
+              cutSelection();
+            }
+            return;
+          case 'v':
+            if (state.clipboard) {
+              event.preventDefault();
+              pasteClipboard();
+            }
+            return;
           default:
             break;
         }
       }
 
       switch (event.key.toLowerCase()) {
+        case 's':
+          setTool('select');
+          break;
         case 'b':
           setTool('brush');
           break;
@@ -641,6 +684,9 @@ window.PaintApp = window.PaintApp || {};
           break;
         case 'f':
           setTool('fill');
+          break;
+        case 'i':
+          setTool('eyedropper');
           break;
         case 'g':
           setTool('shapes');
@@ -654,6 +700,12 @@ window.PaintApp = window.PaintApp || {};
         case ']':
           setSize(state.currentSize + 1);
           break;
+        case 'enter':
+          if (state.selection) {
+            event.preventDefault();
+            commitSelection();
+          }
+          break;
         case 'escape':
           ui.closeMenus();
           ui.closePickers();
@@ -661,13 +713,14 @@ window.PaintApp = window.PaintApp || {};
           ui.elements.advancedColorBtn?.classList.remove('active');
           objectInteractions.deselectObject();
           canvasApi.cancelPendingObject();
+          commitSelection();
           state.isDrawing = false;
           break;
         case 'backspace':
         case 'delete':
-          if (state.selectedObjectId) {
+          if (state.selection || state.selectedObjectId) {
             event.preventDefault();
-            objectInteractions.deleteSelectedObject();
+            deleteSelectionOrObject();
           }
           break;
         default:
@@ -678,7 +731,7 @@ window.PaintApp = window.PaintApp || {};
     window.addEventListener('resize', utils.debounce(() => {
       // Resize вікна НЕ змінює пікселі документа — лише перераховує fit-zoom.
       canvasApi.refit();
-      ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
+      ui.updateCanvasInfo(state.document.width, state.document.height);
       ui.updateZoomUI();
     }, 120));
 
@@ -697,17 +750,18 @@ window.PaintApp = window.PaintApp || {};
       canvas: ui.elements.drawingCanvas,
       guideCanvas: ui.elements.guideCanvas,
       objectLayer: ui.elements.objectLayer,
+      selectionCanvas: ui.elements.selectionCanvas,
       stage: ui.elements.canvasStage,
       stageWrap: ui.elements.canvasStageWrap
     });
-    ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
+    ui.updateCanvasInfo(state.document.width, state.document.height);
     ui.updateZoomUI();
     bindCanvas();
     bindUi();
     await paintDocument.restoreDraftIfAny();
     canvasApi.fitDocumentToViewport();
     ui.updateZoomUI();
-    ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
+    ui.updateCanvasInfo(state.document.width, state.document.height);
     canvasApi.drawGuides();
   }
 

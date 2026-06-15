@@ -11,15 +11,19 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     guideCanvas: null,
     guideCtx: null,
     objectLayer: null,
+    selectionCanvas: null,
+    selectionCtx: null,
     stage: null,
     stageWrap: null,
 
-    init({ canvas, guideCanvas, objectLayer, stage, stageWrap }) {
+    init({ canvas, guideCanvas, objectLayer, selectionCanvas, stage, stageWrap }) {
       this.canvas = canvas;
       this.ctx = canvas.getContext('2d', { willReadFrequently: true });
       this.guideCanvas = guideCanvas;
       this.guideCtx = guideCanvas.getContext('2d');
       this.objectLayer = objectLayer;
+      this.selectionCanvas = selectionCanvas;
+      this.selectionCtx = selectionCanvas ? selectionCanvas.getContext('2d') : null;
       this.stage = stage;
       this.stageWrap = stageWrap;
       this.setDocumentSize(state.document.width, state.document.height, { clear: true });
@@ -39,8 +43,6 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
       state.document.width = w;
       state.document.height = h;
-      state.canvasWidth = w;
-      state.canvasHeight = h;
 
       this.canvas.width = w;
       this.canvas.height = h;
@@ -48,6 +50,12 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.guideCanvas.height = h;
       this.objectLayer.style.width = `${w}px`;
       this.objectLayer.style.height = `${h}px`;
+      if (this.selectionCanvas) {
+        this.selectionCanvas.width = w;
+        this.selectionCanvas.height = h;
+      }
+      // Зміна розміру документа робить попереднє виділення невалідним.
+      state.selection = null;
 
       if (clear) this.fillBackground();
       this.applyDisplaySize();
@@ -56,6 +64,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     // Зміна розміру полотна користувачем зі збереженням наявного растру (crop або розширення).
     resizeDocument(width, height, { scale = false } = {}) {
+      this.flattenSelection();
       const previous = utils.createCanvas(this.canvas.width, this.canvas.height);
       previous.getContext('2d').drawImage(this.canvas, 0, 0);
       const prevW = this.canvas.width;
@@ -67,6 +76,189 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         this.ctx.drawImage(previous, 0, 0);
       }
       this.renderObjects();
+    },
+
+    // Колір пікселя під точкою (для піпетки).
+    pickColor(x, y) {
+      const px = utils.clamp(Math.floor(x), 0, this.canvas.width - 1);
+      const py = utils.clamp(Math.floor(y), 0, this.canvas.height - 1);
+      const data = this.ctx.getImageData(px, py, 1, 1).data;
+      return utils.rgbToHex(data[0], data[1], data[2]);
+    },
+
+    // Запікає тимчасові об'єкти (фігури/штампи) у растр — крок до raster-first моделі.
+    // Трансформації документа працюють по пласкому растру, тож спершу зводимо об'єкти.
+    flattenObjects() {
+      if (!state.objects.length) return;
+      this.renderObjectsToCanvas(this.ctx, state.objects);
+      state.objects = [];
+      state.selectedObjectId = null;
+      state.pendingObject = null;
+      this.renderObjects();
+    },
+
+    rotate90(direction = 'cw') {
+      this.flattenSelection();
+      this.flattenObjects();
+      const source = utils.createCanvas(this.canvas.width, this.canvas.height);
+      source.getContext('2d').drawImage(this.canvas, 0, 0);
+      const prevW = this.canvas.width;
+      const prevH = this.canvas.height;
+      this.setDocumentSize(prevH, prevW, { clear: true });
+      this.ctx.save();
+      if (direction === 'cw') {
+        this.ctx.translate(this.canvas.width, 0);
+        this.ctx.rotate(Math.PI / 2);
+      } else {
+        this.ctx.translate(0, this.canvas.height);
+        this.ctx.rotate(-Math.PI / 2);
+      }
+      this.ctx.drawImage(source, 0, 0);
+      this.ctx.restore();
+      this.fitDocumentToViewport();
+    },
+
+    rotate180() {
+      this.flattenSelection();
+      this.flattenObjects();
+      const source = utils.createCanvas(this.canvas.width, this.canvas.height);
+      source.getContext('2d').drawImage(this.canvas, 0, 0);
+      this.fillBackground();
+      this.ctx.save();
+      this.ctx.translate(this.canvas.width, this.canvas.height);
+      this.ctx.rotate(Math.PI);
+      this.ctx.drawImage(source, 0, 0);
+      this.ctx.restore();
+    },
+
+    flip(axis = 'horizontal') {
+      this.flattenSelection();
+      this.flattenObjects();
+      const source = utils.createCanvas(this.canvas.width, this.canvas.height);
+      source.getContext('2d').drawImage(this.canvas, 0, 0);
+      this.fillBackground();
+      this.ctx.save();
+      if (axis === 'horizontal') {
+        this.ctx.translate(this.canvas.width, 0);
+        this.ctx.scale(-1, 1);
+      } else {
+        this.ctx.translate(0, this.canvas.height);
+        this.ctx.scale(1, -1);
+      }
+      this.ctx.drawImage(source, 0, 0);
+      this.ctx.restore();
+    },
+
+    // === Прямокутне виділення растру ===
+    pointInSelection(point) {
+      const sel = state.selection;
+      return !!sel && point.x >= sel.x && point.x <= sel.x + sel.w
+        && point.y >= sel.y && point.y <= sel.y + sel.h;
+    },
+
+    // Очищає прямокутну ділянку до фону документа (білий або прозорий).
+    clearRegion(x, y, w, h) {
+      this.ctx.save();
+      this.ctx.globalCompositeOperation = 'source-over';
+      this.ctx.globalAlpha = 1;
+      this.ctx.clearRect(x, y, w, h);
+      if (!state.document.transparent) {
+        this.ctx.fillStyle = state.document.background || '#ffffff';
+        this.ctx.fillRect(x, y, w, h);
+      }
+      this.ctx.restore();
+    },
+
+    // «Піднімає» пікселі під виділенням у плаваючий буфер і очищає джерело.
+    liftSelection() {
+      const sel = state.selection;
+      if (!sel || sel.floating || sel.w < 1 || sel.h < 1) return;
+      const buffer = utils.createCanvas(sel.w, sel.h);
+      buffer.getContext('2d').drawImage(this.canvas, sel.x, sel.y, sel.w, sel.h, 0, 0, sel.w, sel.h);
+      sel.floating = buffer;
+      this.clearRegion(sel.x, sel.y, sel.w, sel.h);
+    },
+
+    drawSelectionOverlay() {
+      const ctx = this.selectionCtx;
+      if (!ctx) return;
+      ctx.clearRect(0, 0, this.selectionCanvas.width, this.selectionCanvas.height);
+      const sel = state.selection;
+      if (!sel) return;
+      const x = Math.round(sel.x);
+      const y = Math.round(sel.y);
+      const w = Math.round(sel.w);
+      const h = Math.round(sel.h);
+      if (sel.floating) ctx.drawImage(sel.floating, x, y);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(37, 99, 235, .95)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, w - 1), Math.max(0, h - 1));
+      ctx.restore();
+    },
+
+    // Запікає плаваюче виділення в растр. Повертає true, якщо растр змінився.
+    flattenSelection() {
+      const sel = state.selection;
+      let changed = false;
+      if (sel && sel.floating) {
+        this.ctx.drawImage(sel.floating, Math.round(sel.x), Math.round(sel.y));
+        changed = true;
+      }
+      state.selection = null;
+      this.drawSelectionOverlay();
+      return changed;
+    },
+
+    clearSelection() {
+      state.selection = null;
+      this.drawSelectionOverlay();
+    },
+
+    copySelectionToBuffer() {
+      const sel = state.selection;
+      if (!sel || sel.w < 1 || sel.h < 1) return null;
+      const buffer = utils.createCanvas(sel.w, sel.h);
+      const ctx = buffer.getContext('2d');
+      if (sel.floating) ctx.drawImage(sel.floating, 0, 0);
+      else ctx.drawImage(this.canvas, sel.x, sel.y, sel.w, sel.h, 0, 0, sel.w, sel.h);
+      return buffer;
+    },
+
+    deleteSelection() {
+      const sel = state.selection;
+      if (!sel) return;
+      // Якщо вже піднято — джерело очищене ще при lift; інакше очищаємо зараз.
+      if (!sel.floating) this.clearRegion(sel.x, sel.y, sel.w, sel.h);
+      state.selection = null;
+      this.drawSelectionOverlay();
+    },
+
+    // Обрізає документ до прямокутного виділення.
+    cropToSelection() {
+      const sel = state.selection;
+      if (!sel || sel.w < 3 || sel.h < 3) return false;
+      const rect = { x: Math.round(sel.x), y: Math.round(sel.y), w: Math.round(sel.w), h: Math.round(sel.h) };
+      this.flattenSelection();
+      this.flattenObjects();
+      const region = utils.createCanvas(rect.w, rect.h);
+      region.getContext('2d').drawImage(this.canvas, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+      this.setDocumentSize(rect.w, rect.h, { clear: true });
+      this.ctx.drawImage(region, 0, 0);
+      this.fitDocumentToViewport();
+      return true;
+    },
+
+    // Вставляє буфер як нове виділення (пікселі одразу в растрі + маркер для переміщення).
+    pasteBuffer(buffer) {
+      if (!buffer) return;
+      this.flattenSelection();
+      const w = Math.min(buffer.width, this.canvas.width);
+      const h = Math.min(buffer.height, this.canvas.height);
+      this.ctx.drawImage(buffer, 0, 0);
+      state.selection = { x: 0, y: 0, w, h, floating: null };
+      this.drawSelectionOverlay();
     },
 
     fillBackground() {
@@ -170,7 +362,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       state.objects = [];
       state.selectedObjectId = null;
       state.pendingObject = null;
+      state.selection = null;
       this.renderObjects();
+      this.drawSelectionOverlay();
     },
 
     // Єдине джерело правди для перетворення координат viewport <-> документ.
@@ -382,7 +576,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       state.objects = utils.deepClone(snapshot.objects || []);
       state.pendingObject = null;
       state.selectedObjectId = null;
+      state.selection = null;
       this.renderObjects();
+      this.drawSelectionOverlay();
     },
 
     // Серіалізований стан для чернетки/проєкту (JSON-safe; растр як dataURL).
