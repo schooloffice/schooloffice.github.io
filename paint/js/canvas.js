@@ -280,6 +280,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       const zoom = state.viewport.zoom;
       this.stage.style.width = `${Math.round(width * zoom)}px`;
       this.stage.style.height = `${Math.round(height * zoom)}px`;
+      // Прозорий документ показує checkerboard замість білого фону.
+      this.stage.classList.toggle('transparent-doc', !!state.document.transparent);
       this.objectLayer.style.transformOrigin = 'top left';
       this.objectLayer.style.transform = `scale(${zoom})`;
     },
@@ -419,9 +421,15 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     erase(x, y) {
       this.ctx.save();
-      this.ctx.globalCompositeOperation = 'source-over';
       this.ctx.globalAlpha = 1;
-      this.ctx.strokeStyle = '#ffffff';
+      if (state.document.transparent) {
+        // На прозорому документі гумка реально очищає alpha, а не малює фоном.
+        this.ctx.globalCompositeOperation = 'destination-out';
+        this.ctx.strokeStyle = 'rgba(0,0,0,1)';
+      } else {
+        this.ctx.globalCompositeOperation = 'source-over';
+        this.ctx.strokeStyle = state.document.background || '#ffffff';
+      }
       this.ctx.lineWidth = Math.max(4, state.currentSize * 1.2);
       this.ctx.lineCap = 'round';
       this.ctx.lineJoin = 'round';
@@ -533,18 +541,22 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       });
     },
 
-    exportMergedCanvas() {
+    exportMergedCanvas({ flatten = true } = {}) {
       const composite = utils.createCanvas(this.canvas.width, this.canvas.height);
       const ctx = composite.getContext('2d');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, composite.width, composite.height);
+      if (flatten) {
+        ctx.fillStyle = state.document.background || '#ffffff';
+        ctx.fillRect(0, 0, composite.width, composite.height);
+      }
       ctx.drawImage(this.canvas, 0, 0);
       this.renderObjectsToCanvas(ctx, state.objects);
       return composite;
     },
 
     exportImage(mime = 'image/png', quality = 0.92) {
-      return this.exportMergedCanvas().toDataURL(mime, quality);
+      // PNG зберігає прозорість для прозорого документа; JPG не має alpha — завжди фон.
+      const flatten = mime !== 'image/png' || !state.document.transparent;
+      return this.exportMergedCanvas({ flatten }).toDataURL(mime, quality);
     },
 
     // Снапшот історії: растр як offscreen-canvas (СИНХРОННО, без PNG-кодування й async-декоду).

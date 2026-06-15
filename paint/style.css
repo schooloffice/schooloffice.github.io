@@ -558,6 +558,15 @@ button, input, select { font: inherit; }
   background: #fff;
   box-shadow: 0 6px 24px rgba(15, 23, 42, .35);
 }
+/* Прозорий документ: світлий checkerboard замість суцільного білого. */
+.canvas-stage.transparent-doc {
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, #c9d2dd 25%, transparent 25%, transparent 75%, #c9d2dd 75%),
+    linear-gradient(45deg, #c9d2dd 25%, transparent 25%, transparent 75%, #c9d2dd 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 9px 9px;
+}
 .guide-canvas,
 .drawing-canvas {
   position: absolute;

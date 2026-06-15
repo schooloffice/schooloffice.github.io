@@ -251,6 +251,23 @@
       await storage.clearDraft();
       state.suppressAutosave = false;
 
+      // --- Прозорість (Етап 7) ---
+      canvasApi.setDocumentSize(100, 100, { clear: true, transparent: true });
+      const stageTransparentClass = doc.getElementById('canvasStage').classList.contains('transparent-doc');
+      canvasApi.ctx.fillStyle = '#ff0000';
+      canvasApi.ctx.fillRect(0, 0, 100, 100);
+      state.currentSize = 40;
+      state.lastX = 50;
+      state.lastY = 50;
+      canvasApi.erase(50, 50);
+      const eraserClearsAlpha = canvasApi.ctx.getImageData(50, 50, 1, 1).data[3] < 40;
+      const transparentComposite = canvasApi.exportMergedCanvas({ flatten: false });
+      const exportKeepsAlpha = transparentComposite.getContext('2d').getImageData(50, 50, 1, 1).data[3] < 40;
+      canvasApi.setDocumentSize(100, 100, { clear: true, transparent: false });
+      const stageOpaqueClass = !doc.getElementById('canvasStage').classList.contains('transparent-doc');
+      state.currentSize = 6;
+      state.currentTool = 'brush';
+
       const checks = baseChecks.concat([
         check('setDocumentSize sets dimensions', sizeSet),
         check('window resize keeps document size', docStableAfterResize),
@@ -274,7 +291,10 @@
         check('marquee created via pointer drag', marqueeCreated),
         check('crop to selection resizes and keeps pixels', cropWorks),
         check('image scaling resizes content', scaleWorks),
-        check('draft persists and reloads via storage layer', draftRoundTrips)
+        check('draft persists and reloads via storage layer', draftRoundTrips),
+        check('transparent document shows checkerboard stage', stageTransparentClass && stageOpaqueClass),
+        check('eraser clears alpha on transparent document', eraserClearsAlpha),
+        check('PNG export keeps alpha for transparent document', exportKeepsAlpha)
       ]);
 
       result.className = 'pass';

@@ -2,6 +2,15 @@
 
 ## 2026-06-15
 
+### Paint: робоча прозорість документа (Ітерація 4, частина 1)
+
+Опція «прозорий фон» (з'явилася в Ітерації 1) тепер працює наскрізь, а не лише як прапорець.
+
+- **Гумка очищає alpha.** На прозорому документі гумка малює в режимі `destination-out` (реально стирає до прозорого), а не білим; на непрозорому — фоновим кольором документа (`erase`).
+- **Checkerboard під документом.** Прозорий документ показує світлий checkerboard замість суцільного білого (`.canvas-stage.transparent-doc`, перемикається в `applyDisplaySize`).
+- **Експорт зберігає прозорість.** `exportMergedCanvas({ flatten })` + `exportImage`: PNG для прозорого документа зберігає alpha, JPG (без alpha) і непрозорий PNG заливаються фоном документа.
+- `tests/paint-behavior.html`: гумка чистить alpha, стейдж отримує/знімає checkerboard-клас, PNG-композит зберігає alpha. `sw.js` → `v27`.
+
 ### Paint: чернетка в IndexedDB (завершення Ітерації 3)
 
 - **`paint/js/storage.js`** — чернетка переїхала з `localStorage` в IndexedDB (structured clone, без ~5 МБ ліміту — критично, бо документи тепер бувають великі). Патерн портовано зі `slides/js/storage.js`: IDB з м'яким fallback на localStorage, таймаути операцій (для headless/приватного режиму), записи з позначкою часу й вибір новішої копії з обох сховищ. `document.js` autosave/restore тепер ідуть через `paintStorage.saveDraft/loadDraft`; старий формат localStorage-чернетки читається сумісно.
