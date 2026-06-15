@@ -531,15 +531,11 @@ button, input, select { font: inherit; }
   position: relative;
   min-width: 0;
   min-height: 0;
-  padding: 10px;
   overflow: hidden;
 }
 .studio-shell {
   height: 100%;
   min-height: 0;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  padding: 10px;
 }
 .canvas-stage-wrap {
   height: 100%;
@@ -553,7 +549,6 @@ button, input, select { font: inherit; }
     linear-gradient(45deg, rgba(0,0,0,.07) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.07) 75%);
   background-size: 24px 24px;
   background-position: 0 0, 12px 12px;
-  border: 1px solid var(--line);
 }
 .canvas-stage-wrap.panning { cursor: grabbing; }
 /* Розмір .canvas-stage встановлює JS = пікселі документа × zoom. */
