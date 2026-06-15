@@ -1168,7 +1168,6 @@ foreach ($sharedModalApiFile in $sharedModalApiFiles) {
 $menuStateContractFiles = @(
   @{ File = 'text/ui/menu.js'; State = '_openMenu' },
   @{ File = 'paint/js/ui.js'; State = 'openMenuName' },
-  @{ File = 'paint/js/ui.js'; State = 'openPickerName' },
   @{ File = 'vector/js/ui.js'; State = 'openMenuName' },
   @{ File = 'vector/js/ui.js'; State = 'openPickerName' },
   @{ File = 'flowcharts/js/ui.js'; State = 'openMenuName' }

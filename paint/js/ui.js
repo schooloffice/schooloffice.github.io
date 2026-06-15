@@ -8,7 +8,6 @@ window.ArtMalyunky = window.ArtMalyunky || {};
   const ui = {
     elements: {},
     openMenuName: null,
-    openPickerName: null,
 
     init() {
       this.cacheElements();
@@ -17,7 +16,6 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.renderPalette();
       this.renderStamps();
       this.bindMenus();
-      this.bindPickers();
       this.bindAdvancedColorPanel();
       this.updateToolUI();
       this.updateShapeUI();
@@ -26,6 +24,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.updateSizeUI();
       this.updateOpacityUI();
       this.updateGuideUI();
+      this.updateZoomUI();
       this.updateFileNameUI();
       this.updateDirtyUI();
       return this.elements;
@@ -49,6 +48,18 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         guideCanvas: utils.$('guideCanvas'),
         objectLayer: utils.$('objectLayer'),
         canvasStage: utils.$('canvasStage'),
+        canvasStageWrap: utils.$('canvasStageWrap'),
+
+        docDialogOverlay: utils.$('docDialogOverlay'),
+        docDialogTitle: utils.$('docDialogTitle'),
+        docPresetGrid: utils.$('docPresetGrid'),
+        docWidthInput: utils.$('docWidthInput'),
+        docHeightInput: utils.$('docHeightInput'),
+        docDialogCancel: utils.$('docDialogCancel'),
+        docDialogConfirm: utils.$('docDialogConfirm'),
+
+        zoomLevelLabel: utils.$('zoomLevelLabel'),
+        statusZoom: utils.$('statusZoom'),
 
         brushGrid: utils.$('brushGrid'),
         shapeGrid: utils.$('shapeGrid'),
@@ -56,15 +67,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         colorPalette: utils.$('colorPalette'),
         nativeColorPicker: utils.$('nativeColorPicker'),
         shuffleStampsBtn: utils.$('shuffleStampsBtn'),
-
-        brushPickerTrigger: utils.$('brushPickerTrigger'),
-        brushTriggerIcon: utils.$('brushTriggerIcon'),
-        brushTriggerLabel: utils.$('brushTriggerLabel'),
-        shapePickerTrigger: utils.$('shapePickerTrigger'),
-        shapeTriggerLabel: utils.$('shapeTriggerLabel'),
-        stampPickerTrigger: utils.$('stampPickerTrigger'),
-        stampTriggerEmoji: utils.$('stampTriggerEmoji'),
-        stampTriggerLabel: utils.$('stampTriggerLabel'),
+        propSections: utils.$$('.prop-section[data-tool-section]'),
 
         sizeSlider: utils.$('sizeSlider'),
         opacitySlider: utils.$('opacitySlider'),
@@ -73,7 +76,6 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
         advancedColorBtn: utils.$('advancedColorBtn'),
         advancedColorPanel: utils.$('advancedColorPanel'),
-        closeAdvancedColorBtn: utils.$('closeAdvancedColorBtn'),
         colorPreview: utils.$('colorPreview'),
         hexValue: utils.$('hexValue'),
         rgbValue: utils.$('rgbValue'),
@@ -88,10 +90,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
         menuTitles: utils.$$('.menu-title'),
         menuDropdowns: utils.$$('.menu-dropdown'),
-        pickerWraps: utils.$$('.picker-wrap'),
-        pickerTriggers: utils.$$('.picker-trigger[data-picker]'),
         guideButtons: utils.$$('.segmented-btn[data-guide]'),
-        toolSwitches: utils.$$('.tool-switch[data-tool]'),
+        toolSwitches: utils.$$('[data-tool]'),
 
         statusCoords: utils.$('statusCoords'),
         statusTool: utils.$('statusTool'),
@@ -131,26 +131,6 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         this.closeMenus();
         this.closePickers();
       }, true);
-    },
-
-    bindPickers() {
-      this.elements.pickerTriggers.forEach((trigger) => {
-        trigger.addEventListener('click', (event) => {
-          event.stopPropagation();
-          this.closeMenus();
-          const name = trigger.dataset.picker;
-          if (this.openPickerName === name) this.closePickers();
-          else this.openPicker(name);
-        });
-      });
-
-      document.addEventListener('click', (event) => {
-        if (!event.target.closest('.picker-wrap')) this.closePickers();
-      });
-
-      document.addEventListener('office:overlayclose', (event) => {
-        if (event.detail?.type === 'picker') this.openPickerName = null;
-      });
     },
 
     bindAdvancedColorPanel() {
@@ -203,19 +183,16 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.elements.menuDropdowns.forEach((item) => item.classList.remove('open'));
     },
 
-    openPicker(name) {
-      this.closePickers();
-      this.openPickerName = name;
-      const wrap = document.querySelector(`.picker-trigger[data-picker="${name}"]`)?.parentElement;
-      if (!wrap) return;
-      wrap.classList.add('open');
-      wrap.querySelector('.picker-trigger')?.classList.add('active');
-    },
+    // Параметри інструментів тепер живуть інлайн у боковій панелі (без дропдаунів-пікерів).
+    // Метод лишається як no-op, щоб не чіпати наявні виклики closePickers().
+    closePickers() {},
 
-    closePickers() {
-      this.openPickerName = null;
-      this.elements.pickerWraps.forEach((wrap) => wrap.classList.remove('open'));
-      this.elements.pickerTriggers.forEach((trigger) => trigger.classList.remove('active'));
+    // Показує лише ті prop-секції, що стосуються активного інструмента.
+    updateToolSections() {
+      this.elements.propSections.forEach((section) => {
+        const tools = (section.dataset.toolSection || '').split(/\s+/).filter(Boolean);
+        section.classList.toggle('hidden', tools.length > 0 && !tools.includes(state.currentTool));
+      });
     },
 
     renderBrushes() {
@@ -256,16 +233,11 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     updateToolUI() {
       const toolInfo = constants.TOOLS[state.currentTool];
-      const brushInfo = constants.BRUSHES[state.currentBrush];
       this.elements.toolSwitches.forEach((button) => {
         button.classList.toggle('active', button.dataset.tool === state.currentTool);
       });
-      this.elements.brushPickerTrigger.classList.toggle('active', state.currentTool === 'brush');
-      this.elements.shapePickerTrigger.classList.toggle('active', state.currentTool === 'shapes');
-      this.elements.stampPickerTrigger.classList.toggle('active', state.currentTool === 'stamps');
-      this.elements.brushTriggerIcon.className = `fa-solid ${brushInfo.icon}`;
-      this.elements.brushTriggerLabel.textContent = `Пензлик · ${brushInfo.label}`;
       this.elements.statusTool.textContent = `Інструмент: ${toolInfo.label}`;
+      this.updateToolSections();
       this.updateDetailStatus();
       this.elements.drawingCanvas.style.cursor = toolInfo.cursor;
     },
@@ -274,7 +246,6 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       utils.$$('.shape-option', this.elements.shapeGrid).forEach((button) => {
         button.classList.toggle('active', button.dataset.shape === state.currentShape);
       });
-      this.elements.shapeTriggerLabel.textContent = constants.SHAPES[state.currentShape]?.label || 'Фігури';
       this.updateDetailStatus();
     },
 
@@ -282,8 +253,6 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       utils.$$('.stamp-option', this.elements.stampGrid).forEach((button) => {
         button.classList.toggle('active', button.dataset.stamp === state.currentStamp);
       });
-      this.elements.stampTriggerEmoji.textContent = state.currentStamp;
-      this.elements.stampTriggerLabel.textContent = 'Штампи';
       this.updateDetailStatus();
     },
 
@@ -332,6 +301,84 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     updateCanvasInfo(width, height) {
       this.elements.statusCanvas.textContent = `Полотно: ${width} × ${height}`;
+    },
+
+    updateZoomUI() {
+      const percent = `${Math.round(state.viewport.zoom * 100)}%`;
+      if (this.elements.zoomLevelLabel) this.elements.zoomLevelLabel.textContent = percent;
+      if (this.elements.statusZoom) this.elements.statusZoom.textContent = `Масштаб: ${percent}`;
+    },
+
+    renderDocPresets(onPick) {
+      const grid = this.elements.docPresetGrid;
+      if (!grid) return;
+      grid.innerHTML = constants.DOC_PRESETS
+        .map((preset, index) => `<button type="button" class="doc-preset-btn" data-preset="${index}">${preset.label}</button>`)
+        .join('');
+      grid.querySelectorAll('.doc-preset-btn').forEach((button) => {
+        button.addEventListener('click', () => {
+          const preset = constants.DOC_PRESETS[Number(button.dataset.preset)];
+          if (!preset) return;
+          this.elements.docWidthInput.value = String(preset.width);
+          this.elements.docHeightInput.value = String(preset.height);
+          grid.querySelectorAll('.doc-preset-btn').forEach((item) => item.classList.toggle('active', item === button));
+          if (typeof onPick === 'function') onPick(preset);
+        });
+      });
+    },
+
+    // Діалог нового документа / зміни розміру полотна.
+    // Повертає Promise<{ width, height, background, transparent } | null>.
+    showDocumentDialog({ title = 'Новий малюнок', width, height, confirmText = 'Створити', transparent = false } = {}) {
+      return new Promise((resolve) => {
+        const overlay = this.elements.docDialogOverlay;
+        this.elements.docDialogTitle.textContent = title;
+        this.elements.docDialogConfirm.textContent = confirmText;
+        this.elements.docWidthInput.value = String(width ?? state.document.width);
+        this.elements.docHeightInput.value = String(height ?? state.document.height);
+        this.renderDocPresets();
+        const bgValue = transparent ? 'transparent' : 'white';
+        overlay.querySelectorAll('input[name="docBackground"]').forEach((radio) => {
+          radio.checked = radio.value === bgValue;
+        });
+
+        overlay.classList.remove('hidden');
+        overlay.classList.add('active');
+        overlay.setAttribute('aria-hidden', 'false');
+        this.elements.docWidthInput.focus();
+        this.elements.docWidthInput.select();
+
+        const cleanup = (result) => {
+          overlay.classList.add('hidden');
+          overlay.classList.remove('active');
+          overlay.setAttribute('aria-hidden', 'true');
+          this.elements.docDialogConfirm.removeEventListener('click', onConfirm);
+          this.elements.docDialogCancel.removeEventListener('click', onCancel);
+          overlay.removeEventListener('keydown', onKey);
+          resolve(result);
+        };
+
+        const onConfirm = () => {
+          const w = utils.clamp(Math.round(Number(this.elements.docWidthInput.value) || 0), constants.MIN_DOC_DIMENSION, constants.MAX_DOC_DIMENSION);
+          const h = utils.clamp(Math.round(Number(this.elements.docHeightInput.value) || 0), constants.MIN_DOC_DIMENSION, constants.MAX_DOC_DIMENSION);
+          const isTransparent = overlay.querySelector('input[name="docBackground"]:checked')?.value === 'transparent';
+          cleanup({
+            width: w,
+            height: h,
+            transparent: isTransparent,
+            background: isTransparent ? state.document.background : constants.DEFAULT_BACKGROUND
+          });
+        };
+        const onCancel = () => cleanup(null);
+        const onKey = (event) => {
+          if (event.key === 'Escape') onCancel();
+          if (event.key === 'Enter' && event.target.tagName !== 'BUTTON') onConfirm();
+        };
+
+        this.elements.docDialogConfirm.addEventListener('click', onConfirm);
+        this.elements.docDialogCancel.addEventListener('click', onCancel);
+        overlay.addEventListener('keydown', onKey);
+      });
     },
 
     updateDetailStatus(selectedObject = null) {

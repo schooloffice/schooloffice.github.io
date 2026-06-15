@@ -15,8 +15,9 @@
   --success: #15803d;
   --header-h: 42px;
   --menubar-h: 34px;
-  --toolbar-h: 56px;
   --status-h: 28px;
+  --rail-w: 60px;
+  --props-w: 232px;
 }
 
 * { box-sizing: border-box; }
@@ -181,39 +182,86 @@ button, input, select { font: inherit; }
   background: var(--line);
 }
 
-.toolbar {
-  display: flex;
-  align-items: center;
-  align-content: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  row-gap: 6px;
-  min-height: var(--toolbar-h);
-  padding: 6px 10px 8px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-  overflow: visible;
+/* === Desktop-розкладка: ліва tool rail + properties panel + workspace === */
+.editor-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--rail-w) var(--props-w) 1fr;
 }
-.toolbar-section {
+
+.tool-rail {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 6px;
-  flex-shrink: 0;
+  padding: 8px 0;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
 }
-.toolbar-divider {
-  width: 1px;
-  align-self: stretch;
+.rail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rail-sep {
+  width: 28px;
+  height: 1px;
   background: var(--line);
-  flex-shrink: 0;
 }
-.toolbar-label {
-  font-size: .78rem;
+.rail-spacer { flex: 1; min-height: 8px; }
+.rail-btn {
+  width: 44px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.02rem;
+  cursor: pointer;
+}
+.rail-btn:hover { background: var(--accent-soft-2); border-color: var(--accent); }
+.rail-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+.rail-btn.danger:hover { color: var(--danger); background: #fff5f5; border-color: #fecaca; }
+
+.properties-panel {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.prop-section { display: flex; flex-direction: column; gap: 8px; }
+.prop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.prop-head-actions { display: flex; align-items: center; gap: 6px; }
+.prop-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: .8rem;
   font-weight: 800;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: .02em;
 }
+.prop-range { display: flex; flex-direction: column; gap: 6px; }
+.prop-range input { width: 100%; accent-color: var(--accent); }
 
 .tool-btn,
 .tool-switch,
@@ -343,14 +391,14 @@ button, input, select { font: inherit; }
 }
 
 .inline-palette {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  flex-wrap: nowrap;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 5px;
 }
 .color-swatch {
-  width: 20px;
-  height: 20px;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  height: auto;
   border: 1px solid var(--line-strong);
   padding: 0;
   cursor: pointer;
@@ -383,31 +431,13 @@ button, input, select { font: inherit; }
   cursor: pointer;
 }
 .advanced-color-panel {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 12px;
-  z-index: 40;
-  width: min(1280px, calc(100% - 24px));
-  padding: 10px 12px;
-  background: rgba(255,255,255,.98);
+  margin-top: 4px;
+  padding: 10px;
+  background: var(--panel-2);
   border: 1px solid var(--line);
-  box-shadow: 0 16px 40px rgba(15, 23, 42, .14);
   display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.advanced-color-header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 10px;
-}
-.advanced-color-title {
-  font-weight: 800;
-  font-size: .85rem;
 }
 .advanced-color-body {
   display: flex;
@@ -415,8 +445,9 @@ button, input, select { font: inherit; }
   gap: 10px;
 }
 .color-preview {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
   border: 1px solid var(--line-strong);
   background: #1f2937;
 }
@@ -424,21 +455,20 @@ button, input, select { font: inherit; }
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 250px;
-  font-size: .8rem;
+  min-width: 0;
+  font-size: .78rem;
 }
 .color-codes div { display: flex; gap: 8px; }
 .color-codes span {
-  min-width: 34px;
+  min-width: 30px;
   font-weight: 800;
   color: var(--muted);
 }
-#binValue { font-family: 'Courier New', monospace; font-size: .72rem; }
+#binValue { font-family: 'Courier New', monospace; font-size: .66rem; word-break: break-all; }
 .rgb-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 220px));
-  gap: 12px;
-  flex: 1;
+  grid-template-columns: 1fr;
+  gap: 8px;
 }
 .slider-row {
   display: grid;
@@ -499,8 +529,8 @@ button, input, select { font: inherit; }
 
 .workspace {
   position: relative;
+  min-width: 0;
   min-height: 0;
-  flex: 1;
   padding: 10px;
   overflow: hidden;
 }
@@ -514,34 +544,41 @@ button, input, select { font: inherit; }
 .canvas-stage-wrap {
   height: 100%;
   min-height: 0;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.18)),
-    repeating-linear-gradient(45deg, #f5f7fa 0 16px, #f0f4f8 16px 32px);
+  display: grid;
+  overflow: auto;
+  padding: 32px;
+  background-color: #5b6675;
+  background-image:
+    linear-gradient(45deg, rgba(0,0,0,.07) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.07) 75%),
+    linear-gradient(45deg, rgba(0,0,0,.07) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.07) 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 12px 12px;
   border: 1px solid var(--line);
-  padding: 14px;
 }
+.canvas-stage-wrap.panning { cursor: grabbing; }
+/* Розмір .canvas-stage встановлює JS = пікселі документа × zoom. */
 .canvas-stage {
   position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 520px;
+  margin: auto;
   background: #fff;
-  overflow: hidden;
+  box-shadow: 0 6px 24px rgba(15, 23, 42, .35);
 }
 .guide-canvas,
-.drawing-canvas,
-.object-layer {
+.drawing-canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
-.guide-canvas { z-index: 1; pointer-events: none; }
-.drawing-canvas { z-index: 2; background: #fff; }
+/* object-layer тримає координати документа; розмір (пкс документа) і transform: scale(zoom) задає JS. */
 .object-layer {
-  z-index: 3;
-  pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
 }
+.guide-canvas { z-index: 1; pointer-events: none; }
+.drawing-canvas { z-index: 2; background: transparent; }
+.object-layer { z-index: 3; pointer-events: none; }
 .art-object {
   position: absolute;
   pointer-events: auto;
@@ -642,6 +679,53 @@ button, input, select { font: inherit; }
   margin-top: 16px;
 }
 
+.doc-dialog { width: min(440px, calc(100vw - 32px)); text-align: left; }
+.doc-dialog-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 12px 0;
+}
+.doc-preset-btn {
+  min-height: 40px;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  font-weight: 700;
+  font-size: .78rem;
+  cursor: pointer;
+}
+.doc-preset-btn:hover { background: var(--accent-soft-2); border-color: var(--accent); }
+.doc-preset-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-dark); }
+.doc-dialog-fields { display: flex; gap: 12px; margin-bottom: 12px; }
+.doc-field { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: .8rem; font-weight: 700; color: var(--muted); }
+.doc-field input {
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: var(--text);
+  font-weight: 700;
+}
+.doc-dialog-bg { display: flex; gap: 16px; margin-bottom: 4px; font-size: .85rem; font-weight: 700; }
+.doc-bg-option { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
+.status-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.zoom-btn {
+  height: 22px;
+  min-width: 24px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: var(--text);
+  font-size: .72rem;
+  cursor: pointer;
+}
+.zoom-btn:hover { background: var(--accent-soft-2); border-color: var(--accent); }
+.zoom-btn.zoom-level { min-width: 48px; font-weight: 800; }
+
 input:focus-visible,
 button:focus-visible,
 .back-link:focus-visible,
@@ -650,24 +734,13 @@ button:focus-visible,
   outline-offset: 2px;
 }
 
-@media (max-width: 1200px) {
-  .rgb-grid { grid-template-columns: repeat(2, minmax(180px, 220px)); }
-  .statusbar { flex-direction: column; align-items: flex-start; justify-content: center; padding: 4px 10px; }
-  .status-left, .status-right { gap: 12px; width: 100%; }
-}
-
-@media (max-width: 1180px) {
-  .advanced-color-panel {
-    width: calc(100% - 24px);
-  }
-  .rgb-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+@media (max-width: 1024px) {
+  :root { --props-w: 204px; }
 }
 
 @media (max-width: 860px) {
-  .toolbar { gap: 6px; }
-  .tool-picker-trigger { min-width: 108px; }
-  .range-control { grid-template-columns: auto 88px auto; }
-  .rgb-grid { grid-template-columns: 1fr; }
-  .advanced-color-panel { align-items: flex-start; }
-  .canvas-stage { min-height: 420px; }
+  :root { --rail-w: 54px; --props-w: 176px; }
+  .rail-btn { width: 40px; height: 38px; }
+  .statusbar { flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; padding: 4px 10px; }
+  .status-left, .status-right { gap: 12px; width: 100%; flex-wrap: wrap; }
 }

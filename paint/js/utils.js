@@ -19,6 +19,20 @@ window.ArtMalyunky.utils = {
     return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
   },
 
+  escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, (char) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[char]));
+  },
+
+  sanitizeHexColor(value, fallback = '#1f2937') {
+    return /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(String(value || '')) ? value : fallback;
+  },
+
   hexToRgb(hex) {
     let normalized = String(hex || '').replace('#', '').trim();
     if (normalized.length === 3) {

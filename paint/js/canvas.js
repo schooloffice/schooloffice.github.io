@@ -11,77 +11,190 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     guideCanvas: null,
     guideCtx: null,
     objectLayer: null,
+    stage: null,
+    stageWrap: null,
 
-    init({ canvas, guideCanvas, objectLayer }) {
+    init({ canvas, guideCanvas, objectLayer, stage, stageWrap }) {
       this.canvas = canvas;
       this.ctx = canvas.getContext('2d', { willReadFrequently: true });
       this.guideCanvas = guideCanvas;
       this.guideCtx = guideCanvas.getContext('2d');
       this.objectLayer = objectLayer;
-      this.resizeToContainer(true);
-      this.clearToWhite();
+      this.stage = stage;
+      this.stageWrap = stageWrap;
+      this.setDocumentSize(state.document.width, state.document.height, { clear: true });
+      this.fitDocumentToViewport();
       this.renderObjects();
       this.drawGuides();
     },
 
-    resizeToContainer(initial = false) {
-      if (!this.canvas) return;
-      const stage = this.canvas.parentElement;
-      const rect = stage.getBoundingClientRect();
-      const width = Math.max(constants.DEFAULT_CANVAS_MIN_WIDTH, Math.floor(rect.width));
-      const height = Math.max(constants.DEFAULT_CANVAS_MIN_HEIGHT, Math.floor(rect.height));
+    // Розмір документа — єдине джерело правди. Backing store полотна = пікселі документа
+    // і НЕ залежить від розміру контейнера. Resize вікна впливає лише на zoom через viewport.
+    setDocumentSize(width, height, { clear = true, background, transparent } = {}) {
+      const w = utils.clamp(Math.round(width), constants.MIN_DOC_DIMENSION, constants.MAX_DOC_DIMENSION);
+      const h = utils.clamp(Math.round(height), constants.MIN_DOC_DIMENSION, constants.MAX_DOC_DIMENSION);
 
-      const existingRaster = (!initial && this.canvas.width && this.canvas.height) ? (() => {
-        const snapshot = utils.createCanvas(this.canvas.width, this.canvas.height);
-        snapshot.getContext('2d').drawImage(this.canvas, 0, 0);
-        return snapshot;
-      })() : null;
+      if (typeof background === 'string') state.document.background = background;
+      if (typeof transparent === 'boolean') state.document.transparent = transparent;
 
-      this.canvas.width = width;
-      this.canvas.height = height;
-      this.guideCanvas.width = width;
-      this.guideCanvas.height = height;
-      this.objectLayer.style.width = `${width}px`;
-      this.objectLayer.style.height = `${height}px`;
+      state.document.width = w;
+      state.document.height = h;
+      state.canvasWidth = w;
+      state.canvasHeight = h;
 
-      state.canvasWidth = width;
-      state.canvasHeight = height;
+      this.canvas.width = w;
+      this.canvas.height = h;
+      this.guideCanvas.width = w;
+      this.guideCanvas.height = h;
+      this.objectLayer.style.width = `${w}px`;
+      this.objectLayer.style.height = `${h}px`;
 
-      if (existingRaster) {
-        this.ctx.clearRect(0, 0, width, height);
-        this.ctx.fillStyle = '#ffffff';
-        this.ctx.fillRect(0, 0, width, height);
-        this.ctx.drawImage(existingRaster, 0, 0, width, height);
+      if (clear) this.fillBackground();
+      this.applyDisplaySize();
+      this.drawGuides();
+    },
+
+    // Зміна розміру полотна користувачем зі збереженням наявного растру (crop або розширення).
+    resizeDocument(width, height, { scale = false } = {}) {
+      const previous = utils.createCanvas(this.canvas.width, this.canvas.height);
+      previous.getContext('2d').drawImage(this.canvas, 0, 0);
+      const prevW = this.canvas.width;
+      const prevH = this.canvas.height;
+      this.setDocumentSize(width, height, { clear: true });
+      if (scale) {
+        this.ctx.drawImage(previous, 0, 0, prevW, prevH, 0, 0, this.canvas.width, this.canvas.height);
       } else {
-        this.clearToWhite();
+        this.ctx.drawImage(previous, 0, 0);
       }
-
       this.renderObjects();
-      this.drawGuides();
     },
 
-    clearToWhite() {
+    fillBackground() {
       this.ctx.save();
       this.ctx.globalCompositeOperation = 'source-over';
       this.ctx.globalAlpha = 1;
-      this.ctx.fillStyle = '#ffffff';
-      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      if (!state.document.transparent) {
+        this.ctx.fillStyle = state.document.background || '#ffffff';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      }
       this.ctx.restore();
     },
 
+    // Розмір ПРЕДСТАВЛЕННЯ документа = пікселі документа × zoom. Backing store не чіпаємо.
+    applyDisplaySize() {
+      if (!this.stage) return;
+      const { width, height } = state.document;
+      const zoom = state.viewport.zoom;
+      this.stage.style.width = `${Math.round(width * zoom)}px`;
+      this.stage.style.height = `${Math.round(height * zoom)}px`;
+      this.objectLayer.style.transformOrigin = 'top left';
+      this.objectLayer.style.transform = `scale(${zoom})`;
+    },
+
+    fitDocumentToViewport() {
+      if (!this.stageWrap) return;
+      const padding = constants.STAGE_PADDING * 2;
+      const availW = Math.max(1, this.stageWrap.clientWidth - padding);
+      const availH = Math.max(1, this.stageWrap.clientHeight - padding);
+      const raw = Math.min(availW / state.document.width, availH / state.document.height);
+      state.viewport.zoom = utils.clamp(raw, constants.MIN_ZOOM, constants.MAX_ZOOM);
+      state.viewport.fitMode = 'fit';
+      this.applyDisplaySize();
+      this.centerScroll();
+    },
+
+    // Викликається на resize вікна: лише перераховує fit-zoom, НІКОЛИ не змінює пікселі документа.
+    refit() {
+      if (state.viewport.fitMode === 'fit') {
+        this.fitDocumentToViewport();
+      } else {
+        this.applyDisplaySize();
+      }
+    },
+
+    setZoom(zoom, { fitMode = 'custom' } = {}) {
+      state.viewport.zoom = utils.clamp(zoom, constants.MIN_ZOOM, constants.MAX_ZOOM);
+      state.viewport.fitMode = fitMode;
+      this.applyDisplaySize();
+    },
+
+    getZoom() {
+      return state.viewport.zoom;
+    },
+
+    nextZoom(direction) {
+      const levels = constants.ZOOM_LEVELS;
+      const z = state.viewport.zoom;
+      if (direction > 0) {
+        return levels.find((level) => level > z + 1e-4) ?? constants.MAX_ZOOM;
+      }
+      const lower = levels.filter((level) => level < z - 1e-4);
+      return lower.length ? lower[lower.length - 1] : constants.MIN_ZOOM;
+    },
+
+    zoomIn() {
+      this.setZoom(this.nextZoom(1));
+    },
+
+    zoomOut() {
+      this.setZoom(this.nextZoom(-1));
+    },
+
+    zoomTo100() {
+      this.setZoom(1);
+    },
+
+    // Зум із прив'язкою до точки під курсором (Ctrl + колесо).
+    zoomAtPoint(factor, clientX, clientY) {
+      const prevZoom = state.viewport.zoom;
+      const nextZoom = utils.clamp(prevZoom * factor, constants.MIN_ZOOM, constants.MAX_ZOOM);
+      if (Math.abs(nextZoom - prevZoom) < 1e-4) return;
+      const anchor = this.clientToDoc(clientX, clientY);
+      this.setZoom(nextZoom);
+      if (!this.stageWrap) return;
+      const after = this.docToClient(anchor.x, anchor.y);
+      this.stageWrap.scrollLeft += after.x - clientX;
+      this.stageWrap.scrollTop += after.y - clientY;
+    },
+
+    centerScroll() {
+      const wrap = this.stageWrap;
+      if (!wrap) return;
+      wrap.scrollLeft = Math.max(0, (wrap.scrollWidth - wrap.clientWidth) / 2);
+      wrap.scrollTop = Math.max(0, (wrap.scrollHeight - wrap.clientHeight) / 2);
+    },
+
     clearAll() {
-      this.clearToWhite();
+      this.fillBackground();
       state.objects = [];
       state.selectedObjectId = null;
       state.pendingObject = null;
       this.renderObjects();
     },
 
-    getPointerPosition(event) {
+    // Єдине джерело правди для перетворення координат viewport <-> документ.
+    clientToDoc(clientX, clientY) {
       const rect = this.canvas.getBoundingClientRect();
       return {
-        x: utils.clamp(Math.round((event.clientX - rect.left) * (this.canvas.width / rect.width)), 0, this.canvas.width),
-        y: utils.clamp(Math.round((event.clientY - rect.top) * (this.canvas.height / rect.height)), 0, this.canvas.height)
+        x: (clientX - rect.left) * (this.canvas.width / rect.width),
+        y: (clientY - rect.top) * (this.canvas.height / rect.height)
+      };
+    },
+
+    docToClient(docX, docY) {
+      const rect = this.canvas.getBoundingClientRect();
+      return {
+        x: rect.left + docX * (rect.width / this.canvas.width),
+        y: rect.top + docY * (rect.height / this.canvas.height)
+      };
+    },
+
+    getPointerPosition(event) {
+      const point = this.clientToDoc(event.clientX, event.clientY);
+      return {
+        x: utils.clamp(Math.round(point.x), 0, this.canvas.width),
+        y: utils.clamp(Math.round(point.y), 0, this.canvas.height)
       };
     },
 
@@ -202,16 +315,23 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       return x >= 0 && x < this.canvas.width && y >= 0 && y < this.canvas.height;
     },
 
+    // Відкриває зображення у реальному розмірі: документ підлаштовується під зображення
+    // з безпечними лімітами по стороні та загальній кількості пікселів.
     async loadImageFile(dataUrl) {
       await new Promise((resolve, reject) => {
         const image = new Image();
         image.onload = () => {
-          const scale = Math.min(this.canvas.width / image.width, this.canvas.height / image.height, 1);
-          const drawWidth = image.width * scale;
-          const drawHeight = image.height * scale;
-          const drawX = (this.canvas.width - drawWidth) / 2;
-          const drawY = (this.canvas.height - drawHeight) / 2;
-          this.ctx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+          const naturalW = image.naturalWidth || image.width;
+          const naturalH = image.naturalHeight || image.height;
+          let scale = Math.min(1, constants.MAX_DOC_DIMENSION / naturalW, constants.MAX_DOC_DIMENSION / naturalH);
+          if (naturalW * scale * naturalH * scale > constants.MAX_DOC_PIXELS) {
+            scale = Math.min(scale, Math.sqrt(constants.MAX_DOC_PIXELS / (naturalW * naturalH)));
+          }
+          const targetW = Math.max(constants.MIN_DOC_DIMENSION, Math.round(naturalW * scale));
+          const targetH = Math.max(constants.MIN_DOC_DIMENSION, Math.round(naturalH * scale));
+          this.setDocumentSize(targetW, targetH, { clear: true });
+          this.ctx.drawImage(image, 0, 0, targetW, targetH);
+          this.fitDocumentToViewport();
           resolve();
         };
         image.onerror = reject;
@@ -233,29 +353,71 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       return this.exportMergedCanvas().toDataURL(mime, quality);
     },
 
+    // Снапшот історії: растр як offscreen-canvas (СИНХРОННО, без PNG-кодування й async-декоду).
     snapshot() {
+      const raster = utils.createCanvas(this.canvas.width, this.canvas.height);
+      raster.getContext('2d').drawImage(this.canvas, 0, 0);
       return {
-        raster: this.canvas.toDataURL('image/png'),
-        objects: utils.deepClone(state.objects)
+        width: state.document.width,
+        height: state.document.height,
+        background: state.document.background,
+        transparent: state.document.transparent,
+        raster,
+        objects: utils.deepClone(state.objects),
+        bytes: this.canvas.width * this.canvas.height * 4
       };
     },
 
-    async restoreSnapshot(snapshot) {
+    restoreSnapshot(snapshot) {
       if (!snapshot) return;
-      await this.restoreRasterFromDataUrl(snapshot.raster || null);
+      if (snapshot.width && snapshot.height) {
+        this.setDocumentSize(snapshot.width, snapshot.height, {
+          clear: false,
+          background: snapshot.background,
+          transparent: snapshot.transparent
+        });
+      }
+      this.fillBackground();
+      if (snapshot.raster) this.ctx.drawImage(snapshot.raster, 0, 0);
       state.objects = utils.deepClone(snapshot.objects || []);
       state.pendingObject = null;
       state.selectedObjectId = null;
       this.renderObjects();
     },
 
+    // Серіалізований стан для чернетки/проєкту (JSON-safe; растр як dataURL).
+    toSerializable() {
+      return {
+        document: { ...state.document },
+        raster: this.canvas.toDataURL('image/png'),
+        objects: utils.deepClone(state.objects)
+      };
+    },
+
+    async restoreSerializable(data) {
+      if (!data) return;
+      const doc = data.document || {};
+      if (doc.width && doc.height) {
+        this.setDocumentSize(doc.width, doc.height, {
+          clear: false,
+          background: doc.background,
+          transparent: doc.transparent
+        });
+      }
+      await this.restoreRasterFromDataUrl(typeof data.raster === 'string' ? data.raster : null);
+      state.objects = utils.deepClone(data.objects || []);
+      state.pendingObject = null;
+      state.selectedObjectId = null;
+      this.renderObjects();
+    },
+
     async restoreRasterFromDataUrl(dataUrl) {
-      this.clearToWhite();
+      this.fillBackground();
       if (!dataUrl) return;
       await new Promise((resolve, reject) => {
         const image = new Image();
         image.onload = () => {
-          this.ctx.drawImage(image, 0, 0, this.canvas.width, this.canvas.height);
+          this.ctx.drawImage(image, 0, 0);
           resolve();
         };
         image.onerror = reject;
@@ -377,25 +539,31 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     objectMarkup(obj) {
       const isSelected = obj.id === state.selectedObjectId && obj.id !== state.pendingObject?.id;
-      const style = `left:${obj.x}px;top:${obj.y}px;width:${Math.max(1, obj.w)}px;height:${Math.max(1, obj.h)}px;opacity:${utils.clamp((obj.opacity || 100) / 100, 0.05, 1)};`;
+      // Числові координати приводимо до Number, текст/id — escape: значення можуть прийти з імпортованого проєкту.
+      const id = utils.escapeHtml(obj.id);
+      const left = Number(obj.x) || 0;
+      const top = Number(obj.y) || 0;
+      const width = Math.max(1, Number(obj.w) || 1);
+      const height = Math.max(1, Number(obj.h) || 1);
+      const style = `left:${left}px;top:${top}px;width:${width}px;height:${height}px;opacity:${utils.clamp((Number(obj.opacity) || 100) / 100, 0.05, 1)};`;
       const handles = isSelected
         ? constants.RESIZE_HANDLES.map((handle) => `<button type="button" class="resize-handle ${handle}" data-handle="${handle}" aria-label="Змінити розмір"></button>`).join('')
         : '';
 
       if (obj.kind === 'stamp') {
-        const fontSize = Math.max(26, Math.min(obj.w, obj.h) * 0.82);
+        const fontSize = Math.max(26, Math.min(width, height) * 0.82);
         return `
-          <div class="art-object art-stamp ${isSelected ? 'selected' : ''}" data-id="${obj.id}" data-kind="stamp" style="${style}">
-            <div class="object-body" data-drag-object="${obj.id}">
-              <span class="stamp-content" style="font-size:${fontSize}px">${obj.stamp || constants.DEFAULT_STAMP}</span>
+          <div class="art-object art-stamp ${isSelected ? 'selected' : ''}" data-id="${id}" data-kind="stamp" style="${style}">
+            <div class="object-body" data-drag-object="${id}">
+              <span class="stamp-content" style="font-size:${fontSize}px">${utils.escapeHtml(obj.stamp || constants.DEFAULT_STAMP)}</span>
             </div>
             ${handles}
           </div>`;
       }
 
       return `
-        <div class="art-object art-shape ${isSelected ? 'selected' : ''}" data-id="${obj.id}" data-kind="shape" style="${style}">
-          <div class="object-body" data-drag-object="${obj.id}">
+        <div class="art-object art-shape ${isSelected ? 'selected' : ''}" data-id="${id}" data-kind="shape" style="${style}">
+          <div class="object-body" data-drag-object="${id}">
             ${this.shapeSvgMarkup(obj)}
           </div>
           ${handles}
@@ -403,9 +571,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     },
 
     shapeSvgMarkup(obj) {
-      const color = obj.color || constants.DEFAULT_COLOR;
-      const strokeWidth = Math.max(1, obj.strokeWidth || 2);
-      const opacity = utils.clamp((obj.opacity || 100) / 100, 0.05, 1);
+      const color = utils.sanitizeHexColor(obj.color, constants.DEFAULT_COLOR);
+      const strokeWidth = Math.max(1, Number(obj.strokeWidth) || 2);
+      const opacity = utils.clamp((Number(obj.opacity) || 100) / 100, 0.05, 1);
       const common = `stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="${opacity}"`;
       const fillColor = color;
       const transparentFill = 'fill="none"';

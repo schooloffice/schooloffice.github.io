@@ -4,7 +4,15 @@
 
 Базовий shell, standard commands і file picker підключені. Локальна структура вирівняна до `paint/js/runtime.js -> paint/js/app.js -> service modules`.
 
-Поточний фокус — зменшити борг перед нарощуванням інструментів малювання. Для цього не треба механічно дробити весь canvas layer; спершу варто відокремлювати життєвий цикл документа, file/export сценарії і великі interaction-блоки.
+Триває raster-first переробка у стилі сучасного MS Paint (роадмеп — `PROJECT_DIRECTION.md`, етапи 0–10).
+
+**Ітерацію 1 (фундамент) виконано:** документ має незалежний фіксований розмір у пікселях (`state.document`), workspace лише показує його через `state.viewport` (zoom/pan/fit). Backing store полотна не залежить від контейнера, тож resize вікна не спотворює растр.
+
+**Ітерацію 2 (desktop layout) виконано:** верх редактора — лише назва + головне меню. Розкладка `.editor-body` (`grid`: tool rail | properties panel | workspace). Інструменти й швидкі дії — у лівій rail (несе клас `office-toolbar`); параметри інструмента + палітра + RGB/BIN мікшер — у контекстній properties panel (`data-tool-section`); дропдауни-пікери прибрано (інлайн-секції); zoom — у нижній статус-смузі.
+
+**Ітерацію 2.5 (зміцнення підмурку) виконано:** історія undo/redo синхронна, на canvas-снапшотах, із memory budget (`HISTORY_MAX_BYTES`); серіалізація чернетки відокремлена (`toSerializable`/`restoreSerializable`) від canvas-снапшотів історії; координатна трансформація централізована (`clientToDoc`/`docToClient`); закрито XSS-поверхню `innerHTML` (escape тексту/id, валідація кольору, числові координати).
+
+**Наступна — Ітерація 3:** tool registry (винести інструменти з `if/else`) + eyedropper, прямокутне виділення, crop, resize, rotate/flip. По ходу: чернетку в IndexedDB; прибрати дубль `state.canvasWidth/Height` (усюди `state.document.*`); за потреби — мінімізувати full-innerHTML rebuild під час перетягування об'єктів.
 
 ## Поточна Структура
 
@@ -20,11 +28,11 @@
 
 ## Найближчий Борг
 
-- Розширити `tests/paint-behavior.html` сценаріями для імпорту зображення і object interactions.
-- Перевірити, чи варто винести raster stroke/pending object creation з `app.js`; робити це тільки після розширення browser-smoke.
-- Перевірити ручний сценарій імпорту зображення в браузері.
-- Вирівняти statusbar тексти для canvas/tool state.
-- Переглянути, чи не дублюються інструменти між меню, toolbar і picker.
+- **Ітерація 3:** tool registry — винести інструменти з `if/else` у `app.js` у спільний контракт `begin/update/commit/cancel/renderOptions`; далі eyedropper, прямокутне виділення, crop, resize, rotate/flip.
+- **Адаптивність:** на дуже вузьких екранах properties panel поки лише звужується, а не згортається в overlay; повне згортання з кнопкою-перемикачем — окремий крок (інакше параметри інструмента стають недосяжними).
+- Resize-handle об'єктів масштабуються разом із `objectLayer` (`transform: scale(zoom)`), тож на малому zoom стають дрібними — за потреби counter-scale.
+- Перевірити ручний сценарій імпорту зображення (відкривається у реальному розмірі з лімітами) у браузері.
+- Мертві CSS-правила колишнього toolbar/picker (`.tool-btn`, `.tool-switch`, `.picker-*`, `.range-control`, `.segmented-*`) лишилися в `style.css` — прибрати при наступному дотику до стилів.
 
 ## Обмеження
 

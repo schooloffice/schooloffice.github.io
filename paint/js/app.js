@@ -22,32 +22,43 @@ window.PaintApp = window.PaintApp || {};
   }
 
   function pushUndo() {
-    if (state.undoStack.length >= constants.MAX_UNDO) state.undoStack.shift();
     state.undoStack.push(canvasApi.snapshot());
     state.redoStack.length = 0;
+    enforceHistoryBudget();
   }
 
-  async function restoreSnapshot(snapshot) {
+  // Обмежуємо історію і за кількістю, і за пам'яттю (canvas-снапшоти важать width*height*4).
+  function enforceHistoryBudget() {
+    let total = state.undoStack.reduce((sum, snap) => sum + (snap.bytes || 0), 0);
+    while (state.undoStack.length > 1
+      && (state.undoStack.length > constants.MAX_UNDO || total > constants.HISTORY_MAX_BYTES)) {
+      const removed = state.undoStack.shift();
+      total -= (removed.bytes || 0);
+    }
+  }
+
+  // Відновлення синхронне: растр зберігається як offscreen-canvas, без async Image-декоду.
+  function applyHistorySnapshot(snapshot) {
     state.suppressAutosave = true;
-    await canvasApi.restoreSnapshot(snapshot);
+    canvasApi.restoreSnapshot(snapshot);
     state.suppressAutosave = false;
+    ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
+    ui.updateZoomUI();
     ui.updateDetailStatus();
     paintDocument.autosaveDraft();
   }
 
-  async function undo() {
+  function undo() {
     if (!state.undoStack.length) return;
     state.redoStack.push(canvasApi.snapshot());
-    const snapshot = state.undoStack.pop();
-    await restoreSnapshot(snapshot);
+    applyHistorySnapshot(state.undoStack.pop());
     markDirty();
   }
 
-  async function redo() {
+  function redo() {
     if (!state.redoStack.length) return;
     state.undoStack.push(canvasApi.snapshot());
-    const snapshot = state.redoStack.pop();
-    await restoreSnapshot(snapshot);
+    applyHistorySnapshot(state.redoStack.pop());
     markDirty();
   }
 
@@ -120,15 +131,75 @@ window.PaintApp = window.PaintApp || {};
       const proceed = await ui.showConfirmModal('Створити новий малюнок?', 'Незбережені зміни буде втрачено.', '🖼️', 'Створити');
       if (!proceed) return;
     }
+    const choice = await ui.showDocumentDialog({
+      title: 'Новий малюнок',
+      confirmText: 'Створити',
+      width: constants.DEFAULT_DOC_WIDTH,
+      height: constants.DEFAULT_DOC_HEIGHT
+    });
+    if (!choice) return;
     state.undoStack.length = 0;
     state.redoStack.length = 0;
+    canvasApi.setDocumentSize(choice.width, choice.height, {
+      clear: true,
+      background: choice.background,
+      transparent: choice.transparent
+    });
     canvasApi.clearAll();
+    canvasApi.fitDocumentToViewport();
     state.fileName = constants.DEFAULT_FILE_NAME;
     ui.updateFileNameUI();
+    ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
+    ui.updateZoomUI();
     state.unsavedChanges = false;
     ui.updateDirtyUI();
     ui.updateDetailStatus();
     paintDocument.autosaveDraft();
+  }
+
+  function applyZoomChange() {
+    ui.updateZoomUI();
+    paintDocument.autosaveDraft();
+  }
+
+  function zoomIn() {
+    canvasApi.zoomIn();
+    applyZoomChange();
+  }
+
+  function zoomOut() {
+    canvasApi.zoomOut();
+    applyZoomChange();
+  }
+
+  function zoomTo100() {
+    canvasApi.zoomTo100();
+    applyZoomChange();
+  }
+
+  function fitToWindow() {
+    canvasApi.fitDocumentToViewport();
+    ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
+    applyZoomChange();
+  }
+
+  async function resizeCanvasDialog() {
+    const choice = await ui.showDocumentDialog({
+      title: 'Розмір полотна',
+      confirmText: 'Застосувати',
+      width: state.document.width,
+      height: state.document.height,
+      transparent: state.document.transparent
+    });
+    if (!choice) return;
+    pushUndo();
+    state.document.transparent = choice.transparent;
+    state.document.background = choice.background;
+    canvasApi.resizeDocument(choice.width, choice.height, { scale: false });
+    canvasApi.fitDocumentToViewport();
+    ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
+    ui.updateZoomUI();
+    markDirty();
   }
 
   function runOfficeCommand(command) {
@@ -184,9 +255,19 @@ window.PaintApp = window.PaintApp || {};
         setGuide('lines');
         break;
       case 'fit-canvas':
-        canvasApi.resizeToContainer();
-        ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
-        paintDocument.autosaveDraft();
+        fitToWindow();
+        break;
+      case 'zoom-in':
+        zoomIn();
+        break;
+      case 'zoom-out':
+        zoomOut();
+        break;
+      case 'zoom-100':
+        zoomTo100();
+        break;
+      case 'resize-canvas':
+        resizeCanvasDialog();
         break;
       case 'show-shortcuts':
         ui.showInfoModal('Клавіатурні скорочення', 'B — пензлик\nE — гумка\nF — заливка\nG — фігури\nT — штампи\nDelete / Backspace — видалити вибраний об\'єкт\n[ / ] — менша або більша товщина\nCtrl+Z — скасувати\nCtrl+Y — повернути\nCtrl+S — зберегти PNG\nCtrl+N — новий малюнок\nEsc — закрити меню або зняти виділення', '⌨️');
@@ -301,9 +382,13 @@ window.PaintApp = window.PaintApp || {};
   function bindCanvas() {
     const canvas = ui.elements.drawingCanvas;
     const objectLayer = ui.elements.objectLayer;
+    const stageWrap = ui.elements.canvasStageWrap;
+    let spacePanning = false;
+    let panOrigin = null;
 
     canvas.addEventListener('pointerdown', (event) => {
       if (event.button !== undefined && event.button !== 0) return;
+      if (spacePanning) return;
       const point = canvasApi.getPointerPosition(event);
       state.lastPointer = point;
       ui.updateCoords(point.x, point.y);
@@ -362,6 +447,49 @@ window.PaintApp = window.PaintApp || {};
       event.stopPropagation();
       objectInteractions.selectObject(objectNode.dataset.id);
     });
+
+    // Ctrl + колесо → зум із прив'язкою до курсора; просто колесо → нативний скрол (pan).
+    stageWrap.addEventListener('wheel', (event) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      event.preventDefault();
+      const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+      canvasApi.zoomAtPoint(factor, event.clientX, event.clientY);
+      applyZoomChange();
+    }, { passive: false });
+
+    // Тимчасовий pan: утримання Space або середня кнопка миші.
+    const isTextField = (target) => !!target && target.matches?.('input, textarea, [contenteditable="true"]');
+    document.addEventListener('keydown', (event) => {
+      if (event.code === 'Space' && !event.repeat && !isTextField(event.target)) {
+        spacePanning = true;
+        stageWrap.classList.add('panning');
+      }
+    });
+    document.addEventListener('keyup', (event) => {
+      if (event.code === 'Space') {
+        spacePanning = false;
+        panOrigin = null;
+        stageWrap.classList.remove('panning');
+      }
+    });
+    stageWrap.addEventListener('pointerdown', (event) => {
+      if (!spacePanning && event.button !== 1) return;
+      event.preventDefault();
+      panOrigin = { x: event.clientX, y: event.clientY, left: stageWrap.scrollLeft, top: stageWrap.scrollTop };
+      stageWrap.setPointerCapture?.(event.pointerId);
+    });
+    stageWrap.addEventListener('pointermove', (event) => {
+      if (!panOrigin) return;
+      stageWrap.scrollLeft = panOrigin.left - (event.clientX - panOrigin.x);
+      stageWrap.scrollTop = panOrigin.top - (event.clientY - panOrigin.y);
+    });
+    const endPan = (event) => {
+      if (!panOrigin) return;
+      panOrigin = null;
+      stageWrap.releasePointerCapture?.(event.pointerId);
+    };
+    stageWrap.addEventListener('pointerup', endPan);
+    stageWrap.addEventListener('pointercancel', endPan);
   }
 
   function bindUi() {
@@ -412,7 +540,7 @@ window.PaintApp = window.PaintApp || {};
         return;
       }
 
-      const toolbarAction = event.target.closest('.tool-btn[data-action]');
+      const toolbarAction = event.target.closest('.rail-btn[data-action], .zoom-btn[data-action]');
       if (toolbarAction) {
         handleMenuAction(toolbarAction.dataset.action);
         return;
@@ -485,6 +613,20 @@ window.PaintApp = window.PaintApp || {};
             event.preventDefault();
             paintDocument.printImage();
             return;
+          case '0':
+            event.preventDefault();
+            zoomTo100();
+            return;
+          case '=':
+          case '+':
+            event.preventDefault();
+            zoomIn();
+            return;
+          case '-':
+          case '_':
+            event.preventDefault();
+            zoomOut();
+            return;
           default:
             break;
         }
@@ -534,9 +676,10 @@ window.PaintApp = window.PaintApp || {};
     });
 
     window.addEventListener('resize', utils.debounce(() => {
-      canvasApi.resizeToContainer();
+      // Resize вікна НЕ змінює пікселі документа — лише перераховує fit-zoom.
+      canvasApi.refit();
       ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
-      paintDocument.autosaveDraft();
+      ui.updateZoomUI();
     }, 120));
 
     window.addEventListener('beforeunload', (event) => {
@@ -553,12 +696,18 @@ window.PaintApp = window.PaintApp || {};
     canvasApi.init({
       canvas: ui.elements.drawingCanvas,
       guideCanvas: ui.elements.guideCanvas,
-      objectLayer: ui.elements.objectLayer
+      objectLayer: ui.elements.objectLayer,
+      stage: ui.elements.canvasStage,
+      stageWrap: ui.elements.canvasStageWrap
     });
     ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
+    ui.updateZoomUI();
     bindCanvas();
     bindUi();
     await paintDocument.restoreDraftIfAny();
+    canvasApi.fitDocumentToViewport();
+    ui.updateZoomUI();
+    ui.updateCanvasInfo(state.canvasWidth, state.canvasHeight);
     canvasApi.drawGuides();
   }
 

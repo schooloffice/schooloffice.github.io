@@ -16,8 +16,23 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     currentOpacity: constants.DEFAULT_OPACITY,
     guideMode: constants.DEFAULT_GUIDE,
 
-    canvasWidth: 0,
-    canvasHeight: 0,
+    document: {
+      version: 1,
+      width: constants.DEFAULT_DOC_WIDTH,
+      height: constants.DEFAULT_DOC_HEIGHT,
+      background: constants.DEFAULT_BACKGROUND,
+      transparent: false
+    },
+    viewport: {
+      zoom: 1,
+      fitMode: 'fit',
+      panX: 0,
+      panY: 0
+    },
+
+    // Дзеркала document.width/height для зворотної сумісності зі старим кодом.
+    canvasWidth: constants.DEFAULT_DOC_WIDTH,
+    canvasHeight: constants.DEFAULT_DOC_HEIGHT,
     isDrawing: false,
     lastX: 0,
     lastY: 0,

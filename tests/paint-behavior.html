@@ -66,7 +66,9 @@
       const beforeX = created.x;
       canvasApi.updateObject(created.id, { x: beforeX + 12 });
 
-      const checks = [
+      // Базові перевірки (залежать від виділеного об'єкта) рахуємо ДО регресійного блоку,
+      // бо setDocumentSize/restoreSnapshot нижче скидають selection.
+      const baseChecks = [
         check('PaintApp boot exported', typeof win.PaintApp?.boot === 'function'),
         check('document module exported', typeof win.ArtMalyunky?.paintDocument?.createPaintDocument === 'function'),
         check('object interaction module exported', typeof win.ArtMalyunky?.objectInteractions?.createPaintObjectInteractions === 'function'),
@@ -76,8 +78,108 @@
         check('object selected', state.selectedObjectId === created.id),
         check('object update works', canvasApi.getObjectById(created.id).x === beforeX + 12),
         check('standard commands exported', ['new', 'open', 'save', 'undo', 'redo'].every(command => !!doc.querySelector(`[data-office-command="${command}"]`))),
-        check('toolbar status rendered', !!doc.querySelector('#statusTool') && !!doc.querySelector('#statusCanvas'))
+        check('toolbar status rendered', !!doc.querySelector('#statusTool') && !!doc.querySelector('#statusCanvas')),
+        check('zoom status rendered', !!doc.querySelector('#statusZoom') && !!doc.querySelector('#zoomLevelLabel'))
       ];
+
+      // --- Регресія моделі документа (Ітерація 1) ---
+      // 5. Новий розмір документа дає саме задані dimensions.
+      canvasApi.setDocumentSize(640, 480, { clear: true });
+      const sizeSet = canvas.width === 640 && canvas.height === 480
+        && state.document.width === 640 && state.document.height === 480;
+
+      // 2. Resize вікна не спотворює растр і не змінює розмір документа.
+      canvasApi.fillBackground();
+      canvasApi.ctx.fillStyle = '#ff0000';
+      canvasApi.ctx.fillRect(10, 10, 4, 4);
+      const pixelBefore = canvasApi.ctx.getImageData(11, 11, 1, 1).data.join(',');
+      win.dispatchEvent(new Event('resize'));
+      await wait(220);
+      const pixelAfter = canvasApi.ctx.getImageData(11, 11, 1, 1).data.join(',');
+      const docStableAfterResize = canvas.width === 640 && canvas.height === 480;
+      const rasterStableAfterResize = pixelBefore === pixelAfter;
+
+      // 6. Fit-to-window змінює лише zoom, а не пікселі документа.
+      const beforeFitW = canvas.width;
+      const beforeFitH = canvas.height;
+      canvasApi.fitDocumentToViewport();
+      const fitKeepsPixels = canvas.width === beforeFitW && canvas.height === beforeFitH;
+
+      // 3. Координати документа узгоджені з розміром полотна при різному zoom.
+      const docXAtCenter = () => {
+        const r = canvas.getBoundingClientRect();
+        return canvasApi.getPointerPosition({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }).x;
+      };
+      canvasApi.setZoom(1);
+      const centerAt1 = Math.abs(docXAtCenter() - canvas.width / 2) <= 2;
+      canvasApi.setZoom(4);
+      const centerAt4 = Math.abs(docXAtCenter() - canvas.width / 2) <= 2;
+      canvasApi.setZoom(1);
+      const coordsConsistent = centerAt1 && centerAt4;
+
+      // 4. Undo відновлює розмір документа.
+      canvasApi.setDocumentSize(800, 600, { clear: true });
+      const undoSnapshot = canvasApi.snapshot();
+      canvasApi.setDocumentSize(400, 300, { clear: true });
+      await canvasApi.restoreSnapshot(undoSnapshot);
+      const undoRestoresSize = canvas.width === 800 && canvas.height === 600;
+
+      // --- Розкладка Ітерації 2 (ліва панель) ---
+      const railTools = doc.querySelectorAll('.tool-rail .rail-tool[data-tool]');
+      const hasRail = railTools.length === 5 && doc.querySelector('.tool-rail.office-toolbar');
+      const hasProps = !!doc.querySelector('.properties-panel');
+      state.currentTool = 'brush';
+      win.ArtMalyunky.ui.updateToolSections();
+      const brushShown = !doc.getElementById('propBrush').classList.contains('hidden');
+      state.currentTool = 'fill';
+      win.ArtMalyunky.ui.updateToolSections();
+      const brushHidden = doc.getElementById('propBrush').classList.contains('hidden');
+      const contextualSections = brushShown && brushHidden;
+
+      // --- E2E: малювання при zoom потрапляє в правильний піксель (координати + синхронна історія) ---
+      canvasApi.setDocumentSize(800, 600, { clear: true });
+      state.currentTool = 'brush';
+      state.currentBrush = 'pen';
+      state.currentColor = '#ff0000';
+      state.currentSize = 14;
+      canvasApi.setZoom(3);
+      const target = { x: 200, y: 150 };
+      const cpt = canvasApi.docToClient(target.x, target.y);
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: cpt.x, clientY: cpt.y, button: 0, pointerId: 1, bubbles: true }));
+      doc.dispatchEvent(new PointerEvent('pointerup', { clientX: cpt.x, clientY: cpt.y, button: 0, pointerId: 1, bubbles: true }));
+      const drawn = canvasApi.ctx.getImageData(target.x, target.y, 1, 1).data;
+      const drewAtZoom = drawn[0] > 180 && drawn[1] < 80 && drawn[2] < 80;
+      const undoClearsDraw = (() => {
+        const before = canvasApi.snapshot();
+        canvasApi.restoreSnapshot(state.undoStack[state.undoStack.length - 1] || before);
+        const px = canvasApi.ctx.getImageData(target.x, target.y, 1, 1).data;
+        return px[0] > 240 && px[1] > 240 && px[2] > 240;
+      })();
+      canvasApi.setZoom(1);
+
+      // --- XSS: значення з імпортованих об'єктів екрануються в DOM ---
+      state.objects = [{ id: 'x"1', kind: 'stamp', stamp: '<img src=x onerror=alert(1)>', x: 10, y: 10, w: 50, h: 50, opacity: 100 }];
+      canvasApi.renderObjects();
+      const layerHtml = doc.getElementById('objectLayer').innerHTML;
+      const xssEscaped = !layerHtml.includes('<img src=x') && layerHtml.includes('&lt;img');
+      state.objects = [];
+      state.selectedObjectId = null;
+      canvasApi.renderObjects();
+
+      const checks = baseChecks.concat([
+        check('setDocumentSize sets dimensions', sizeSet),
+        check('window resize keeps document size', docStableAfterResize),
+        check('window resize keeps raster intact', rasterStableAfterResize),
+        check('fit-to-window keeps document pixels', fitKeepsPixels),
+        check('coordinates consistent across zoom', coordsConsistent),
+        check('undo restores document size', undoRestoresSize),
+        check('tool rail rendered', hasRail),
+        check('properties panel rendered', hasProps),
+        check('contextual prop sections toggle by tool', contextualSections),
+        check('drawing at zoom hits correct pixel', drewAtZoom),
+        check('synchronous undo reverts stroke', undoClearsDraw),
+        check('object values escaped against XSS', xssEscaped)
+      ]);
 
       result.className = 'pass';
       result.textContent = checks.join('\n') + '\n\nPASSED';

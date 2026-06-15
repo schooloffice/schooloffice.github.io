@@ -19,7 +19,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
           currentSize: state.currentSize,
           currentOpacity: state.currentOpacity,
           guideMode: state.guideMode,
-          snapshot: canvasApi.snapshot()
+          canvas: canvasApi.toSerializable()
         };
         localStorage.setItem(constants.STORAGE_KEY, JSON.stringify(payload));
       } catch (error) {
@@ -107,8 +107,19 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         ui.updateSizeUI();
         ui.updateOpacityUI();
         ui.updateGuideUI();
-        if (draft.snapshot) {
-          await canvasApi.restoreSnapshot(draft.snapshot);
+        // Нова чернетка: draft.canvas (серіалізована). Старий формат: draft.snapshot (пласкі поля + raster dataURL).
+        const serial = draft.canvas || (draft.snapshot ? {
+          document: {
+            width: draft.snapshot.width,
+            height: draft.snapshot.height,
+            background: draft.snapshot.background,
+            transparent: draft.snapshot.transparent
+          },
+          raster: draft.snapshot.raster,
+          objects: draft.snapshot.objects
+        } : null);
+        if (serial) {
+          await canvasApi.restoreSerializable(serial);
         }
         state.unsavedChanges = false;
         ui.updateDirtyUI();
