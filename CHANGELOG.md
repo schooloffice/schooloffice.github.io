@@ -2,6 +2,11 @@
 
 ## 2026-06-15
 
+### Paint: чернетка в IndexedDB (завершення Ітерації 3)
+
+- **`paint/js/storage.js`** — чернетка переїхала з `localStorage` в IndexedDB (structured clone, без ~5 МБ ліміту — критично, бо документи тепер бувають великі). Патерн портовано зі `slides/js/storage.js`: IDB з м'яким fallback на localStorage, таймаути операцій (для headless/приватного режиму), записи з позначкою часу й вибір новішої копії з обох сховищ. `document.js` autosave/restore тепер ідуть через `paintStorage.saveDraft/loadDraft`; старий формат localStorage-чернетки читається сумісно.
+- `storage.js` додано в `sw.js` (→ `v26`) та `index.html`; `tests/paint-behavior.html` перевіряє round-trip чернетки через storage-шар.
+
 ### Paint: tool registry + перші інструменти Ітерації 3
 
 Початок Ітерації 3: винесено диспетчер інструментів у спільний контракт і додано перші нові інструменти на ньому.

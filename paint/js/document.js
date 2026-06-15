@@ -8,23 +8,21 @@ window.ArtMalyunky = window.ArtMalyunky || {};
   function createPaintDocument({ markDirty, markSaved, pushUndo }) {
     const autosaveDraft = utils.debounce(() => {
       if (state.suppressAutosave) return;
-      try {
-        const payload = {
-          fileName: state.fileName,
-          currentTool: state.currentTool,
-          currentBrush: state.currentBrush,
-          currentShape: state.currentShape,
-          currentStamp: state.currentStamp,
-          currentColor: state.currentColor,
-          currentSize: state.currentSize,
-          currentOpacity: state.currentOpacity,
-          guideMode: state.guideMode,
-          canvas: canvasApi.toSerializable()
-        };
-        localStorage.setItem(constants.STORAGE_KEY, JSON.stringify(payload));
-      } catch (error) {
+      const payload = {
+        fileName: state.fileName,
+        currentTool: state.currentTool,
+        currentBrush: state.currentBrush,
+        currentShape: state.currentShape,
+        currentStamp: state.currentStamp,
+        currentColor: state.currentColor,
+        currentSize: state.currentSize,
+        currentOpacity: state.currentOpacity,
+        guideMode: state.guideMode,
+        canvas: canvasApi.toSerializable()
+      };
+      window.ArtMalyunky.paintStorage.saveDraft(payload).catch((error) => {
         console.warn('Не вдалося зберегти чернетку.', error);
-      }
+      });
     }, 260);
 
     function saveImage(type = 'png') {
@@ -84,9 +82,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     async function restoreDraftIfAny() {
       try {
-        const raw = localStorage.getItem(constants.STORAGE_KEY);
-        if (!raw) return;
-        const draft = JSON.parse(raw);
+        const draft = await window.ArtMalyunky.paintStorage.loadDraft();
         if (!draft) return;
         state.fileName = draft.fileName || constants.DEFAULT_FILE_NAME;
         state.currentTool = draft.currentTool || 'brush';
