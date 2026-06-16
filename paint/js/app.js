@@ -73,6 +73,8 @@ window.PaintApp = window.PaintApp || {};
     if (toolName !== 'text' && state.textEdit) {
       commitActiveText();
     }
+    // Зміна інструмента запікає активну фігуру/штамп.
+    flattenActiveObjects();
     state.currentTool = toolName;
     ui.updateToolUI();
     paintDocument.autosaveDraft();
@@ -80,6 +82,15 @@ window.PaintApp = window.PaintApp || {};
 
   function commitSelection() {
     if (state.selection && canvasApi.flattenSelection()) markDirty();
+  }
+
+  // Raster-first: розміщена фігура/штамп лишається редагованою, але запікається
+  // в растр щойно користувач починає нову дію, змінює інструмент чи тисне Enter.
+  function flattenActiveObjects() {
+    if (state.objects.length) {
+      canvasApi.flattenObjects();
+      markDirty();
+    }
   }
 
   function copySelection() {
@@ -547,6 +558,8 @@ window.PaintApp = window.PaintApp || {};
       if (event.button === 1) return; // середня кнопка — панорамування
       if (event.button !== 0 && event.button !== 2) return;
       if (spacePanning) return;
+      // Початок нової дії на полотні запікає попередню активну фігуру/штамп.
+      flattenActiveObjects();
       // Ліва кнопка малює основним кольором, права — додатковим.
       state.activeColor = event.button === 2 ? state.backgroundColor : state.currentColor;
       const point = canvasApi.getPointerPosition(event);
@@ -851,9 +864,10 @@ window.PaintApp = window.PaintApp || {};
           swapColors();
           break;
         case 'enter':
-          if (state.selection) {
+          if (state.selection || state.objects.length) {
             event.preventDefault();
             commitSelection();
+            flattenActiveObjects();
           }
           break;
         case 'escape':
@@ -861,10 +875,11 @@ window.PaintApp = window.PaintApp || {};
           ui.closePickers();
           ui.elements.advancedColorPanel?.classList.add('hidden');
           ui.elements.advancedColorBtn?.classList.remove('active');
-          objectInteractions.deselectObject();
           canvasApi.cancelPendingObject();
           commitSelection();
           commitActiveText();
+          flattenActiveObjects();
+          objectInteractions.deselectObject();
           state.isDrawing = false;
           break;
         case 'backspace':

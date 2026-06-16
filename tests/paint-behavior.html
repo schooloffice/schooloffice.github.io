@@ -306,6 +306,30 @@
       state.activeColor = null;
       state.currentTool = 'brush';
 
+      // --- Фігури на operation-моделі: запікаються в растр при новій дії ---
+      canvasApi.setDocumentSize(200, 200, { clear: true });
+      state.objects = [];
+      state.selectedObjectId = null;
+      state.currentTool = 'shapes';
+      state.currentShape = 'rect-filled';
+      state.currentColor = '#ff0000';
+      state.activeColor = null;
+      canvasApi.createPendingShape(20, 20, 80, 80);
+      canvasApi.commitPendingObject();
+      const objectsBeforeFlatten = state.objects.length;
+      state.currentTool = 'brush';
+      canvasApi.setZoom(1);
+      const fpt = canvasApi.docToClient(150, 150);
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: fpt.x, clientY: fpt.y, button: 0, pointerId: 7, bubbles: true }));
+      doc.dispatchEvent(new PointerEvent('pointerup', { clientX: fpt.x, clientY: fpt.y, button: 0, pointerId: 7, bubbles: true }));
+      const bakedShapePx = canvasApi.ctx.getImageData(50, 50, 1, 1).data;
+      const shapeFlattens = objectsBeforeFlatten === 1 && state.objects.length === 0
+        && bakedShapePx[0] > 180 && bakedShapePx[1] < 80 && bakedShapePx[2] < 80;
+      state.objects = [];
+      state.selectedObjectId = null;
+      state.currentColor = '#1f2937';
+      state.currentTool = 'brush';
+
       const checks = baseChecks.concat([
         check('setDocumentSize sets dimensions', sizeSet),
         check('window resize keeps document size', docStableAfterResize),
@@ -337,7 +361,8 @@
         check('text bakes into raster', textBakes),
         check('foreground/background colors UI present', hasFgBgUI),
         check('right button draws with background color', rightClickUsesBackground),
-        check('X swaps foreground and background', swapWorks)
+        check('X swaps foreground and background', swapWorks),
+        check('shapes flatten into raster on next action', shapeFlattens)
       ]);
 
       result.className = 'pass';

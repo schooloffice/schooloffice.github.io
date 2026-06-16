@@ -423,11 +423,11 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       }
       if (selectedObject) {
         if (selectedObject.kind === 'stamp') {
-          this.elements.statusDetail.textContent = `Вибрано: штамп ${selectedObject.stamp}`;
+          this.elements.statusDetail.textContent = `Штамп ${selectedObject.stamp} — рухай/змінюй розмір, Enter застосує`;
           return;
         }
         const shapeName = constants.SHAPES[selectedObject.shape]?.label || 'Фігура';
-        this.elements.statusDetail.textContent = `Вибрано: ${shapeName}`;
+        this.elements.statusDetail.textContent = `${shapeName} — рухай/змінюй розмір, Enter застосує`;
         return;
       }
 

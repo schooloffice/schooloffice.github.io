@@ -14,7 +14,9 @@
 
 **Ітерацію 3 виконано.** Зроблено: tool registry (`paint/js/tools.js`, контракт `begin/update/commit/cancel`; `app.js` делегує `tools.getActive()`), піпетка (`I`), поворот/відзеркалення (меню «Зображення», `canvasApi.rotate90/rotate180/flip` із `flattenObjects`), прямокутне виділення (інструмент `S`, оверлей `selectionCanvas`, move з підняттям пікселів, delete, Ctrl+C/X/V, flatten на Enter/Esc/зміні інструмента), crop до виділення, масштабування зображення, прибрано дубль `state.canvasWidth/Height`, чернетку перенесено в IndexedDB (`paint/js/storage.js`, fallback на localStorage).
 
-**Ітерація 4 — майже завершено.** Зроблено: **прозорість** (гумка `destination-out`; checkerboard; PNG зберігає alpha), **текстовий інструмент** (overlay `<textarea>` → `canvasApi.drawText`), **основний/додатковий колір** (ліва/права кнопка миші, swap клавішею `X`, `state.activeColor`). **Лишилось:** оновлені фігури на operation-моделі (тимчасові → flatten, спрощення постійного DOM objectLayer).
+**Ітерацію 4 виконано.** Зроблено: **прозорість** (гумка `destination-out`; checkerboard; PNG зберігає alpha), **текстовий інструмент** (overlay `<textarea>` → `canvasApi.drawText`), **основний/додатковий колір** (ліва/права кнопка миші, swap `X`, `state.activeColor`), **фігури/штампи на operation-моделі** (тимчасові → flatten у растр при новій дії/зміні інструмента/Enter через `flattenActiveObjects`; `objectLayer` тримає лише активний об'єкт).
+
+**Наступне — Ітерація 5 (надійність):** project-файл (`.json`/повний редагований стан), оптимізована історія (region/diff-снапшоти замість повних canvas-копій), великі зображення/продуктивність, повний browser smoke. Частину вже зроблено по ходу (IndexedDB-чернетка, синхронна історія з memory budget).
 
 ## Поточна Структура
 
