@@ -143,6 +143,13 @@
 
       const doc = frame.contentDocument;
       const win = frame.contentWindow;
+      // НЕ завантажувати реальні файли під час тесту: дія «Зберегти файл» інакше
+      // тригерить <a download> і скидає .artslides.json у теку Downloads.
+      const realAnchorClick = win.HTMLAnchorElement.prototype.click;
+      win.HTMLAnchorElement.prototype.click = function click(...args) {
+        if (this.hasAttribute('download')) return undefined;
+        return realAnchorClick.apply(this, args);
+      };
       await waitFor(() => typeof win.SlidesApp?.boot === 'function', 'SlidesApp boot exported');
       await waitFor(() => doc.querySelectorAll('#slideList .slide-card').length >= 1, 'slide list rendered');
       await waitFor(() => doc.querySelectorAll('#stage .stage-element').length >= 1, 'stage elements rendered');
