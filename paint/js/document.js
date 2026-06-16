@@ -5,7 +5,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 (() => {
   const { constants, state, utils, canvasApi, ui } = window.ArtMalyunky;
 
-  function createPaintDocument({ markDirty, markSaved, pushUndo }) {
+  function createPaintDocument({ markDirty, markSaved, pushUndo, discardActiveText }) {
     const autosaveDraft = utils.debounce(() => {
       if (state.suppressAutosave) return;
       const payload = {
@@ -74,6 +74,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       const reader = new FileReader();
       reader.onload = async (event) => {
         pushUndo();
+        discardActiveText?.();
         try {
           await canvasApi.loadImageFile(event.target.result);
           markDirty();

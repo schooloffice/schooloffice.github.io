@@ -330,6 +330,37 @@
       state.currentColor = '#1f2937';
       state.currentTool = 'brush';
 
+      // --- commitPending: збереження запікає незавершений текст у растр ---
+      canvasApi.setDocumentSize(200, 80, { clear: true, transparent: false });
+      state.objects = [];
+      state.selection = null;
+      state.selectedObjectId = null;
+      state.currentTool = 'text';
+      state.currentColor = '#000000';
+      state.currentFontSize = 40;
+      state.currentBold = false;
+      state.currentItalic = false;
+      state.currentFontFamily = 'sans-serif';
+      canvasApi.setZoom(1);
+      const txp = canvasApi.docToClient(10, 8);
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: txp.x, clientY: txp.y, button: 0, pointerId: 9, bubbles: true }));
+      doc.dispatchEvent(new PointerEvent('pointerup', { clientX: txp.x, clientY: txp.y, button: 0, pointerId: 9, bubbles: true }));
+      const textArea = doc.querySelector('.text-edit-box');
+      let saveCommitsText = false;
+      if (textArea) {
+        textArea.value = 'Hi';
+        win.ArtMalyunky.utils.downloadDataUrl = () => {}; // не завантажувати файл під час тесту
+        doc.body.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }));
+        let dark = false;
+        const sdata = canvasApi.ctx.getImageData(8, 6, 130, 60).data;
+        for (let i = 0; i < sdata.length; i += 4) {
+          if (sdata[i] < 100 && sdata[i + 1] < 100 && sdata[i + 2] < 100 && sdata[i + 3] > 200) { dark = true; break; }
+        }
+        saveCommitsText = dark && !doc.querySelector('.text-edit-box');
+      }
+      state.currentTool = 'brush';
+      state.currentColor = '#1f2937';
+
       const checks = baseChecks.concat([
         check('setDocumentSize sets dimensions', sizeSet),
         check('window resize keeps document size', docStableAfterResize),
@@ -362,7 +393,8 @@
         check('foreground/background colors UI present', hasFgBgUI),
         check('right button draws with background color', rightClickUsesBackground),
         check('X swaps foreground and background', swapWorks),
-        check('shapes flatten into raster on next action', shapeFlattens)
+        check('shapes flatten into raster on next action', shapeFlattens),
+        check('save commits pending text into raster', saveCommitsText)
       ]);
 
       result.className = 'pass';

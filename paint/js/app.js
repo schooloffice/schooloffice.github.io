@@ -5,7 +5,7 @@ window.PaintApp = window.PaintApp || {};
 
 (() => {
   const { constants, state, utils, canvasApi, ui } = window.ArtMalyunky;
-  const paintDocument = window.ArtMalyunky.paintDocument.createPaintDocument({ markDirty, markSaved, pushUndo });
+  const paintDocument = window.ArtMalyunky.paintDocument.createPaintDocument({ markDirty, markSaved, pushUndo, discardActiveText });
   const objectInteractions = window.ArtMalyunky.objectInteractions.createPaintObjectInteractions({ markDirty, pushUndo });
   const tools = window.ArtMalyunky.paintTools.createPaintTools({ pushUndo, markDirty, objectInteractions, setColor, createTextBox });
 
@@ -91,6 +91,15 @@ window.PaintApp = window.PaintApp || {};
       canvasApi.flattenObjects();
       markDirty();
     }
+  }
+
+  // Єдина точка: запікає ВЕСЬ незавершений редагований стан (текст, плаваюче
+  // виділення, активну фігуру/штамп) у растр. Кликати на будь-якій межі, де
+  // потрібен WYSIWYG-результат: експорт, збереження, друк, трансформації.
+  function commitPending() {
+    flattenActiveObjects();
+    if (state.selection && canvasApi.flattenSelection()) markDirty();
+    commitActiveText();
   }
 
   function copySelection() {
@@ -372,7 +381,7 @@ window.PaintApp = window.PaintApp || {};
       transparent: state.document.transparent
     });
     if (!choice) return;
-    commitActiveText();
+    commitPending();
     pushUndo();
     state.document.transparent = choice.transparent;
     state.document.background = choice.background;
@@ -392,11 +401,10 @@ window.PaintApp = window.PaintApp || {};
       transparent: state.document.transparent
     });
     if (!choice) return;
-    commitActiveText();
+    commitPending();
     pushUndo();
     state.document.transparent = choice.transparent;
     state.document.background = choice.background;
-    canvasApi.flattenObjects();
     canvasApi.resizeDocument(choice.width, choice.height, { scale: true });
     canvasApi.fitDocumentToViewport();
     ui.updateCanvasInfo(state.document.width, state.document.height);
@@ -427,7 +435,7 @@ window.PaintApp = window.PaintApp || {};
     return {
       new: newDrawing,
       open: paintDocument.importImage,
-      save: () => paintDocument.saveImage('png'),
+      save: () => { commitPending(); paintDocument.saveImage('png'); },
       undo: undo,
       redo: redo
     };
@@ -442,12 +450,15 @@ window.PaintApp = window.PaintApp || {};
         runOfficeCommand('open') || paintDocument.importImage();
         break;
       case 'save-png':
+        commitPending();
         runOfficeCommand('save') || paintDocument.saveImage('png');
         break;
       case 'save-jpg':
+        commitPending();
         paintDocument.saveImage('jpg');
         break;
       case 'print':
+        commitPending();
         paintDocument.printImage();
         break;
       case 'undo':
@@ -520,7 +531,7 @@ window.PaintApp = window.PaintApp || {};
   }
 
   function rotateCanvas(direction) {
-    commitActiveText();
+    commitPending();
     pushUndo();
     canvasApi.rotate90(direction);
     ui.updateCanvasInfo(state.document.width, state.document.height);
@@ -530,7 +541,7 @@ window.PaintApp = window.PaintApp || {};
   }
 
   function rotateCanvas180() {
-    commitActiveText();
+    commitPending();
     pushUndo();
     canvasApi.rotate180();
     ui.updateDetailStatus();
@@ -538,7 +549,7 @@ window.PaintApp = window.PaintApp || {};
   }
 
   function flipCanvas(axis) {
-    commitActiveText();
+    commitPending();
     pushUndo();
     canvasApi.flip(axis);
     ui.updateDetailStatus();
@@ -785,6 +796,7 @@ window.PaintApp = window.PaintApp || {};
             return;
           case 's':
             event.preventDefault();
+            commitPending();
             runOfficeCommand('save') || paintDocument.saveImage('png');
             return;
           case 'n':
@@ -793,6 +805,7 @@ window.PaintApp = window.PaintApp || {};
             return;
           case 'p':
             event.preventDefault();
+            commitPending();
             paintDocument.printImage();
             return;
           case '0':
