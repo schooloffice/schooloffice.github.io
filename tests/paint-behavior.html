@@ -361,6 +361,33 @@
       state.currentTool = 'brush';
       state.currentColor = '#1f2937';
 
+      // --- Project-файл: save/open round-trip + schema-валідація недовіреного файлу ---
+      const docApi = win.ArtMalyunky.paintDocumentApi;
+      const PF = win.ArtMalyunky.constants.PROJECT_FORMAT;
+      canvasApi.setDocumentSize(120, 90, { clear: true, transparent: false });
+      canvasApi.ctx.fillStyle = '#ff0000';
+      canvasApi.ctx.fillRect(0, 0, 120, 90);
+      const projObj = {
+        format: PF, version: 1, fileName: 'тест-проєкт',
+        document: { width: 120, height: 90, background: '#ffffff', transparent: false },
+        raster: canvasApi.canvas.toDataURL('image/png')
+      };
+      canvasApi.setDocumentSize(300, 300, { clear: true });
+      await docApi.handleProjectFile(new File([JSON.stringify(projObj)], 'a.malyunok', { type: 'application/json' }));
+      const projPx = canvasApi.ctx.getImageData(20, 20, 1, 1).data;
+      const projectRoundTrips = canvasApi.canvas.width === 120 && canvasApi.canvas.height === 90
+        && state.fileName === 'тест-проєкт' && projPx[0] > 180 && projPx[1] < 80 && projPx[2] < 80;
+
+      await docApi.handleProjectFile(new File([JSON.stringify({ format: 'evil', version: 1, document: { width: 100, height: 100 } })], 'b.malyunok', { type: 'application/json' }));
+      const badFormatRejected = canvasApi.canvas.width === 120;
+      await docApi.handleProjectFile(new File([JSON.stringify({ format: PF, version: 1, document: { width: 99999, height: 99999 }, raster: '' })], 'c.malyunok', { type: 'application/json' }));
+      const oversizeRejected = canvasApi.canvas.width === 120;
+      await docApi.handleProjectFile(new File(['{ not json'], 'd.malyunok', { type: 'application/json' }));
+      const malformedRejected = canvasApi.canvas.width === 120;
+      const projectValidates = badFormatRejected && oversizeRejected && malformedRejected;
+      doc.getElementById('modalOverlay').classList.add('hidden');
+      state.currentTool = 'brush';
+
       const checks = baseChecks.concat([
         check('setDocumentSize sets dimensions', sizeSet),
         check('window resize keeps document size', docStableAfterResize),
@@ -394,7 +421,9 @@
         check('right button draws with background color', rightClickUsesBackground),
         check('X swaps foreground and background', swapWorks),
         check('shapes flatten into raster on next action', shapeFlattens),
-        check('save commits pending text into raster', saveCommitsText)
+        check('save commits pending text into raster', saveCommitsText),
+        check('project file save/open round-trips', projectRoundTrips),
+        check('project import validates and rejects bad files', projectValidates)
       ]);
 
       result.className = 'pass';

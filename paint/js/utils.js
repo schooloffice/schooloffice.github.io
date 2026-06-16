@@ -66,6 +66,12 @@ window.ArtMalyunky.utils = {
     link.remove();
   },
 
+  downloadBlob(blob, fileName) {
+    const url = URL.createObjectURL(blob);
+    this.downloadDataUrl(url, fileName);
+    URL.revokeObjectURL(url);
+  },
+
   createCanvas(width, height) {
     const canvas = document.createElement('canvas');
     canvas.width = width;

@@ -137,13 +137,119 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       }
     }
 
+    // === Project-файл (.malyunok): повний редагований стан, re-editable ===
+    function saveProject() {
+      const project = {
+        format: constants.PROJECT_FORMAT,
+        version: constants.PROJECT_VERSION,
+        fileName: state.fileName || constants.DEFAULT_FILE_NAME,
+        document: {
+          width: state.document.width,
+          height: state.document.height,
+          background: state.document.background,
+          transparent: state.document.transparent
+        },
+        raster: canvasApi.canvas.toDataURL('image/png')
+      };
+      const blob = new Blob([JSON.stringify(project)], { type: 'application/json' });
+      utils.downloadBlob(blob, `${state.fileName || constants.DEFAULT_FILE_NAME}.${constants.PROJECT_EXT}`);
+      markSaved();
+    }
+
+    function openProject() {
+      window.OfficeShell?.openFilePicker?.(ui.elements.projectFileInput) || ui.elements.projectFileInput.click();
+    }
+
+    // P0-валідація недовіреного project-файлу: формат, межі розміру/пікселів,
+    // MIME та довжина растру, санітизація фону й назви.
+    function validateProject(obj) {
+      if (!obj || typeof obj !== 'object') return null;
+      if (obj.format !== constants.PROJECT_FORMAT) return null;
+      if (typeof obj.version !== 'number') return null;
+      const docData = obj.document;
+      if (!docData || typeof docData !== 'object') return null;
+      const width = Math.round(Number(docData.width));
+      const height = Math.round(Number(docData.height));
+      if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+      if (width < constants.MIN_DOC_DIMENSION || width > constants.MAX_DOC_DIMENSION) return null;
+      if (height < constants.MIN_DOC_DIMENSION || height > constants.MAX_DOC_DIMENSION) return null;
+      if (width * height > constants.MAX_DOC_PIXELS) return null;
+      const raster = typeof obj.raster === 'string' ? obj.raster : '';
+      if (raster && !/^data:image\/(png|jpeg|webp);base64,/.test(raster)) return null;
+      if (raster.length > constants.MAX_RASTER_DATAURL) return null;
+      return {
+        width,
+        height,
+        background: utils.sanitizeHexColor(docData.background, constants.DEFAULT_BACKGROUND),
+        transparent: !!docData.transparent,
+        raster: raster || null,
+        fileName: typeof obj.fileName === 'string' && obj.fileName.trim()
+          ? obj.fileName.trim().slice(0, 80)
+          : constants.DEFAULT_FILE_NAME
+      };
+    }
+
+    async function handleProjectFile(file) {
+      if (!file) return;
+      if (file.size > constants.MAX_PROJECT_BYTES) {
+        ui.showInfoModal('Завеликий файл', 'Project-файл перевищує допустимий розмір.', '⚠️');
+        return;
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(await file.text());
+      } catch {
+        ui.showInfoModal('Пошкоджений файл', 'Не вдалося прочитати project-файл (не коректний JSON).', '⚠️');
+        return;
+      }
+      const valid = validateProject(parsed);
+      if (!valid) {
+        ui.showInfoModal('Несумісний файл', 'Це не коректний project-файл ПЛЮС Малюнки або він пошкоджений.', '⚠️');
+        return;
+      }
+      try {
+        if (discardActiveText) discardActiveText();
+        state.suppressAutosave = true;
+        canvasApi.setDocumentSize(valid.width, valid.height, {
+          clear: true,
+          background: valid.background,
+          transparent: valid.transparent
+        });
+        await canvasApi.restoreRasterFromDataUrl(valid.raster);
+        state.suppressAutosave = false;
+        state.objects = [];
+        state.selectedObjectId = null;
+        state.selection = null;
+        state.undoStack.length = 0;
+        state.redoStack.length = 0;
+        state.fileName = valid.fileName;
+        canvasApi.renderObjects();
+        canvasApi.drawSelectionOverlay();
+        canvasApi.fitDocumentToViewport();
+        ui.updateFileNameUI();
+        ui.updateCanvasInfo(state.document.width, state.document.height);
+        ui.updateZoomUI();
+        ui.updateDetailStatus();
+        state.unsavedChanges = false;
+        ui.updateDirtyUI();
+        autosaveDraft();
+      } catch (error) {
+        state.suppressAutosave = false;
+        console.error(error);
+        ui.showInfoModal('Помилка відкриття', 'Не вдалося відкрити project-файл.', '⚠️');
+      }
+    }
+
     return {
       autosaveDraft,
       handleImportedFile,
+      handleProjectFile,
       importImage,
+      openProject,
       printImage,
       restoreDraftIfAny,
-      saveImage
+      saveImage,
+      saveProject
     };
   }
 

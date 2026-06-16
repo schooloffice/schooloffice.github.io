@@ -53,6 +53,7 @@
   </div>
 
   <input id="importFileInput" type="file" accept="image/*" hidden>
+  <input id="projectFileInput" type="file" accept=".malyunok,application/json" hidden>
 
   <header class="app-header office-header">
     <div class="header-left">
@@ -75,10 +76,13 @@
       <button class="menu-title" data-menu="file" aria-haspopup="true" aria-expanded="false">Файл</button>
       <div class="menu-dropdown" data-menu="file" role="menu">
         <button class="menu-item" data-action="new-drawing"><span><i class="fa-solid fa-file-circle-plus fa-fw"></i> Новий малюнок</span><span class="shortcut">Ctrl+N</span></button>
-        <button class="menu-item" data-action="import-image"><span><i class="fa-solid fa-image fa-fw"></i> Відкрити зображення</span></button>
+        <button class="menu-item" data-action="open-project"><span><i class="fa-solid fa-folder-open fa-fw"></i> Відкрити проєкт…</span></button>
+        <button class="menu-item" data-action="import-image"><span><i class="fa-solid fa-image fa-fw"></i> Відкрити зображення…</span></button>
         <div class="menu-sep"></div>
-        <button class="menu-item" data-action="save-png"><span><i class="fa-solid fa-file-image fa-fw"></i> Зберегти як PNG</span><span class="shortcut">Ctrl+S</span></button>
-        <button class="menu-item" data-action="save-jpg"><span><i class="fa-solid fa-file-export fa-fw"></i> Зберегти як JPG</span></button>
+        <button class="menu-item" data-action="save-project"><span><i class="fa-solid fa-floppy-disk fa-fw"></i> Зберегти проєкт</span><span class="shortcut">Ctrl+S</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="save-png"><span><i class="fa-solid fa-file-image fa-fw"></i> Експортувати PNG</span></button>
+        <button class="menu-item" data-action="save-jpg"><span><i class="fa-solid fa-file-export fa-fw"></i> Експортувати JPG</span></button>
         <button class="menu-item" data-action="print"><span><i class="fa-solid fa-print fa-fw"></i> Друк</span><span class="shortcut">Ctrl+P</span></button>
       </div>
     </div>
@@ -137,8 +141,10 @@
     <aside class="tool-rail office-toolbar" role="toolbar" aria-label="Інструменти та дії">
       <div class="rail-group">
         <button class="rail-btn" data-action="new-drawing" data-office-command="new" title="Новий малюнок (Ctrl+N)"><i class="fa-solid fa-file-circle-plus"></i></button>
-        <button class="rail-btn" data-action="import-image" data-office-command="open" title="Відкрити зображення"><i class="fa-solid fa-folder-open"></i></button>
-        <button class="rail-btn" data-action="save-png" data-office-command="save" title="Зберегти PNG (Ctrl+S)"><i class="fa-solid fa-floppy-disk"></i></button>
+        <button class="rail-btn" data-action="open-project" data-office-command="open" title="Відкрити проєкт"><i class="fa-solid fa-folder-open"></i></button>
+        <button class="rail-btn" data-action="save-project" data-office-command="save" title="Зберегти проєкт (Ctrl+S)"><i class="fa-solid fa-floppy-disk"></i></button>
+        <button class="rail-btn" data-action="import-image" title="Відкрити зображення"><i class="fa-solid fa-image"></i></button>
+        <button class="rail-btn" data-action="save-png" title="Експортувати PNG"><i class="fa-solid fa-file-image"></i></button>
         <button class="rail-btn" data-action="print" title="Друк (Ctrl+P)"><i class="fa-solid fa-print"></i></button>
       </div>
 

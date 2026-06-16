@@ -45,6 +45,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         dirtyDot: utils.$('dirtyDot'),
         saveBadge: utils.$('saveBadge'),
         importFileInput: utils.$('importFileInput'),
+        projectFileInput: utils.$('projectFileInput'),
 
         drawingCanvas: utils.$('drawingCanvas'),
         guideCanvas: utils.$('guideCanvas'),

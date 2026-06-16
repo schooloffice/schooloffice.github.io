@@ -8,6 +8,8 @@ window.PaintApp = window.PaintApp || {};
   const paintDocument = window.ArtMalyunky.paintDocument.createPaintDocument({ markDirty, markSaved, pushUndo, discardActiveText });
   const objectInteractions = window.ArtMalyunky.objectInteractions.createPaintObjectInteractions({ markDirty, pushUndo });
   const tools = window.ArtMalyunky.paintTools.createPaintTools({ pushUndo, markDirty, objectInteractions, setColor, createTextBox });
+  // Test seam: дає behavior-тестам доступ до файлових операцій документа.
+  window.ArtMalyunky.paintDocumentApi = paintDocument;
 
   function markDirty() {
     state.unsavedChanges = true;
@@ -434,8 +436,8 @@ window.PaintApp = window.PaintApp || {};
   function createShellCommands() {
     return {
       new: newDrawing,
-      open: paintDocument.importImage,
-      save: () => { commitPending(); paintDocument.saveImage('png'); },
+      open: paintDocument.openProject,
+      save: () => { commitPending(); paintDocument.saveProject(); },
       undo: undo,
       redo: redo
     };
@@ -446,12 +448,19 @@ window.PaintApp = window.PaintApp || {};
       case 'new-drawing':
         runOfficeCommand('new') || newDrawing();
         break;
+      case 'open-project':
+        runOfficeCommand('open') || paintDocument.openProject();
+        break;
       case 'import-image':
-        runOfficeCommand('open') || paintDocument.importImage();
+        paintDocument.importImage();
+        break;
+      case 'save-project':
+        commitPending();
+        runOfficeCommand('save') || paintDocument.saveProject();
         break;
       case 'save-png':
         commitPending();
-        runOfficeCommand('save') || paintDocument.saveImage('png');
+        paintDocument.saveImage('png');
         break;
       case 'save-jpg':
         commitPending();
@@ -771,6 +780,11 @@ window.PaintApp = window.PaintApp || {};
       event.target.value = '';
     });
 
+    ui.elements.projectFileInput.addEventListener('change', (event) => {
+      paintDocument.handleProjectFile(event.target.files[0]);
+      event.target.value = '';
+    });
+
     document.addEventListener('click', (event) => {
       if (event.target.id === 'fileName') {
         ui.beginRename(() => {
@@ -797,7 +811,7 @@ window.PaintApp = window.PaintApp || {};
           case 's':
             event.preventDefault();
             commitPending();
-            runOfficeCommand('save') || paintDocument.saveImage('png');
+            runOfficeCommand('save') || paintDocument.saveProject();
             return;
           case 'n':
             event.preventDefault();
