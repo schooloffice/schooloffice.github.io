@@ -97,37 +97,53 @@ function Invoke-SmokePage {
     [string]$Name
   )
 
-  $result = Start-SafeProcess $chromePath @(
-    '--headless=new',
-    '--disable-gpu',
-    '--disable-crash-reporter',
-    '--no-first-run',
-    "--user-data-dir=$profilePath",
-    "--disk-cache-dir=$cachePath",
-    '--virtual-time-budget=35000',
-    '--dump-dom',
-    $Url
-  ) -Wait -CaptureOutput
+  # Окремий профіль і кеш на КОЖНУ сторінку: спільний --user-data-dir між
+  # послідовними chrome у CI спричиняв конкуренцію за профіль/disk-cache
+  # (ERROR simple_index_file.cc "Could not create a directory") і нестабільний
+  # стан storage у наступних сторінках.
+  $pageProfile = Join-Path $PSScriptRoot ('.browser-profile-' + [guid]::NewGuid().ToString())
+  $pageCache = Join-Path $pageProfile 'cache'
+  New-Item -ItemType Directory -Path $pageProfile, $pageCache -Force | Out-Null
+  try {
+    $result = Start-SafeProcess $chromePath @(
+      '--headless=new',
+      '--disable-gpu',
+      '--disable-crash-reporter',
+      '--no-first-run',
+      "--user-data-dir=$pageProfile",
+      "--disk-cache-dir=$pageCache",
+      '--virtual-time-budget=35000',
+      '--dump-dom',
+      $Url
+    ) -Wait -CaptureOutput
 
-  if ($result.Process.ExitCode -ne 0) {
-    throw "$Name browser process failed with exit code $($result.Process.ExitCode).`n$($result.Stderr)"
+    if ($result.Process.ExitCode -ne 0) {
+      throw "$Name browser process failed with exit code $($result.Process.ExitCode).`n$($result.Stderr)"
+    }
+
+    if ($result.Stdout -notmatch $PassPattern) {
+      # Витягуємо текст #result (назву перевірки/стек), щоб лог CI був читабельним,
+      # а не дампом усього DOM.
+      $reason = if ($result.Stdout -match '(?s)<pre id="result"[^>]*>(.*?)</pre>') {
+        ($matches[1] -replace '\s+', ' ').Trim()
+      } else {
+        'result element missing — page did not finish or failed to load'
+      }
+      throw "$Name failed: $reason"
+    }
+
+    Write-Host "$Name passed."
+  } finally {
+    if (Test-Path $pageProfile) {
+      Remove-Item -LiteralPath $pageProfile -Recurse -Force -ErrorAction SilentlyContinue
+    }
   }
-
-  if ($result.Stdout -notmatch $PassPattern) {
-    throw "$Name failed.`n$($result.Stdout)`n$($result.Stderr)"
-  }
-
-  Write-Host "$Name passed."
 }
 
 $chromePath = Get-ChromePath
 $server = $null
-$profilePath = Join-Path $PSScriptRoot ('.browser-profile-office-browser-smoke-' + [guid]::NewGuid().ToString())
-$cachePath = Join-Path $profilePath 'cache'
 
 try {
-  New-Item -ItemType Directory -Path $profilePath, $cachePath -Force | Out-Null
-
   $server = Start-SafeProcess powershell @(
     '-NoProfile',
     '-ExecutionPolicy', 'Bypass',
@@ -150,7 +166,7 @@ try {
     Stop-Process -Id $server.Id -Force
   }
 
-  if (Test-Path $profilePath) {
-    Remove-Item -LiteralPath $profilePath -Recurse -Force
-  }
+  # Прибираємо будь-які залишкові per-page профілі (на випадок аварійного виходу).
+  Get-ChildItem -LiteralPath $PSScriptRoot -Filter '.browser-profile-*' -Directory -Force -ErrorAction SilentlyContinue |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 }
