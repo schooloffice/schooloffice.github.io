@@ -82,8 +82,13 @@ try {
       $contentType = if ($mime.ContainsKey($ext)) { $mime[$ext] } else { 'application/octet-stream' }
       Send-Response $stream 200 'OK' $bytes $contentType
     }
+    catch {
+      # Обрив зʼєднання клієнтом (broken pipe, ранній вихід chrome --dump-dom,
+      # favicon тощо) НЕ повинен валити сервер — інакше наступні сторінки smoke
+      # отримують ERR_CONNECTION_REFUSED. Помилку одного запиту просто ковтаємо.
+    }
     finally {
-      $client.Close()
+      try { $client.Close() } catch { }
     }
   }
 }
