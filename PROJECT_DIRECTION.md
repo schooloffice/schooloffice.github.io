@@ -2,7 +2,7 @@
 
 Статус: активне продуктове й технічне джерело правди.
 
-Оновлено: 2026-06-06.
+Оновлено: 2026-06-19.
 
 ## 1. Короткий контекст для агента
 
@@ -91,6 +91,17 @@ Build-крок дозволено вводити лише після пілот�
 | Vector | Залишити, але пріоритетно захистити імпорт | Це окрема важлива шкільна модель; поточний рендер використовує SVG/`innerHTML` | схема валідації JSON, escaping усіх атрибутів, transform/group, paths, тести імпорту |
 | Flowcharts | Залишити власний | Ручне створення блок-схем краще відповідає навчанню, ніж text-to-diagram; уже є валідація, шаблони, ручні й obstacle-aware маршрути | вирівнювання блоків, контрольований auto-layout, Mermaid import/export як додаткова функція |
 
+### Поточні відомі дефекти Text (зафіксовано 2026-06-19)
+
+Перед функціональною роботою над Text враховувати, що корінь проблем спільний: DOM водночас є документом, сторінковою версткою і станом історії. Латання симптомів без розділення цих ролей не дасть Word/Docs-подібної поведінки.
+
+- **Окремі `contenteditable` на сторінку ламають наскрізну поведінку.** Кожна `.page-content` — окремий редагований хост, тому курсор і виділення не перетинають межу сторінки (стрілки ↑/↓ між сторінками, наскрізне виділення, Backspace на початку сторінки). Джерело: `text/ui/editor.js` (`_repaginate`, модель сторінок).
+- **Історія зберігає сторінковий DOM, не логічний документ.** `ArtHistory.snapshot()` консервує весь `editor.innerHTML` разом із результатом пагінації, через що layout, selection і content злиплені. Джерело: `text/core/history.js`.
+- **Пагінація не ділить таблиці.** Ріжуться лише текст і списки; таблиця вища за сторінку лишається одним переповненим блоком. Джерело: `text/ui/editor.js` (`_moveOverflowToNext`).
+- **Таблиці мають лише базову вставку.** Немає навігації `Tab`/`Shift+Tab` (Tab глобально вставляє 4 пробіли), додавання/видалення рядків і колонок, зміни ширини, merge/split, виділення діапазону клітинок.
+- **DOCX не є повним round-trip.** Колонки таблиці експортуються однаковою шириною; `rowspan`/`colspan`, стилі клітинок і складний вміст втрачаються; підсвітка завжди `yellow`, кольори лише `#rrggbb`. Джерело: `text/formats/docx.js`.
+- **Немає поведінкових тестів Text.** Static і browser smoke перевіряють структуру shell, але не курсор між сторінками, великі таблиці, selection після reflow чи DOCX round-trip.
+
 ## 5. Оцінка сторонніх кандидатів
 
 ### Tiptap / ProseMirror
@@ -112,6 +123,25 @@ Build-крок дозволено вводити лише після пілот�
 - інтеграція практично означає npm/build pipeline.
 
 Тригер для пілота: власний Text стабільно не може забезпечити selection/history/paste після цілеспрямованого циклу виправлень. Пілот має бути окремим прототипом, а не поступовим переписуванням production-коду.
+
+### Lexical
+
+Вердикт: **кандидат лише для окремого пілота; пагінацію вважати недоведеною** (перевірено 2026-06-19).
+
+Переваги:
+
+- MIT-ліцензія, єдиний editor state, модульні таблиці, надійні selection/history;
+- активна розробка від Meta.
+
+Уточнення щодо пагінації:
+
+- `PagesExtension` (`PageNode`/`PageContentNode`/`PageSetupNode`) справді додано у v0.44.0 (PR #8322) і доопрацьовано у v0.45.0, але в changelog воно йде як **playground-демонстрація**, а не стабільний пакет;
+- фіксована A4-пагінація лишається відкритою задачею (issue #7652, severity High): наявний PageBreak динамічний і ненадійний;
+- як і ProseMirror, потребує npm/build pipeline.
+
+### Реальність пагінації в усіх кандидатах
+
+Стабільної A4-пагінації «з коробки» не дає жоден кандидат: у ProseMirror це теж рівень форумних рішень, у Lexical — playground-демо. Висновок: **пагінацію все одно доведеться будувати самотужки в будь-якому варіанті**, тому вона не є вирішальним критерієм вибору фреймворку. Фреймворки виграють на selection/history/tables, а не на сторінках — це підвищує вагу Custom single-flow пілота, який лишається без npm/build. У матриці порівняння критерій «пагінація і друк» між фреймворками трактувати як нейтральний.
 
 ### Univer
 
@@ -334,6 +364,9 @@ git diff --check
 - Univer Pro scope: https://docs.univer.ai/en-US/guides/pro
 - Tiptap OSS and MIT license: https://tiptap.dev/open-source-to-platform
 - Tiptap Pages limitations: https://tiptap.dev/docs/pages/core-concepts/limitations
+- Lexical releases: https://github.com/facebook/lexical/releases
+- Lexical PagesExtension (PR #8322): https://github.com/facebook/lexical/pull/8322
+- Lexical A4 pagination request (issue #7652): https://github.com/facebook/lexical/issues/7652
 - HyperFormula licensing: https://hyperformula.handsontable.com/docs/guide/license-key.html
 - PptxGenJS: https://github.com/gitbrent/PptxGenJS
 - Mermaid: https://github.com/mermaid-js/mermaid
