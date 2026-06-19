@@ -71,17 +71,37 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     function handleImportedFile(file) {
       if (!file) return;
+      if (file.size > constants.MAX_IMPORT_BYTES) {
+        ui.showInfoModal('Завеликий файл', 'Файл зображення перевищує допустимий розмір.', '⚠️');
+        return;
+      }
       const reader = new FileReader();
       reader.onload = async (event) => {
-        pushUndo();
-        discardActiveText?.();
+        let image;
         try {
-          await canvasApi.loadImageFile(event.target.result);
-          markDirty();
+          image = await canvasApi.decodeImage(event.target.result);
         } catch (error) {
           console.error(error);
           ui.showInfoModal('Помилка імпорту', 'Не вдалося відкрити зображення.', '⚠️');
+          return;
         }
+        const plan = canvasApi.planImageImport(image);
+        // Велике зображення зменшується — попереджаємо й питаємо згоду.
+        if (plan.scaled) {
+          const ok = await ui.showConfirmModal(
+            'Велике зображення',
+            `Зображення ${plan.naturalW} × ${plan.naturalH} перевищує ліміт і буде зменшено до ${plan.targetW} × ${plan.targetH}. Продовжити?`,
+            '🖼️',
+            'Зменшити й відкрити'
+          );
+          if (!ok) return;
+        }
+        pushUndo();
+        discardActiveText?.();
+        canvasApi.placeImageAsDocument(image, plan.targetW, plan.targetH);
+        ui.updateCanvasInfo(state.document.width, state.document.height);
+        ui.updateZoomUI();
+        markDirty();
       };
       reader.readAsDataURL(file);
     }

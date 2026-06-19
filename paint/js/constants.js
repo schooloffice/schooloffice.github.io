@@ -11,6 +11,7 @@ window.ArtMalyunky.constants = {
   PROJECT_EXT: 'malyunok',
   MAX_PROJECT_BYTES: 64 * 1024 * 1024,
   MAX_RASTER_DATAURL: 48 * 1024 * 1024,
+  MAX_IMPORT_BYTES: 40 * 1024 * 1024,
   DEFAULT_FILE_NAME: 'малюнок',
   DEFAULT_COLOR: '#1f2937',
   DEFAULT_BG_COLOR: '#ffffff',

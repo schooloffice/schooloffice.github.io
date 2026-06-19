@@ -388,6 +388,27 @@
       doc.getElementById('modalOverlay').classList.add('hidden');
       state.currentTool = 'brush';
 
+      // --- Етап 9: безпека великих зображень (план імпорту + decode/place) ---
+      const CMAX = win.ArtMalyunky.constants;
+      const bigPlan = canvasApi.planImageImport({ naturalWidth: 8000, naturalHeight: 6000 });
+      const planScalesDown = bigPlan.scaled
+        && bigPlan.targetW <= CMAX.MAX_DOC_DIMENSION && bigPlan.targetH <= CMAX.MAX_DOC_DIMENSION
+        && bigPlan.targetW * bigPlan.targetH <= CMAX.MAX_DOC_PIXELS;
+      const smallPlan = canvasApi.planImageImport({ naturalWidth: 300, naturalHeight: 200 });
+      const planKeepsSmall = !smallPlan.scaled && smallPlan.targetW === 300 && smallPlan.targetH === 200;
+      const tmpImg = doc.createElement('canvas');
+      tmpImg.width = 40; tmpImg.height = 30;
+      const tmpCtx = tmpImg.getContext('2d');
+      tmpCtx.fillStyle = '#00cc44';
+      tmpCtx.fillRect(0, 0, 40, 30);
+      const importedImg = await canvasApi.decodeImage(tmpImg.toDataURL('image/png'));
+      const iplan = canvasApi.planImageImport(importedImg);
+      canvasApi.placeImageAsDocument(importedImg, iplan.targetW, iplan.targetH);
+      const ip = canvasApi.ctx.getImageData(20, 15, 1, 1).data;
+      const importPlaces = canvasApi.canvas.width === 40 && canvasApi.canvas.height === 30
+        && ip[1] > 150 && ip[0] < 120;
+      canvasApi.setDocumentSize(800, 600, { clear: true });
+
       const checks = baseChecks.concat([
         check('setDocumentSize sets dimensions', sizeSet),
         check('window resize keeps document size', docStableAfterResize),
@@ -423,7 +444,9 @@
         check('shapes flatten into raster on next action', shapeFlattens),
         check('save commits pending text into raster', saveCommitsText),
         check('project file save/open round-trips', projectRoundTrips),
-        check('project import validates and rejects bad files', projectValidates)
+        check('project import validates and rejects bad files', projectValidates),
+        check('large image import plan scales within limits', planScalesDown && planKeepsSmall),
+        check('image decode + place sets document', importPlaces)
       ]);
 
       result.className = 'pass';

@@ -541,28 +541,38 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       return x >= 0 && x < this.canvas.width && y >= 0 && y < this.canvas.height;
     },
 
-    // Відкриває зображення у реальному розмірі: документ підлаштовується під зображення
-    // з безпечними лімітами по стороні та загальній кількості пікселів.
-    async loadImageFile(dataUrl) {
-      await new Promise((resolve, reject) => {
+    decodeImage(dataUrl) {
+      return new Promise((resolve, reject) => {
         const image = new Image();
-        image.onload = () => {
-          const naturalW = image.naturalWidth || image.width;
-          const naturalH = image.naturalHeight || image.height;
-          let scale = Math.min(1, constants.MAX_DOC_DIMENSION / naturalW, constants.MAX_DOC_DIMENSION / naturalH);
-          if (naturalW * scale * naturalH * scale > constants.MAX_DOC_PIXELS) {
-            scale = Math.min(scale, Math.sqrt(constants.MAX_DOC_PIXELS / (naturalW * naturalH)));
-          }
-          const targetW = Math.max(constants.MIN_DOC_DIMENSION, Math.round(naturalW * scale));
-          const targetH = Math.max(constants.MIN_DOC_DIMENSION, Math.round(naturalH * scale));
-          this.setDocumentSize(targetW, targetH, { clear: true });
-          this.ctx.drawImage(image, 0, 0, targetW, targetH);
-          this.fitDocumentToViewport();
-          resolve();
-        };
-        image.onerror = reject;
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('image-decode-failed'));
         image.src = dataUrl;
       });
+    },
+
+    // Рахує цільовий розмір імпорту з безпечними лімітами (сторона + кількість пікселів).
+    // `scaled: true`, якщо зображення доведеться зменшити.
+    planImageImport(image) {
+      const naturalW = image.naturalWidth || image.width || 1;
+      const naturalH = image.naturalHeight || image.height || 1;
+      let scale = Math.min(1, constants.MAX_DOC_DIMENSION / naturalW, constants.MAX_DOC_DIMENSION / naturalH);
+      if (naturalW * scale * naturalH * scale > constants.MAX_DOC_PIXELS) {
+        scale = Math.min(scale, Math.sqrt(constants.MAX_DOC_PIXELS / (naturalW * naturalH)));
+      }
+      return {
+        naturalW,
+        naturalH,
+        targetW: Math.max(constants.MIN_DOC_DIMENSION, Math.round(naturalW * scale)),
+        targetH: Math.max(constants.MIN_DOC_DIMENSION, Math.round(naturalH * scale)),
+        scaled: scale < 1
+      };
+    },
+
+    // Робить зображення новим документом заданого розміру.
+    placeImageAsDocument(image, targetW, targetH) {
+      this.setDocumentSize(targetW, targetH, { clear: true });
+      this.ctx.drawImage(image, 0, 0, targetW, targetH);
+      this.fitDocumentToViewport();
     },
 
     exportMergedCanvas({ flatten = true } = {}) {

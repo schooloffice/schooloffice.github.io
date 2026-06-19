@@ -16,7 +16,7 @@
 
 **Ітерацію 4 виконано.** Зроблено: **прозорість** (гумка `destination-out`; checkerboard; PNG зберігає alpha), **текстовий інструмент** (overlay `<textarea>` → `canvasApi.drawText`), **основний/додатковий колір** (ліва/права кнопка миші, swap `X`, `state.activeColor`), **фігури/штампи на operation-моделі** (тимчасові → flatten у растр при новій дії/зміні інструмента/Enter через `flattenActiveObjects`; `objectLayer` тримає лише активний об'єкт).
 
-**Ітерація 5 — у процесі.** Зроблено: **project-файл** `.malyunok` (повний save/open round-trip через `paintDocument.saveProject/handleProjectFile` з P0 schema-валідацією; Ctrl+S/save = проєкт, PNG/JPG = експорт). Раніше по ходу: IndexedDB-чернетка, синхронна історія з memory budget. **Лишилось:** оптимізована історія (region/diff-снапшоти), великі зображення/продуктивність (ліміти, попередження, можливо Web Worker для важких операцій).
+**Ітерація 5 — переважно виконано.** Зроблено: **project-файл** `.malyunok` (повний save/open round-trip з P0 schema-валідацією; Ctrl+S/save = проєкт, PNG/JPG = експорт); **безпека великих зображень** (`planImageImport`/`decodeImage`/`placeImageAsDocument`, попередження перед зменшенням, ліміт розміру файлу). Раніше по ходу: IndexedDB-чернетка, синхронна історія з memory budget. **Свідомо відкладено:** оптимізація історії на region/diff-снапшоти (поточна модель обмежена memory budget'ом — поганий ризик/винагорода зараз).
 
 Технічний борг (відкладено): винести text-редагування з `app.js` (~970 рядків) у `text.js`.
 
