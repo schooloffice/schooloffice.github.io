@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v33';
+const CACHE_VERSION = 'office-plus-v34';
 const PRECACHE_NAME = `${CACHE_VERSION}-precache`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const MAX_RUNTIME_ENTRIES = 80;
@@ -59,6 +59,7 @@ const CORE_ASSETS = [
   './paint/js/runtime.js',
   './paint/js/state.js',
   './paint/js/storage.js',
+  './paint/js/text.js',
   './paint/js/tools.js',
   './paint/js/ui.js',
   './paint/js/utils.js',

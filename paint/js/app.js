@@ -5,9 +5,28 @@ window.PaintApp = window.PaintApp || {};
 
 (() => {
   const { constants, state, utils, canvasApi, ui } = window.ArtMalyunky;
-  const paintDocument = window.ArtMalyunky.paintDocument.createPaintDocument({ markDirty, markSaved, pushUndo, discardActiveText });
+  // paintDocument і paintText залежать одне від одного (import потребує
+  // discardActiveText; текст потребує autosaveDraft), тож зв'язуємо їх через
+  // lazy-обгортки — фактичні виклики відбуваються вже після ініціалізації.
+  const paintText = window.ArtMalyunky.paintText.createPaintText({
+    pushUndo,
+    markDirty,
+    autosaveDraft: () => paintDocument.autosaveDraft()
+  });
+  const paintDocument = window.ArtMalyunky.paintDocument.createPaintDocument({
+    markDirty,
+    markSaved,
+    pushUndo,
+    discardActiveText: () => paintText.discardActiveText()
+  });
   const objectInteractions = window.ArtMalyunky.objectInteractions.createPaintObjectInteractions({ markDirty, pushUndo });
-  const tools = window.ArtMalyunky.paintTools.createPaintTools({ pushUndo, markDirty, objectInteractions, setColor, createTextBox });
+  const tools = window.ArtMalyunky.paintTools.createPaintTools({
+    pushUndo,
+    markDirty,
+    objectInteractions,
+    setColor,
+    createTextBox: (x, y) => paintText.createTextBox(x, y)
+  });
   // Test seam: дає behavior-тестам доступ до файлових операцій документа.
   window.ArtMalyunky.paintDocumentApi = paintDocument;
 
@@ -42,7 +61,7 @@ window.PaintApp = window.PaintApp || {};
 
   // Відновлення синхронне: растр зберігається як offscreen-canvas, без async Image-декоду.
   function applyHistorySnapshot(snapshot) {
-    discardActiveText();
+    paintText.discardActiveText();
     state.suppressAutosave = true;
     canvasApi.restoreSnapshot(snapshot);
     state.suppressAutosave = false;
@@ -73,7 +92,7 @@ window.PaintApp = window.PaintApp || {};
     }
     // Вихід з текстового інструмента запікає активний текст у растр.
     if (toolName !== 'text' && state.textEdit) {
-      commitActiveText();
+      paintText.commitActiveText();
     }
     // Зміна інструмента запікає активну фігуру/штамп.
     flattenActiveObjects();
@@ -101,7 +120,7 @@ window.PaintApp = window.PaintApp || {};
   function commitPending() {
     flattenActiveObjects();
     if (state.selection && canvasApi.flattenSelection()) markDirty();
-    commitActiveText();
+    paintText.commitActiveText();
   }
 
   function copySelection() {
@@ -172,7 +191,7 @@ window.PaintApp = window.PaintApp || {};
   function setColor(hex) {
     state.currentColor = hex;
     ui.updateColorUI();
-    syncTextBoxStyle();
+    paintText.syncTextBoxStyle();
     paintDocument.autosaveDraft();
   }
 
@@ -187,7 +206,7 @@ window.PaintApp = window.PaintApp || {};
     state.currentColor = state.backgroundColor;
     state.backgroundColor = fg;
     ui.updateColorUI();
-    syncTextBoxStyle();
+    paintText.syncTextBoxStyle();
     paintDocument.autosaveDraft();
   }
 
@@ -203,112 +222,10 @@ window.PaintApp = window.PaintApp || {};
     paintDocument.autosaveDraft();
   }
 
-  // === Текстовий інструмент: редагований overlay, що запікається в растр ===
-  function syncTextBoxStyle() {
-    const edit = state.textEdit;
-    if (!edit) return;
-    const zoom = state.viewport.zoom;
-    edit.el.style.left = `${edit.x * zoom}px`;
-    edit.el.style.top = `${edit.y * zoom}px`;
-    edit.el.style.fontSize = `${state.currentFontSize * zoom}px`;
-    edit.el.style.fontFamily = state.currentFontFamily;
-    edit.el.style.fontWeight = state.currentBold ? '700' : '400';
-    edit.el.style.fontStyle = state.currentItalic ? 'italic' : 'normal';
-    edit.el.style.color = state.currentColor;
-    edit.autosize?.();
-  }
-
-  function createTextBox(docX, docY) {
-    commitActiveText();
-    const el = document.createElement('textarea');
-    el.className = 'text-edit-box';
-    el.setAttribute('spellcheck', 'false');
-    el.setAttribute('wrap', 'off');
-    el.setAttribute('rows', '1');
-    el.setAttribute('aria-label', 'Текст для додавання на малюнок');
-    state.textEdit = { el, x: docX, y: docY };
-    ui.elements.canvasStage.appendChild(el);
-    syncTextBoxStyle();
-    const autosize = () => {
-      el.style.width = '0';
-      el.style.height = '0';
-      el.style.width = `${el.scrollWidth + 6}px`;
-      el.style.height = `${el.scrollHeight}px`;
-    };
-    state.textEdit.autosize = autosize;
-    el.addEventListener('input', autosize);
-    autosize();
-    el.focus();
-    el.addEventListener('keydown', (event) => {
-      event.stopPropagation();
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        commitActiveText();
-      }
-    });
-  }
-
-  function commitActiveText() {
-    const edit = state.textEdit;
-    if (!edit) return;
-    const value = edit.el.value;
-    state.textEdit = null;
-    edit.el.remove();
-    if (!value.trim()) return;
-    pushUndo();
-    canvasApi.drawText({
-      text: value,
-      x: edit.x,
-      y: edit.y,
-      fontSize: state.currentFontSize,
-      fontFamily: state.currentFontFamily,
-      bold: state.currentBold,
-      italic: state.currentItalic,
-      color: state.currentColor,
-      opacity: state.currentOpacity
-    });
-    markDirty();
-  }
-
-  function discardActiveText() {
-    const edit = state.textEdit;
-    if (!edit) return;
-    state.textEdit = null;
-    edit.el.remove();
-  }
-
-  function setFontSize(value) {
-    state.currentFontSize = utils.clamp(Math.round(Number(value) || constants.DEFAULT_FONT_SIZE), 8, 200);
-    ui.updateTextUI();
-    syncTextBoxStyle();
-    paintDocument.autosaveDraft();
-  }
-
-  function setFontFamily(value) {
-    state.currentFontFamily = value || constants.DEFAULT_FONT_FAMILY;
-    ui.updateTextUI();
-    syncTextBoxStyle();
-    paintDocument.autosaveDraft();
-  }
-
-  function toggleBold() {
-    state.currentBold = !state.currentBold;
-    ui.updateTextUI();
-    syncTextBoxStyle();
-    paintDocument.autosaveDraft();
-  }
-
-  function toggleItalic() {
-    state.currentItalic = !state.currentItalic;
-    ui.updateTextUI();
-    syncTextBoxStyle();
-    paintDocument.autosaveDraft();
-  }
-
   async function clearCanvasWithConfirm() {
     const okay = await ui.showConfirmModal('Очистити полотно?', 'Усі мазки, фігури та штампи буде видалено.', '🧹', 'Очистити');
     if (!okay) return;
-    discardActiveText();
+    paintText.discardActiveText();
     pushUndo();
     canvasApi.clearAll();
     ui.updateDetailStatus();
@@ -327,7 +244,7 @@ window.PaintApp = window.PaintApp || {};
       height: constants.DEFAULT_DOC_HEIGHT
     });
     if (!choice) return;
-    discardActiveText();
+    paintText.discardActiveText();
     state.undoStack.length = 0;
     state.redoStack.length = 0;
     canvasApi.setDocumentSize(choice.width, choice.height, {
@@ -349,7 +266,7 @@ window.PaintApp = window.PaintApp || {};
 
   function applyZoomChange() {
     ui.updateZoomUI();
-    syncTextBoxStyle();
+    paintText.syncTextBoxStyle();
     paintDocument.autosaveDraft();
   }
 
@@ -419,7 +336,7 @@ window.PaintApp = window.PaintApp || {};
       ui.showInfoModal('Обрізання', 'Спершу виділіть прямокутну ділянку інструментом «Виділення» (S).', 'ℹ️');
       return;
     }
-    commitActiveText();
+    paintText.commitActiveText();
     pushUndo();
     if (canvasApi.cropToSelection()) {
       ui.updateCanvasInfo(state.document.width, state.document.height);
@@ -770,10 +687,10 @@ window.PaintApp = window.PaintApp || {};
     ui.elements.sizeSlider.addEventListener('input', (event) => setSize(event.target.value));
     ui.elements.opacitySlider.addEventListener('input', (event) => setOpacity(event.target.value));
 
-    ui.elements.fontSizeInput?.addEventListener('input', (event) => setFontSize(event.target.value));
-    ui.elements.fontFamilySelect?.addEventListener('change', (event) => setFontFamily(event.target.value));
-    ui.elements.boldBtn?.addEventListener('click', () => toggleBold());
-    ui.elements.italicBtn?.addEventListener('click', () => toggleItalic());
+    ui.elements.fontSizeInput?.addEventListener('input', (event) => paintText.setFontSize(event.target.value));
+    ui.elements.fontFamilySelect?.addEventListener('change', (event) => paintText.setFontFamily(event.target.value));
+    ui.elements.boldBtn?.addEventListener('click', () => paintText.toggleBold());
+    ui.elements.italicBtn?.addEventListener('click', () => paintText.toggleItalic());
 
     ui.elements.importFileInput.addEventListener('change', (event) => {
       paintDocument.handleImportedFile(event.target.files[0]);
@@ -904,7 +821,7 @@ window.PaintApp = window.PaintApp || {};
           ui.elements.advancedColorBtn?.classList.remove('active');
           canvasApi.cancelPendingObject();
           commitSelection();
-          commitActiveText();
+          paintText.commitActiveText();
           flattenActiveObjects();
           objectInteractions.deselectObject();
           state.isDrawing = false;
@@ -926,7 +843,7 @@ window.PaintApp = window.PaintApp || {};
       canvasApi.refit();
       ui.updateCanvasInfo(state.document.width, state.document.height);
       ui.updateZoomUI();
-      syncTextBoxStyle();
+      paintText.syncTextBoxStyle();
     }, 120));
 
     window.addEventListener('beforeunload', (event) => {

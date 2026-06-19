@@ -18,7 +18,7 @@
 
 **Ітерація 5 — переважно виконано.** Зроблено: **project-файл** `.malyunok` (повний save/open round-trip з P0 schema-валідацією; Ctrl+S/save = проєкт, PNG/JPG = експорт); **безпека великих зображень** (`planImageImport`/`decodeImage`/`placeImageAsDocument`, попередження перед зменшенням, ліміт розміру файлу). Раніше по ходу: IndexedDB-чернетка, синхронна історія з memory budget. **Свідомо відкладено:** оптимізація історії на region/diff-снапшоти (поточна модель обмежена memory budget'ом — поганий ризик/винагорода зараз).
 
-Технічний борг (відкладено): винести text-редагування з `app.js` (~970 рядків) у `text.js`.
+Технічний борг: винесено text-редагування з `app.js` у `text.js` (app.js ~970 → ~885 рядків). Можливий наступний крок — згрупувати selection-clipboard-логіку, якщо app.js знову розросте.
 
 ## Поточна Структура
 
@@ -27,7 +27,8 @@
 - `paint/js/document.js` — autosave draft, restore draft, image import, PNG/JPG export і print.
 - `paint/js/storage.js` — чернетка в IndexedDB із fallback на localStorage (saveDraft/loadDraft/clearDraft).
 - `paint/js/object-interactions.js` — select, move, resize і delete для об'єктів на полотні.
-- `paint/js/tools.js` — реєстр інструментів (контракт `begin/update/commit/cancel`); пензлик/гумка/заливка/піпетка/фігури/штампи.
+- `paint/js/tools.js` — реєстр інструментів (контракт `begin/update/commit/cancel`); пензлик/гумка/заливка/піпетка/виділення/текст/фігури/штампи.
+- `paint/js/text.js` — текстовий інструмент (overlay-textarea → `canvasApi.drawText`, параметри шрифту).
 - `paint/js/canvas.js` — canvas API, raster drawing, object rendering, snapshots, трансформації (rotate/flip), guides.
 - `paint/js/ui.js` — DOM cache, menu/picker/modal/statusbar UI.
 - `paint/js/state.js` — локальний runtime state.
