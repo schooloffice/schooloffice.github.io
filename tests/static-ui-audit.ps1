@@ -29,6 +29,8 @@ $requiredRootFiles = @(
   'COMPONENT_CHECKLIST.md',
   'CHANGELOG.md',
   'CHANGELOG_STANDARD.md',
+  'LICENSE',
+  'THIRD_PARTY_NOTICES.md',
   'office-shell.js',
   'office-ui.js',
   'offline.js',
@@ -229,6 +231,59 @@ function Test-ExternalOrVirtualPath {
   return $Path -match '^(?:https?:|mailto:|tel:|data:|blob:|#|/)' -or $Path -eq ''
 }
 
+function Assert-CspBaseline {
+  param(
+    [string]$Html,
+    [string]$PathLabel
+  )
+
+  $match = [regex]::Match($Html, '<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]+)"')
+  Assert-True $match.Success "${PathLabel}: production HTML must declare a Content-Security-Policy meta tag"
+  if (-not $match.Success) { return }
+
+  $policy = $match.Groups[1].Value
+  foreach ($directive in @(
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self' https:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "worker-src 'self' blob:"
+  )) {
+    Assert-True ($policy.Contains($directive)) "${PathLabel}: CSP is missing directive: $directive"
+  }
+}
+
+function Assert-BlankLinksAreIsolated {
+  param(
+    [string]$Html,
+    [string]$PathLabel
+  )
+
+  $blankLinks = [regex]::Matches($Html, '<a\b(?=[^>]*\starget="_blank")[^>]*>')
+  foreach ($link in $blankLinks) {
+    $tag = $link.Value
+    $rel = Get-HtmlAttribute $tag 'rel'
+    Assert-True ($rel -and $rel -match '(^|\s)noopener(\s|$)' -and $rel -match '(^|\s)noreferrer(\s|$)') "${PathLabel}: target=""_blank"" link must use rel=""noopener noreferrer"": $tag"
+  }
+}
+
+function Assert-ProductionHtmlSecurityBaseline {
+  param(
+    [string]$Html,
+    [string]$PathLabel
+  )
+
+  Assert-CspBaseline $Html $PathLabel
+  Assert-BlankLinksAreIsolated $Html $PathLabel
+  Assert-True ($Html -notmatch '\bhref\s*=\s*["'']javascript:') "${PathLabel}: production HTML must not use javascript: links"
+}
+
 function Assert-LocalHtmlAssetsExist {
   param(
     [string]$Html,
@@ -342,6 +397,29 @@ foreach ($file in $requiredRootFiles) {
   Assert-True (Test-Path (Join-Path $Root $file)) "Missing required root standard file: $file"
 }
 
+$html2PdfLicensePath = Join-Path $Root 'vendor/html2pdf/html2pdf.bundle.min.js.LICENSE.txt'
+Assert-True (Test-Path $html2PdfLicensePath) "vendor/html2pdf: missing companion LICENSE notice referenced by html2pdf.bundle.min.js"
+
+$productionJsFiles = Get-ChildItem -Path $Root -Recurse -File -Include '*.js' |
+  Where-Object {
+    $_.FullName -notmatch '\\vendor\\' -and
+    $_.FullName -notmatch '\\tests\\'
+  }
+
+$innerHtmlBaseline = 92
+$innerHtmlCount = 0
+foreach ($jsFile in $productionJsFiles) {
+  $relativePath = $jsFile.FullName.Substring($Root.Length).TrimStart('\', '/').Replace('\', '/')
+  $content = Get-Content -Raw -Encoding UTF8 $jsFile.FullName
+  $fileInnerHtmlCount = [regex]::Matches($content, '\binnerHTML\b').Count
+  if ($fileInnerHtmlCount -gt 0) {
+    Add-Warning "${relativePath}: contains $fileInnerHtmlCount innerHTML reference(s); keep reducing this security debt"
+  }
+  $innerHtmlCount += $fileInnerHtmlCount
+}
+
+Assert-True ($innerHtmlCount -le $innerHtmlBaseline) "production JS innerHTML baseline increased: $innerHtmlCount > $innerHtmlBaseline"
+
 $normativeDocFiles = @(
   'README.md',
   'UI_INTEGRATION_GUIDE.md',
@@ -387,6 +465,7 @@ foreach ($docFile in $normativeDocFiles) {
 $rootIndexPath = Join-Path $Root 'index.html'
 if (Test-Path $rootIndexPath) {
   $rootHtml = Get-Content -Raw -Encoding UTF8 $rootIndexPath
+  Assert-ProductionHtmlSecurityBaseline $rootHtml 'index.html'
   Assert-True ($rootHtml -notmatch '/office/art-') "Root index still contains old /office/art-* links"
   Assert-True ($rootHtml -notmatch '/office/office-') "Root index contains invalid /office/office-* links"
   Assert-True ($rootHtml -notmatch "pathname\.endsWith\('/office'\)") "Standalone root index should not contain the old /office redirect"
@@ -416,6 +495,7 @@ foreach ($service in $services) {
   if (-not (Test-Path $indexPath)) { continue }
 
   $html = Get-Content -Raw -Encoding UTF8 $indexPath
+  Assert-ProductionHtmlSecurityBaseline $html "$($service.Path)/index.html"
   Assert-LocalHtmlAssetsExist $html $indexPath $service.Path
   Assert-StaticIdReferencesExist $html $serviceRoot $service.Path $service.OptionalIds
   Assert-StylesheetOrder $html $service.Path
