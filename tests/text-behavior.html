@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Text Behavior Smoke</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    iframe {
+      width: 1280px;
+      height: 900px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+    }
+
+    pre {
+      max-width: 1280px;
+      white-space: pre-wrap;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: .75rem;
+      padding: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Text Behavior Smoke</h1>
+  <pre id="result">Running...</pre>
+  <iframe id="textFrame" src="../text/index.html"></iframe>
+
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('textFrame');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function waitFor(predicate, label, timeout = 6000) {
+      const started = performance.now();
+      return new Promise((resolve, reject) => {
+        function tick() {
+          let ok = false;
+          try { ok = !!predicate(); } catch { ok = false; }
+          if (ok) return resolve();
+          if (performance.now() - started > timeout) return reject(new Error(`Timed out waiting for ${label}`));
+          requestAnimationFrame(tick);
+        }
+        tick();
+      });
+    }
+
+    function check(label, ok) {
+      return { label, ok: !!ok };
+    }
+
+    function pageContents(doc) {
+      return Array.from(doc.querySelectorAll('#editor .page-content'));
+    }
+
+    function isOverflowing(el) {
+      return !!el && el.scrollHeight > el.clientHeight + 1;
+    }
+
+    function setCaretAtStart(win, node) {
+      const range = win.document.createRange();
+      range.selectNodeContents(node);
+      range.collapse(true);
+      const sel = win.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+
+    function setCaretAtEnd(win, node) {
+      const range = win.document.createRange();
+      range.selectNodeContents(node);
+      range.collapse(false);
+      const sel = win.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+
+    function selectionCell(win) {
+      const sel = win.getSelection();
+      const node = sel?.anchorNode?.nodeType === Node.ELEMENT_NODE ? sel.anchorNode : sel?.anchorNode?.parentElement;
+      return node?.closest?.('th,td') || null;
+    }
+
+    async function resetDocument(win, doc) {
+      win.art.editor.newDoc();
+      await waitFor(() => pageContents(doc).length === 1 && doc.querySelector('#editor .page-content'), 'text document reset');
+      await wait(150);
+    }
+
+    async function run() {
+      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+
+      const win = frame.contentWindow;
+      const doc = frame.contentDocument;
+
+      await waitFor(() => (
+        typeof win.TextApp?.boot === 'function' &&
+        !!win.art?.editor &&
+        !!doc.querySelector('#editor .page-content')
+      ), 'Text boot');
+
+      const editor = doc.getElementById('editor');
+      const initialPages = pageContents(doc);
+      const baseChecks = [
+        check('TextApp boot facade is exposed', typeof win.TextApp.boot === 'function'),
+        check('editor facade is exposed', !!win.art?.editor?.insertTable),
+        check('initial document has one editable page', initialPages.length === 1 && initialPages[0].isContentEditable),
+        check('standard shell commands are present', ['new', 'open', 'save', 'undo', 'redo'].every(cmd => doc.querySelector(`[data-office-command="${cmd}"]`))),
+        check('status counters are present', !!doc.getElementById('statusWords') && !!doc.getElementById('statusChars'))
+      ];
+
+      await resetDocument(win, doc);
+      let firstPage = pageContents(doc)[0];
+      const paragraphs = Array.from({ length: 180 }, (_, index) => {
+        return `<p>Paragraph ${index + 1}. This long diagnostic document is used to reproduce current Text pagination behavior across generated pages.</p>`;
+      }).join('');
+      firstPage.innerHTML = paragraphs;
+      setCaretAtEnd(win, firstPage.lastElementChild);
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await waitFor(() => pageContents(doc).length > 1, 'long document pagination', 9000);
+      await wait(1200);
+
+      const longPages = pageContents(doc);
+      const longOverflows = longPages.map(isOverflowing);
+      const activeNode = win.getSelection()?.anchorNode?.nodeType === Node.ELEMENT_NODE
+        ? win.getSelection().anchorNode
+        : win.getSelection()?.anchorNode?.parentElement;
+      const selectionPageIndex = longPages.indexOf(activeNode?.closest?.('.page-content'));
+      const knownPaginationOverflowDetected = longPages.length > 1 && longOverflows.some(Boolean);
+      const selectionDidNotReachLastPage = selectionPageIndex !== -1 && selectionPageIndex !== longPages.length - 1;
+
+      await resetDocument(win, doc);
+      firstPage = pageContents(doc)[0];
+      firstPage.focus();
+      setCaretAtStart(win, firstPage.querySelector('p') || firstPage);
+      win.art.editor.insertTable(50, 4);
+      await wait(800);
+
+      const tablePages = pageContents(doc);
+      const table = doc.querySelector('#editor table');
+      const rows = doc.querySelectorAll('#editor table tr').length;
+      const cells = Array.from(doc.querySelectorAll('#editor table th, #editor table td'));
+      const knownLargeTableOverflowDetected = !!table && rows === 50 && tablePages.length === 1 && isOverflowing(tablePages[0]);
+
+      const firstCell = cells[0];
+      const secondCell = cells[1];
+      let knownTableTabMissingDetected = false;
+      if (firstCell && secondCell) {
+        setCaretAtStart(win, firstCell);
+        const tabEvent = new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+        firstCell.dispatchEvent(tabEvent);
+        await wait(150);
+        const selectedCell = selectionCell(win);
+        const secondCellText = (secondCell.textContent || '').replace(/\u200B/g, '').trim();
+        knownTableTabMissingDetected = tabEvent.defaultPrevented && selectedCell !== secondCell && secondCellText === '';
+      }
+
+      const checks = [
+        ...baseChecks,
+        check('long document creates multiple page nodes', longPages.length > 1),
+        check('large table inserts requested rows', rows === 50),
+        check('large table exposes editable cells', cells.length === 200)
+      ];
+
+      const failed = checks.filter(item => !item.ok);
+      const diagnostics = [
+        '',
+        'Diagnostics:',
+        `long page count: ${longPages.length}`,
+        `overflowing long pages: ${longOverflows.map((value, index) => value ? index + 1 : null).filter(Boolean).join(', ') || 'none'}`,
+        `selection page after pagination: ${selectionPageIndex + 1 || 'unknown'}`,
+        `selection stayed before last page: ${selectionDidNotReachLastPage}`,
+        `table page count: ${tablePages.length}`,
+        `table rows: ${rows}`,
+        `table first page overflow: ${isOverflowing(tablePages[0])}`,
+        `known pagination overflow reproduced: ${knownPaginationOverflowDetected}`,
+        `known large table overflow reproduced: ${knownLargeTableOverflowDetected}`,
+        `known table Tab navigation gap reproduced: ${knownTableTabMissingDetected}`
+      ];
+
+      result.textContent = checks
+        .map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}`)
+        .concat(diagnostics)
+        .concat(failed.length ? [`FAILED: ${failed.map(item => item.label).join('; ')}`] : ['PASSED'])
+        .join('\n');
+
+      if (failed.length) {
+        document.body.dataset.textBehavior = 'failed';
+        throw new Error(failed.map(item => item.label).join('; '));
+      }
+
+      document.body.dataset.textBehavior = 'passed';
+    }
+
+    run().catch(err => {
+      document.body.dataset.textBehavior = 'failed';
+      result.textContent = err?.stack || err?.message || String(err);
+    });
+  </script>
+</body>
+</html>

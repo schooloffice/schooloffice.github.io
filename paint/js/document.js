@@ -35,7 +35,6 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       const mime = type === 'jpg' ? 'image/jpeg' : 'image/png';
       const dataUrl = canvasApi.exportImage(mime, 0.92);
       utils.downloadDataUrl(dataUrl, `${state.fileName || constants.DEFAULT_FILE_NAME}.${ext}`);
-      markSaved();
     }
 
     function printImage() {
@@ -69,6 +68,16 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       window.OfficeShell?.openFilePicker?.(ui.elements.importFileInput) || ui.elements.importFileInput.click();
     }
 
+    async function confirmReplaceDocument(title, confirmText) {
+      if (!state.unsavedChanges) return true;
+      return ui.showConfirmModal(
+        title,
+        'Незбережені зміни буде втрачено. Спершу збережіть проєкт, якщо хочете продовжити редагування пізніше.',
+        '⚠️',
+        confirmText
+      );
+    }
+
     function handleImportedFile(file) {
       if (!file) return;
       if (file.size > constants.MAX_IMPORT_BYTES) {
@@ -86,6 +95,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
           return;
         }
         const plan = canvasApi.planImageImport(image);
+        const proceed = await confirmReplaceDocument('Відкрити зображення?', 'Відкрити');
+        if (!proceed) return;
         // Велике зображення зменшується — попереджаємо й питаємо згоду.
         if (plan.scaled) {
           const ok = await ui.showConfirmModal(
@@ -185,7 +196,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     function validateProject(obj) {
       if (!obj || typeof obj !== 'object') return null;
       if (obj.format !== constants.PROJECT_FORMAT) return null;
-      if (typeof obj.version !== 'number') return null;
+      if (!Number.isInteger(obj.version) || obj.version !== constants.PROJECT_VERSION) return null;
       const docData = obj.document;
       if (!docData || typeof docData !== 'object') return null;
       const width = Math.round(Number(docData.width));
@@ -227,6 +238,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         ui.showInfoModal('Несумісний файл', 'Це не коректний project-файл ПЛЮС Малюнки або він пошкоджений.', '⚠️');
         return;
       }
+      const proceed = await confirmReplaceDocument('Відкрити проєкт?', 'Відкрити');
+      if (!proceed) return;
       try {
         if (discardActiveText) discardActiveText();
         state.suppressAutosave = true;

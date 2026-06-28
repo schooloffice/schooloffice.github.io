@@ -394,7 +394,7 @@ window.PaintApp = window.PaintApp || {};
         runOfficeCommand('redo') || redo();
         break;
       case 'delete-selected':
-        objectInteractions.deleteSelectedObject();
+        deleteSelectionOrObject();
         break;
       case 'clear-canvas':
         clearCanvasWithConfirm();
@@ -445,7 +445,7 @@ window.PaintApp = window.PaintApp || {};
         flipCanvas('vertical');
         break;
       case 'show-shortcuts':
-        ui.showInfoModal('Клавіатурні скорочення', 'B — пензлик\nE — гумка\nF — заливка\nI — піпетка\nG — фігури\nT — штампи\nDelete / Backspace — видалити вибраний об\'єкт\n[ / ] — менша або більша товщина\nCtrl + колесо — масштаб\nПробіл + перетягування — панорамування\nCtrl+0 / Ctrl+± — масштаб\nCtrl+Z — скасувати\nCtrl+Y — повернути\nCtrl+S — зберегти PNG\nCtrl+N — новий малюнок\nEsc — закрити меню або зняти виділення', '⌨️');
+        ui.showInfoModal('Клавіатурні скорочення', 'B — пензлик\nE — гумка\nF — заливка\nI — піпетка\nG — фігури\nT — штампи\nDelete / Backspace — видалити вибране\n[ / ] — менша або більша товщина\nCtrl + колесо — масштаб\nПробіл + перетягування — панорамування\nCtrl+0 / Ctrl+± — масштаб\nCtrl+Z — скасувати\nCtrl+Y — повернути\nCtrl+S — зберегти проєкт\nCtrl+N — новий малюнок\nEsc — закрити меню або зняти виділення', '⌨️');
         break;
       case 'show-about':
         ui.showInfoModal('Про ПЛЮС Малюнки', 'ПЛЮС Малюнки — графічний редактор у стилі вашого офісного набору. Основна палітра завжди видима, пензлик має кілька режимів, а фігури й штампи можна пересувати та змінювати за розміром.', '🎨');

@@ -18,7 +18,7 @@
 ## Локальні пріоритети
 
 - Не ховати основні параметри інструмента надто глибоко.
-- Open image має використовувати `OfficeUI.openFilePicker`.
+- Open image має використовувати `OfficeShell.openFilePicker` через локальний command/file adapter.
 - Стандартні команди мають іти через command adapter.
 
 ## Локальна структура

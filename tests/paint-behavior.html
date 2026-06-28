@@ -207,7 +207,17 @@
       canvasApi.pasteBuffer(selBuffer);
       const selPastePx = canvasApi.ctx.getImageData(5, 5, 1, 1).data;
       const selectionPastes = selPastePx[0] > 180 && selPastePx[1] < 80 && selPastePx[2] < 80;
-      canvasApi.flattenSelection();
+
+      canvasApi.setDocumentSize(200, 200, { clear: true });
+      canvasApi.ctx.fillStyle = '#ff0000';
+      canvasApi.ctx.fillRect(20, 20, 30, 30);
+      state.selection = { x: 20, y: 20, w: 30, h: 30, floating: null };
+      canvasApi.drawSelectionOverlay();
+      doc.querySelector('.rail-btn[data-action="delete-selected"]').click();
+      const actionDelPx = canvasApi.ctx.getImageData(30, 30, 1, 1).data;
+      const selectionActionDeletes = actionDelPx[0] > 240 && actionDelPx[1] > 240 && actionDelPx[2] > 240;
+      state.selection = null;
+      canvasApi.drawSelectionOverlay();
 
       state.currentTool = 'select';
       canvasApi.setZoom(1);
@@ -347,10 +357,15 @@
       doc.dispatchEvent(new PointerEvent('pointerup', { clientX: txp.x, clientY: txp.y, button: 0, pointerId: 9, bubbles: true }));
       const textArea = doc.querySelector('.text-edit-box');
       let saveCommitsText = false;
+      const realDownloadDataUrl = win.ArtMalyunky.utils.downloadDataUrl;
       if (textArea) {
         textArea.value = 'Hi';
-        win.ArtMalyunky.utils.downloadDataUrl = () => {}; // не завантажувати файл під час тесту
-        doc.body.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }));
+        try {
+          win.ArtMalyunky.utils.downloadDataUrl = () => {}; // не завантажувати файл під час тесту
+          doc.body.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }));
+        } finally {
+          win.ArtMalyunky.utils.downloadDataUrl = realDownloadDataUrl;
+        }
         let dark = false;
         const sdata = canvasApi.ctx.getImageData(8, 6, 130, 60).data;
         for (let i = 0; i < sdata.length; i += 4) {
@@ -364,15 +379,40 @@
       // --- Project-файл: save/open round-trip + schema-валідація недовіреного файлу ---
       const docApi = win.ArtMalyunky.paintDocumentApi;
       const PF = win.ArtMalyunky.constants.PROJECT_FORMAT;
+      let exportDownloads = 0;
+      state.unsavedChanges = true;
+      win.ArtMalyunky.ui.updateDirtyUI();
+      try {
+        win.ArtMalyunky.utils.downloadDataUrl = () => { exportDownloads += 1; };
+        docApi.saveImage('png');
+      } finally {
+        win.ArtMalyunky.utils.downloadDataUrl = realDownloadDataUrl;
+      }
+      const exportKeepsDirty = state.unsavedChanges === true && exportDownloads === 1
+        && win.ArtMalyunky.utils.downloadDataUrl === realDownloadDataUrl;
+
       canvasApi.setDocumentSize(120, 90, { clear: true, transparent: false });
       canvasApi.ctx.fillStyle = '#ff0000';
       canvasApi.ctx.fillRect(0, 0, 120, 90);
       const projObj = {
-        format: PF, version: 1, fileName: 'тест-проєкт',
+        format: PF, version: win.ArtMalyunky.constants.PROJECT_VERSION, fileName: 'тест-проєкт',
         document: { width: 120, height: 90, background: '#ffffff', transparent: false },
         raster: canvasApi.canvas.toDataURL('image/png')
       };
       canvasApi.setDocumentSize(300, 300, { clear: true });
+      state.unsavedChanges = true;
+      win.ArtMalyunky.ui.updateDirtyUI();
+      const cancelledOpen = docApi.handleProjectFile(new File([JSON.stringify(projObj)], 'cancel.malyunok', { type: 'application/json' }));
+      await waitFor(() => !doc.getElementById('modalOverlay').classList.contains('hidden'), 'project replace confirm shown');
+      const projectReplaceConfirmShows = !doc.getElementById('modalCancel').classList.contains('hidden')
+        && doc.getElementById('modalConfirm').textContent.trim().length > 0;
+      doc.getElementById('modalCancel').click();
+      await cancelledOpen;
+      const projectCancelKeepsDocument = projectReplaceConfirmShows
+        && canvasApi.canvas.width === 300 && canvasApi.canvas.height === 300 && state.unsavedChanges === true;
+
+      state.unsavedChanges = false;
+      win.ArtMalyunky.ui.updateDirtyUI();
       await docApi.handleProjectFile(new File([JSON.stringify(projObj)], 'a.malyunok', { type: 'application/json' }));
       const projPx = canvasApi.ctx.getImageData(20, 20, 1, 1).data;
       const projectRoundTrips = canvasApi.canvas.width === 120 && canvasApi.canvas.height === 90
@@ -380,11 +420,13 @@
 
       await docApi.handleProjectFile(new File([JSON.stringify({ format: 'evil', version: 1, document: { width: 100, height: 100 } })], 'b.malyunok', { type: 'application/json' }));
       const badFormatRejected = canvasApi.canvas.width === 120;
+      await docApi.handleProjectFile(new File([JSON.stringify({ ...projObj, version: win.ArtMalyunky.constants.PROJECT_VERSION + 1 })], 'future.malyunok', { type: 'application/json' }));
+      const futureVersionRejected = canvasApi.canvas.width === 120;
       await docApi.handleProjectFile(new File([JSON.stringify({ format: PF, version: 1, document: { width: 99999, height: 99999 }, raster: '' })], 'c.malyunok', { type: 'application/json' }));
       const oversizeRejected = canvasApi.canvas.width === 120;
       await docApi.handleProjectFile(new File(['{ not json'], 'd.malyunok', { type: 'application/json' }));
       const malformedRejected = canvasApi.canvas.width === 120;
-      const projectValidates = badFormatRejected && oversizeRejected && malformedRejected;
+      const projectValidates = badFormatRejected && futureVersionRejected && oversizeRejected && malformedRejected;
       doc.getElementById('modalOverlay').classList.add('hidden');
       state.currentTool = 'brush';
 
@@ -429,6 +471,7 @@
         check('selection copies region', selectionCopies),
         check('selection delete clears region', selectionDeletes),
         check('selection paste restores pixels', selectionPastes),
+        check('delete action clears raster selection', selectionActionDeletes),
         check('marquee created via pointer drag', marqueeCreated),
         check('crop to selection resizes and keeps pixels', cropWorks),
         check('image scaling resizes content', scaleWorks),
@@ -443,6 +486,8 @@
         check('X swaps foreground and background', swapWorks),
         check('shapes flatten into raster on next action', shapeFlattens),
         check('save commits pending text into raster', saveCommitsText),
+        check('PNG export keeps project dirty state', exportKeepsDirty),
+        check('project open asks before replacing dirty document', projectCancelKeepsDocument),
         check('project file save/open round-trips', projectRoundTrips),
         check('project import validates and rejects bad files', projectValidates),
         check('large image import plan scales within limits', planScalesDown && planKeepsSmall),
