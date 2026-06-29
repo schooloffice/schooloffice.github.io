@@ -46,3 +46,10 @@
 ## Обмеження
 
 Не дробити `canvas.js` на shape/math/render файли, доки не з'явиться реальна потреба. Для графічного редактора canvas API може залишатися більшим модулем, якщо він має цілісну відповідальність і покритий smoke-тестами.
+
+## Decisions 2026-06-28
+
+- `.malyunok` is the working lesson file for Paint: raster-first, but not raster-only. It stores the visible raster plus a small editable state (`objects` and current tool settings) through `canvasApi.toSerializable()`. PNG/JPG remain the flat exchange/export formats.
+- Paint does not introduce full layers at this stage. Confirmed drawing stays raster; only lightweight, not-yet-flattened objects such as active shapes/stamps are restored as editable project state.
+- The left sidebar should prioritize drawing tools. Visible duplicates of file/export/print/clear commands stay in the main menu; the rail keeps only Save, Undo, Redo, and labeled drawing tools. Hidden standard-command proxies remain only to satisfy the shared shell command contract.
+- History remains full canvas snapshots with a memory budget for now. Region/diff history is deferred until performance evidence shows that the current model is a real classroom blocker.

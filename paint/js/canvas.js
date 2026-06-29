@@ -632,7 +632,22 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       return {
         document: { ...state.document },
         raster: this.canvas.toDataURL('image/png'),
-        objects: utils.deepClone(state.objects)
+        objects: utils.deepClone(state.objects),
+        settings: {
+          currentTool: state.currentTool,
+          currentBrush: state.currentBrush,
+          currentShape: state.currentShape,
+          currentStamp: state.currentStamp,
+          currentColor: state.currentColor,
+          backgroundColor: state.backgroundColor,
+          currentSize: state.currentSize,
+          currentOpacity: state.currentOpacity,
+          currentFontSize: state.currentFontSize,
+          currentFontFamily: state.currentFontFamily,
+          currentBold: state.currentBold,
+          currentItalic: state.currentItalic,
+          guideMode: state.guideMode
+        }
       };
     },
 
@@ -648,9 +663,27 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       }
       await this.restoreRasterFromDataUrl(typeof data.raster === 'string' ? data.raster : null);
       state.objects = utils.deepClone(data.objects || []);
+      const settings = data.settings || {};
+      if (constants.TOOLS[settings.currentTool]) state.currentTool = settings.currentTool;
+      if (constants.BRUSHES[settings.currentBrush]) state.currentBrush = settings.currentBrush;
+      if (constants.SHAPES[settings.currentShape]) state.currentShape = settings.currentShape;
+      if (constants.STAMP_POOL.includes(settings.currentStamp)) state.currentStamp = settings.currentStamp;
+      state.currentColor = utils.sanitizeHexColor(settings.currentColor, state.currentColor);
+      state.backgroundColor = utils.sanitizeHexColor(settings.backgroundColor, state.backgroundColor);
+      state.currentSize = utils.clamp(Math.round(Number(settings.currentSize) || state.currentSize), 1, 96);
+      state.currentOpacity = utils.clamp(Math.round(Number(settings.currentOpacity) || state.currentOpacity), 1, 100);
+      state.currentFontSize = utils.clamp(Math.round(Number(settings.currentFontSize) || state.currentFontSize), 8, 200);
+      if (constants.FONT_FAMILIES.some((font) => font.value === settings.currentFontFamily)) {
+        state.currentFontFamily = settings.currentFontFamily;
+      }
+      state.currentBold = !!settings.currentBold;
+      state.currentItalic = !!settings.currentItalic;
+      if (constants.GUIDE_LABELS[settings.guideMode]) state.guideMode = settings.guideMode;
       state.pendingObject = null;
       state.selectedObjectId = null;
+      state.selection = null;
       this.renderObjects();
+      this.drawSelectionOverlay();
     },
 
     async restoreRasterFromDataUrl(dataUrl) {

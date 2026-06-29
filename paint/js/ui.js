@@ -343,7 +343,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     updateZoomUI() {
       const percent = `${Math.round(state.viewport.zoom * 100)}%`;
       if (this.elements.zoomLevelLabel) this.elements.zoomLevelLabel.textContent = percent;
-      if (this.elements.statusZoom) this.elements.statusZoom.textContent = `Масштаб: ${percent}`;
+      if (this.elements.statusZoom) this.elements.statusZoom.textContent = percent;
     },
 
     renderDocPresets(onPick) {

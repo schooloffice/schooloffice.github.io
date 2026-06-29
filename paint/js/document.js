@@ -170,17 +170,12 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     // === Project-файл (.malyunok): повний редагований стан, re-editable ===
     function saveProject() {
+      const serial = canvasApi.toSerializable();
       const project = {
         format: constants.PROJECT_FORMAT,
         version: constants.PROJECT_VERSION,
         fileName: state.fileName || constants.DEFAULT_FILE_NAME,
-        document: {
-          width: state.document.width,
-          height: state.document.height,
-          background: state.document.background,
-          transparent: state.document.transparent
-        },
-        raster: canvasApi.canvas.toDataURL('image/png')
+        ...serial
       };
       const blob = new Blob([JSON.stringify(project)], { type: 'application/json' });
       utils.downloadBlob(blob, `${state.fileName || constants.DEFAULT_FILE_NAME}.${constants.PROJECT_EXT}`);
@@ -193,11 +188,73 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     // P0-валідація недовіреного project-файлу: формат, межі розміру/пікселів,
     // MIME та довжина растру, санітизація фону й назви.
+    function validateProjectSettings(raw) {
+      const settings = raw && typeof raw === 'object' ? raw : {};
+      const safe = {};
+      if (constants.TOOLS[settings.currentTool]) safe.currentTool = settings.currentTool;
+      if (constants.BRUSHES[settings.currentBrush]) safe.currentBrush = settings.currentBrush;
+      if (constants.SHAPES[settings.currentShape]) safe.currentShape = settings.currentShape;
+      if (constants.STAMP_POOL.includes(settings.currentStamp)) safe.currentStamp = settings.currentStamp;
+      safe.currentColor = utils.sanitizeHexColor(settings.currentColor, state.currentColor);
+      safe.backgroundColor = utils.sanitizeHexColor(settings.backgroundColor, state.backgroundColor);
+      safe.currentSize = utils.clamp(Math.round(Number(settings.currentSize) || state.currentSize), 1, 96);
+      safe.currentOpacity = utils.clamp(Math.round(Number(settings.currentOpacity) || state.currentOpacity), 1, 100);
+      safe.currentFontSize = utils.clamp(Math.round(Number(settings.currentFontSize) || state.currentFontSize), 8, 200);
+      if (constants.FONT_FAMILIES.some((font) => font.value === settings.currentFontFamily)) {
+        safe.currentFontFamily = settings.currentFontFamily;
+      }
+      safe.currentBold = !!settings.currentBold;
+      safe.currentItalic = !!settings.currentItalic;
+      if (constants.GUIDE_LABELS[settings.guideMode]) safe.guideMode = settings.guideMode;
+      return safe;
+    }
+
+    function sanitizeProjectObject(raw, index, width, height) {
+      if (!raw || typeof raw !== 'object') return null;
+      const kind = raw.kind === 'shape' || raw.kind === 'stamp' ? raw.kind : null;
+      if (!kind) return null;
+      const idText = typeof raw.id === 'string' ? raw.id.replace(/[^\w-]/g, '').slice(0, 40) : '';
+      const base = {
+        id: `project_${index}_${idText || kind}`,
+        kind,
+        x: utils.clamp(Number(raw.x) || 0, -width, width),
+        y: utils.clamp(Number(raw.y) || 0, -height, height),
+        w: utils.clamp(Number(raw.w) || 1, 1, Math.max(1, width * 2)),
+        h: utils.clamp(Number(raw.h) || 1, 1, Math.max(1, height * 2)),
+        opacity: utils.clamp(Math.round(Number(raw.opacity) || 100), 1, 100)
+      };
+      if (kind === 'stamp') {
+        return {
+          ...base,
+          stamp: typeof raw.stamp === 'string' && raw.stamp.trim()
+            ? raw.stamp.trim().slice(0, 8)
+            : constants.DEFAULT_STAMP
+        };
+      }
+      return {
+        ...base,
+        shape: constants.SHAPES[raw.shape] ? raw.shape : 'line',
+        color: utils.sanitizeHexColor(raw.color, constants.DEFAULT_COLOR),
+        strokeWidth: utils.clamp(Math.round(Number(raw.strokeWidth) || 2), 1, 96),
+        flipX: !!raw.flipX,
+        flipY: !!raw.flipY
+      };
+    }
+
+    function validateProjectObjects(rawObjects, width, height) {
+      if (!Array.isArray(rawObjects)) return [];
+      return rawObjects
+        .slice(0, constants.MAX_PROJECT_OBJECTS)
+        .map((item, index) => sanitizeProjectObject(item, index, width, height))
+        .filter(Boolean);
+    }
+
     function validateProject(obj) {
       if (!obj || typeof obj !== 'object') return null;
       if (obj.format !== constants.PROJECT_FORMAT) return null;
       if (!Number.isInteger(obj.version) || obj.version !== constants.PROJECT_VERSION) return null;
-      const docData = obj.document;
+      const projectData = obj.canvas && typeof obj.canvas === 'object' ? obj.canvas : obj;
+      const docData = projectData.document;
       if (!docData || typeof docData !== 'object') return null;
       const width = Math.round(Number(docData.width));
       const height = Math.round(Number(docData.height));
@@ -205,15 +262,22 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       if (width < constants.MIN_DOC_DIMENSION || width > constants.MAX_DOC_DIMENSION) return null;
       if (height < constants.MIN_DOC_DIMENSION || height > constants.MAX_DOC_DIMENSION) return null;
       if (width * height > constants.MAX_DOC_PIXELS) return null;
-      const raster = typeof obj.raster === 'string' ? obj.raster : '';
+      const raster = typeof projectData.raster === 'string' ? projectData.raster : '';
       if (raster && !/^data:image\/(png|jpeg|webp);base64,/.test(raster)) return null;
       if (raster.length > constants.MAX_RASTER_DATAURL) return null;
-      return {
+      const documentData = {
         width,
         height,
         background: utils.sanitizeHexColor(docData.background, constants.DEFAULT_BACKGROUND),
-        transparent: !!docData.transparent,
-        raster: raster || null,
+        transparent: !!docData.transparent
+      };
+      return {
+        canvas: {
+          document: documentData,
+          raster: raster || null,
+          objects: validateProjectObjects(projectData.objects, width, height),
+          settings: validateProjectSettings(projectData.settings)
+        },
         fileName: typeof obj.fileName === 'string' && obj.fileName.trim()
           ? obj.fileName.trim().slice(0, 80)
           : constants.DEFAULT_FILE_NAME
@@ -243,14 +307,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       try {
         if (discardActiveText) discardActiveText();
         state.suppressAutosave = true;
-        canvasApi.setDocumentSize(valid.width, valid.height, {
-          clear: true,
-          background: valid.background,
-          transparent: valid.transparent
-        });
-        await canvasApi.restoreRasterFromDataUrl(valid.raster);
+        await canvasApi.restoreSerializable(valid.canvas);
         state.suppressAutosave = false;
-        state.objects = [];
         state.selectedObjectId = null;
         state.selection = null;
         state.undoStack.length = 0;
@@ -261,6 +319,14 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         canvasApi.fitDocumentToViewport();
         ui.updateFileNameUI();
         ui.updateCanvasInfo(state.document.width, state.document.height);
+        ui.updateToolUI();
+        ui.updateShapeUI();
+        ui.updateStampUI();
+        ui.updateColorUI();
+        ui.updateSizeUI();
+        ui.updateOpacityUI();
+        ui.updateTextUI();
+        ui.updateGuideUI();
         ui.updateZoomUI();
         ui.updateDetailStatus();
         state.unsavedChanges = false;

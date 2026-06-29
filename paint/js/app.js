@@ -123,6 +123,11 @@ window.PaintApp = window.PaintApp || {};
     paintText.commitActiveText();
   }
 
+  function commitProjectTransientState() {
+    if (state.selection && canvasApi.flattenSelection()) markDirty();
+    paintText.commitActiveText();
+  }
+
   function copySelection() {
     const buffer = canvasApi.copySelectionToBuffer();
     if (buffer) state.clipboard = buffer;
@@ -354,7 +359,7 @@ window.PaintApp = window.PaintApp || {};
     return {
       new: newDrawing,
       open: paintDocument.openProject,
-      save: () => { commitPending(); paintDocument.saveProject(); },
+      save: () => { commitProjectTransientState(); paintDocument.saveProject(); },
       undo: undo,
       redo: redo
     };
@@ -372,7 +377,7 @@ window.PaintApp = window.PaintApp || {};
         paintDocument.importImage();
         break;
       case 'save-project':
-        commitPending();
+        commitProjectTransientState();
         runOfficeCommand('save') || paintDocument.saveProject();
         break;
       case 'save-png':
@@ -654,7 +659,7 @@ window.PaintApp = window.PaintApp || {};
         return;
       }
 
-      const toolbarAction = event.target.closest('.rail-btn[data-action], .zoom-btn[data-action]');
+      const toolbarAction = event.target.closest('.rail-btn[data-action], .panel-action[data-action], .zoom-btn[data-action]');
       if (toolbarAction) {
         handleMenuAction(toolbarAction.dataset.action);
         return;
@@ -727,7 +732,7 @@ window.PaintApp = window.PaintApp || {};
             return;
           case 's':
             event.preventDefault();
-            commitPending();
+            commitProjectTransientState();
             runOfficeCommand('save') || paintDocument.saveProject();
             return;
           case 'n':

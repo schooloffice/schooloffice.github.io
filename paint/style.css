@@ -16,8 +16,7 @@
   --header-h: 42px;
   --menubar-h: 34px;
   --status-h: 28px;
-  --rail-w: 60px;
-  --props-w: 232px;
+  --side-w: 292px;
 }
 
 * { box-sizing: border-box; }
@@ -187,41 +186,62 @@ button, input, select { font: inherit; }
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: var(--rail-w) var(--props-w) 1fr;
+  grid-template-columns: var(--side-w) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .tool-rail {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 10px 10px;
   background: var(--panel);
   border-right: 1px solid var(--line);
-  overflow-y: auto;
+  border-bottom: 1px solid var(--line);
+  overflow: visible;
 }
 .rail-group {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 6px;
 }
-.rail-sep {
-  width: 28px;
-  height: 1px;
-  background: var(--line);
+.rail-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
-.rail-spacer { flex: 1; min-height: 8px; }
+.rail-tools {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.rail-section-label {
+  display: none;
+}
 .rail-btn {
-  width: 44px;
-  height: 40px;
+  width: 100%;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text);
-  font-size: 1.02rem;
+  font-size: .88rem;
+  font-weight: 800;
   cursor: pointer;
+  white-space: nowrap;
+}
+.rail-btn i {
+  flex: 0 0 auto;
+  font-size: 1rem;
+}
+.rail-btn span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rail-tool {
+  min-height: 40px;
+  justify-content: flex-start;
+  padding: 0 8px;
 }
 .rail-btn:hover { background: var(--accent-soft-2); border-color: var(--accent); }
 .rail-btn.active {
@@ -234,6 +254,8 @@ button, input, select { font: inherit; }
 .properties-panel {
   min-height: 0;
   overflow-y: auto;
+  grid-column: 1;
+  grid-row: 2;
   padding: 12px;
   background: var(--panel);
   border-right: 1px solid var(--line);
@@ -291,6 +313,46 @@ button, input, select { font: inherit; }
 .text-style-btn:hover { background: var(--accent-soft-2); border-color: var(--accent); }
 .text-style-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-dark); }
 .prop-hint { margin: 0; font-size: .74rem; line-height: 1.35; color: var(--muted); }
+
+.panel-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.panel-action {
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: var(--text);
+  font-weight: 800;
+  font-size: .78rem;
+  cursor: pointer;
+}
+.panel-action:hover {
+  background: var(--accent-soft-2);
+  border-color: var(--accent);
+}
+.panel-action span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.guide-control {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.guide-control .segmented-btn {
+  min-width: 0;
+  padding: 0;
+}
 
 /* Редагований текстовий overlay (запікається в растр при підтвердженні). */
 .text-edit-box {
@@ -598,6 +660,8 @@ button, input, select { font: inherit; }
 
 .workspace {
   position: relative;
+  grid-column: 2;
+  grid-row: 1 / span 2;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -701,7 +765,7 @@ button, input, select { font: inherit; }
 
 .statusbar {
   min-height: var(--status-h);
-  padding: 0 12px;
+  padding: 0 10px;
   border-top: 1px solid var(--line);
   background: var(--panel);
   display: flex;
@@ -717,12 +781,26 @@ button, input, select { font: inherit; }
 .status-right {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 12px;
   min-width: 0;
   white-space: nowrap;
 }
+.status-left { flex: 1 1 auto; }
+.status-right { flex: 0 0 auto; }
 .status-left span,
 .status-right span { overflow: hidden; text-overflow: ellipsis; }
+#statusCoords,
+#statusCanvas,
+#statusGuide,
+#statusZoom {
+  flex: 0 0 auto;
+  font-weight: 800;
+}
+#statusDetail {
+  min-width: 0;
+  max-width: min(680px, 46vw);
+}
+.status-hidden-metric { display: none; }
 
 .modal-overlay {
   position: fixed;
@@ -815,12 +893,18 @@ button:focus-visible,
 }
 
 @media (max-width: 1024px) {
-  :root { --props-w: 204px; }
+  :root { --side-w: 260px; }
+  .rail-group { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .panel-actions-grid { grid-template-columns: 1fr; }
+  #statusDetail { max-width: 36vw; }
 }
 
 @media (max-width: 860px) {
-  :root { --rail-w: 54px; --props-w: 176px; }
-  .rail-btn { width: 40px; height: 38px; }
+  :root { --side-w: 220px; }
+  .tool-rail { padding: 8px; gap: 6px; }
+  .rail-btn { height: 32px; }
+  .rail-group { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .statusbar { flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; padding: 4px 10px; }
   .status-left, .status-right { gap: 12px; width: 100%; flex-wrap: wrap; }
+  #statusDetail { max-width: 100%; }
 }

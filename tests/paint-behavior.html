@@ -213,7 +213,7 @@
       canvasApi.ctx.fillRect(20, 20, 30, 30);
       state.selection = { x: 20, y: 20, w: 30, h: 30, floating: null };
       canvasApi.drawSelectionOverlay();
-      doc.querySelector('.rail-btn[data-action="delete-selected"]').click();
+      doc.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
       const actionDelPx = canvasApi.ctx.getImageData(30, 30, 1, 1).data;
       const selectionActionDeletes = actionDelPx[0] > 240 && actionDelPx[1] > 240 && actionDelPx[2] > 240;
       state.selection = null;
@@ -397,7 +397,26 @@
       const projObj = {
         format: PF, version: win.ArtMalyunky.constants.PROJECT_VERSION, fileName: 'тест-проєкт',
         document: { width: 120, height: 90, background: '#ffffff', transparent: false },
-        raster: canvasApi.canvas.toDataURL('image/png')
+        raster: canvasApi.canvas.toDataURL('image/png'),
+        objects: [{
+          id: 'editable-shape',
+          kind: 'shape',
+          shape: 'rect',
+          x: 10,
+          y: 12,
+          w: 30,
+          h: 20,
+          color: '#00ff00',
+          strokeWidth: 3,
+          opacity: 80
+        }],
+        settings: {
+          currentTool: 'shapes',
+          currentShape: 'rect',
+          currentColor: '#00ff00',
+          currentSize: 3,
+          currentOpacity: 80
+        }
       };
       canvasApi.setDocumentSize(300, 300, { clear: true });
       state.unsavedChanges = true;
@@ -417,6 +436,14 @@
       const projPx = canvasApi.ctx.getImageData(20, 20, 1, 1).data;
       const projectRoundTrips = canvasApi.canvas.width === 120 && canvasApi.canvas.height === 90
         && state.fileName === 'тест-проєкт' && projPx[0] > 180 && projPx[1] < 80 && projPx[2] < 80;
+
+      const projectRestoresEditableState = state.objects.length === 1
+        && state.objects[0].kind === 'shape'
+        && state.objects[0].shape === 'rect'
+        && state.currentTool === 'shapes'
+        && state.currentShape === 'rect'
+        && state.currentColor.toLowerCase() === '#00ff00'
+        && !!doc.querySelector('.art-object[data-kind="shape"]');
 
       await docApi.handleProjectFile(new File([JSON.stringify({ format: 'evil', version: 1, document: { width: 100, height: 100 } })], 'b.malyunok', { type: 'application/json' }));
       const badFormatRejected = canvasApi.canvas.width === 120;
@@ -489,6 +516,7 @@
         check('PNG export keeps project dirty state', exportKeepsDirty),
         check('project open asks before replacing dirty document', projectCancelKeepsDocument),
         check('project file save/open round-trips', projectRoundTrips),
+        check('project file restores editable state', projectRestoresEditableState),
         check('project import validates and rejects bad files', projectValidates),
         check('large image import plan scales within limits', planScalesDown && planKeepsSmall),
         check('image decode + place sets document', importPlaces)
