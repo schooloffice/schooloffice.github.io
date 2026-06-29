@@ -53,3 +53,5 @@
 - Paint does not introduce full layers at this stage. Confirmed drawing stays raster; only lightweight, not-yet-flattened objects such as active shapes/stamps are restored as editable project state.
 - The left sidebar should prioritize drawing tools. Visible duplicates of file/export/print/clear commands stay in the main menu; the rail keeps only Save, Undo, Redo, and labeled drawing tools. Hidden standard-command proxies remain only to satisfy the shared shell command contract.
 - History remains full canvas snapshots with a memory budget for now. Region/diff history is deferred until performance evidence shows that the current model is a real classroom blocker.
+- Image scaling now has classroom-friendly options: keep aspect ratio and choose smooth scaling or crisp pixels. Plain canvas resize stays a separate command.
+- Filled shapes use the primary color for the outline and the secondary color for the fill. Old project objects with only `color` still open through compatibility fallbacks.

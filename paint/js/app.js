@@ -322,14 +322,17 @@ window.PaintApp = window.PaintApp || {};
       confirmText: 'Масштабувати',
       width: state.document.width,
       height: state.document.height,
-      transparent: state.document.transparent
+      transparent: state.document.transparent,
+      showScaleOptions: true,
+      preserveAspect: true,
+      smoothScale: true
     });
     if (!choice) return;
     commitPending();
     pushUndo();
     state.document.transparent = choice.transparent;
     state.document.background = choice.background;
-    canvasApi.resizeDocument(choice.width, choice.height, { scale: true });
+    canvasApi.resizeDocument(choice.width, choice.height, { scale: true, smooth: choice.smoothScale });
     canvasApi.fitDocumentToViewport();
     ui.updateCanvasInfo(state.document.width, state.document.height);
     ui.updateZoomUI();

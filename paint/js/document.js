@@ -235,6 +235,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         ...base,
         shape: constants.SHAPES[raw.shape] ? raw.shape : 'line',
         color: utils.sanitizeHexColor(raw.color, constants.DEFAULT_COLOR),
+        strokeColor: utils.sanitizeHexColor(raw.strokeColor || raw.color, constants.DEFAULT_COLOR),
+        fillColor: utils.sanitizeHexColor(raw.fillColor || raw.color, constants.DEFAULT_BG_COLOR),
         strokeWidth: utils.clamp(Math.round(Number(raw.strokeWidth) || 2), 1, 96),
         flipX: !!raw.flipX,
         flipY: !!raw.flipY

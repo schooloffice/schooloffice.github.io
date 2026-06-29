@@ -63,7 +63,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     },
 
     // Зміна розміру полотна користувачем зі збереженням наявного растру (crop або розширення).
-    resizeDocument(width, height, { scale = false } = {}) {
+    resizeDocument(width, height, { scale = false, smooth = true } = {}) {
       this.flattenSelection();
       const previous = utils.createCanvas(this.canvas.width, this.canvas.height);
       previous.getContext('2d').drawImage(this.canvas, 0, 0);
@@ -71,7 +71,10 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       const prevH = this.canvas.height;
       this.setDocumentSize(width, height, { clear: true });
       if (scale) {
+        this.ctx.imageSmoothingEnabled = !!smooth;
+        this.ctx.imageSmoothingQuality = smooth ? 'high' : 'low';
         this.ctx.drawImage(previous, 0, 0, prevW, prevH, 0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.imageSmoothingEnabled = true;
       } else {
         this.ctx.drawImage(previous, 0, 0);
       }
@@ -398,6 +401,18 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       return state.activeColor || state.currentColor;
     },
 
+    activeShapeFillColor() {
+      return state.backgroundColor || constants.DEFAULT_BG_COLOR;
+    },
+
+    shapeStrokeColor(obj) {
+      return utils.sanitizeHexColor(obj.strokeColor || obj.color, constants.DEFAULT_COLOR);
+    },
+
+    shapeFillColor(obj) {
+      return utils.sanitizeHexColor(obj.fillColor || obj.color, constants.DEFAULT_BG_COLOR);
+    },
+
     setRasterStyle() {
       const brush = constants.BRUSHES[state.currentBrush] || constants.BRUSHES.pencil;
       const color = this.activeStrokeColor();
@@ -713,6 +728,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         flipX: rect.flipX,
         flipY: rect.flipY,
         color: this.activeStrokeColor(),
+        strokeColor: this.activeStrokeColor(),
+        fillColor: this.activeShapeFillColor(),
         opacity: state.currentOpacity,
         strokeWidth: state.currentSize
       };
@@ -724,6 +741,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       const rect = utils.normalizeRect(x1, y1, x2, y2);
       Object.assign(state.pendingObject, rect, {
         color: this.activeStrokeColor(),
+        strokeColor: this.activeStrokeColor(),
+        fillColor: this.activeShapeFillColor(),
         opacity: state.currentOpacity,
         strokeWidth: state.currentSize,
         shape: state.currentShape
@@ -846,11 +865,11 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     },
 
     shapeSvgMarkup(obj) {
-      const color = utils.sanitizeHexColor(obj.color, constants.DEFAULT_COLOR);
+      const color = this.shapeStrokeColor(obj);
       const strokeWidth = Math.max(1, Number(obj.strokeWidth) || 2);
       const opacity = utils.clamp((Number(obj.opacity) || 100) / 100, 0.05, 1);
       const common = `stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="${opacity}"`;
-      const fillColor = color;
+      const fillColor = this.shapeFillColor(obj);
       const transparentFill = 'fill="none"';
       const solidFill = `fill="${fillColor}" fill-opacity="${opacity}"`;
       const x1 = obj.flipX ? 100 : 0;
@@ -921,8 +940,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
           ctx.restore();
           return;
         }
-        ctx.strokeStyle = obj.color || constants.DEFAULT_COLOR;
-        ctx.fillStyle = obj.color || constants.DEFAULT_COLOR;
+        ctx.strokeStyle = this.shapeStrokeColor(obj);
+        ctx.fillStyle = this.shapeFillColor(obj);
         ctx.lineWidth = Math.max(1, obj.strokeWidth || 2);
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';

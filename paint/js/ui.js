@@ -59,6 +59,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         docPresetGrid: utils.$('docPresetGrid'),
         docWidthInput: utils.$('docWidthInput'),
         docHeightInput: utils.$('docHeightInput'),
+        scaleOptions: utils.$('scaleOptions'),
+        preserveAspectInput: utils.$('preserveAspectInput'),
+        scaleSmoothingSelect: utils.$('scaleSmoothingSelect'),
         docDialogCancel: utils.$('docDialogCancel'),
         docDialogConfirm: utils.$('docDialogConfirm'),
 
@@ -366,13 +369,28 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     // Діалог нового документа / зміни розміру полотна.
     // Повертає Promise<{ width, height, background, transparent } | null>.
-    showDocumentDialog({ title = 'Новий малюнок', width, height, confirmText = 'Створити', transparent = false } = {}) {
+    showDocumentDialog({
+      title = 'Новий малюнок',
+      width,
+      height,
+      confirmText = 'Створити',
+      transparent = false,
+      showScaleOptions = false,
+      preserveAspect = true,
+      smoothScale = true
+    } = {}) {
       return new Promise((resolve) => {
         const overlay = this.elements.docDialogOverlay;
+        const baseWidth = Number(width ?? state.document.width) || state.document.width;
+        const baseHeight = Number(height ?? state.document.height) || state.document.height;
+        const aspect = baseHeight ? baseWidth / baseHeight : 1;
         this.elements.docDialogTitle.textContent = title;
         this.elements.docDialogConfirm.textContent = confirmText;
-        this.elements.docWidthInput.value = String(width ?? state.document.width);
-        this.elements.docHeightInput.value = String(height ?? state.document.height);
+        this.elements.docWidthInput.value = String(baseWidth);
+        this.elements.docHeightInput.value = String(baseHeight);
+        this.elements.scaleOptions?.classList.toggle('hidden', !showScaleOptions);
+        if (this.elements.preserveAspectInput) this.elements.preserveAspectInput.checked = !!preserveAspect;
+        if (this.elements.scaleSmoothingSelect) this.elements.scaleSmoothingSelect.value = smoothScale ? 'smooth' : 'pixel';
         this.renderDocPresets();
         const bgValue = transparent ? 'transparent' : 'white';
         overlay.querySelectorAll('input[name="docBackground"]').forEach((radio) => {
@@ -392,7 +410,23 @@ window.ArtMalyunky = window.ArtMalyunky || {};
           this.elements.docDialogConfirm.removeEventListener('click', onConfirm);
           this.elements.docDialogCancel.removeEventListener('click', onCancel);
           overlay.removeEventListener('keydown', onKey);
+          this.elements.docWidthInput.removeEventListener('input', onWidthInput);
+          this.elements.docHeightInput.removeEventListener('input', onHeightInput);
           resolve(result);
+        };
+
+        const aspectLocked = () => showScaleOptions && this.elements.preserveAspectInput?.checked;
+        const onWidthInput = () => {
+          if (!aspectLocked()) return;
+          const nextWidth = Math.round(Number(this.elements.docWidthInput.value) || 0);
+          if (!nextWidth) return;
+          this.elements.docHeightInput.value = String(utils.clamp(Math.round(nextWidth / aspect), constants.MIN_DOC_DIMENSION, constants.MAX_DOC_DIMENSION));
+        };
+        const onHeightInput = () => {
+          if (!aspectLocked()) return;
+          const nextHeight = Math.round(Number(this.elements.docHeightInput.value) || 0);
+          if (!nextHeight) return;
+          this.elements.docWidthInput.value = String(utils.clamp(Math.round(nextHeight * aspect), constants.MIN_DOC_DIMENSION, constants.MAX_DOC_DIMENSION));
         };
 
         const onConfirm = () => {
@@ -403,7 +437,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
             width: w,
             height: h,
             transparent: isTransparent,
-            background: isTransparent ? state.document.background : constants.DEFAULT_BACKGROUND
+            background: isTransparent ? state.document.background : constants.DEFAULT_BACKGROUND,
+            preserveAspect: showScaleOptions ? !!this.elements.preserveAspectInput?.checked : false,
+            smoothScale: showScaleOptions ? this.elements.scaleSmoothingSelect?.value !== 'pixel' : true
           });
         };
         const onCancel = () => cleanup(null);
@@ -414,6 +450,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
         this.elements.docDialogConfirm.addEventListener('click', onConfirm);
         this.elements.docDialogCancel.addEventListener('click', onCancel);
+        this.elements.docWidthInput.addEventListener('input', onWidthInput);
+        this.elements.docHeightInput.addEventListener('input', onHeightInput);
         overlay.addEventListener('keydown', onKey);
       });
     },

@@ -46,6 +46,19 @@
         <label class="doc-bg-option"><input type="radio" name="docBackground" value="white" checked> Білий фон</label>
         <label class="doc-bg-option"><input type="radio" name="docBackground" value="transparent"> Прозорий фон</label>
       </div>
+      <div id="scaleOptions" class="scale-options hidden" aria-label="Параметри масштабування">
+        <label class="check-row">
+          <input id="preserveAspectInput" type="checkbox" checked>
+          <span>Зберігати пропорції</span>
+        </label>
+        <label class="doc-field">
+          <span>Якість масштабування</span>
+          <select id="scaleSmoothingSelect">
+            <option value="smooth">Згладжено</option>
+            <option value="pixel">Чіткі пікселі</option>
+          </select>
+        </label>
+      </div>
       <div class="modal-actions">
         <button id="docDialogCancel" class="modal-btn secondary">Скасувати</button>
         <button id="docDialogConfirm" class="modal-btn primary">Створити</button>
@@ -175,6 +188,7 @@
       <div id="propShape" class="prop-section" data-tool-section="shapes">
         <div class="prop-title">Фігура</div>
         <div id="shapeGrid" class="shape-grid"></div>
+        <p class="prop-hint">Контур — основний колір, заливка — додатковий. Для заливки обери заповнену фігуру.</p>
       </div>
 
       <div id="propText" class="prop-section" data-tool-section="text">

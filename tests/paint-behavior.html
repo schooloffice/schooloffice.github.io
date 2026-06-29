@@ -250,6 +250,26 @@
       const scalePx = canvasApi.ctx.getImageData(150, 120, 1, 1).data;
       const scaleWorks = canvasApi.canvas.width === 200 && canvasApi.canvas.height === 160
         && scalePx[1] > 120 && scalePx[0] < 120;
+      const scaleDialogPromise = win.ArtMalyunky.ui.showDocumentDialog({
+        title: 'Scale test',
+        width: 100,
+        height: 50,
+        showScaleOptions: true,
+        preserveAspect: true,
+        smoothScale: false
+      });
+      await waitFor(() => !doc.getElementById('docDialogOverlay').classList.contains('hidden'), 'scale dialog shown');
+      doc.getElementById('docWidthInput').value = '200';
+      doc.getElementById('docWidthInput').dispatchEvent(new Event('input', { bubbles: true }));
+      const scaleDialogLocksAspect = doc.getElementById('docHeightInput').value === '100';
+      const scaleDialogKeepsPixelMode = doc.getElementById('scaleSmoothingSelect').value === 'pixel';
+      doc.getElementById('docDialogConfirm').click();
+      const scaleDialogResult = await scaleDialogPromise;
+      const scaleDialogOptionsWork = scaleDialogLocksAspect
+        && scaleDialogKeepsPixelMode
+        && scaleDialogResult.width === 200
+        && scaleDialogResult.height === 100
+        && scaleDialogResult.smoothScale === false;
       canvasApi.setZoom(1);
 
       // --- Чернетка через storage-шар (IndexedDB з fallback на localStorage) ---
@@ -323,6 +343,7 @@
       state.currentTool = 'shapes';
       state.currentShape = 'rect-filled';
       state.currentColor = '#ff0000';
+      state.backgroundColor = '#00aa00';
       state.activeColor = null;
       canvasApi.createPendingShape(20, 20, 80, 80);
       canvasApi.commitPendingObject();
@@ -333,11 +354,14 @@
       canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: fpt.x, clientY: fpt.y, button: 0, pointerId: 7, bubbles: true }));
       doc.dispatchEvent(new PointerEvent('pointerup', { clientX: fpt.x, clientY: fpt.y, button: 0, pointerId: 7, bubbles: true }));
       const bakedShapePx = canvasApi.ctx.getImageData(50, 50, 1, 1).data;
+      const bakedShapeStrokePx = canvasApi.ctx.getImageData(20, 20, 1, 1).data;
       const shapeFlattens = objectsBeforeFlatten === 1 && state.objects.length === 0
-        && bakedShapePx[0] > 180 && bakedShapePx[1] < 80 && bakedShapePx[2] < 80;
+        && bakedShapePx[1] > 120 && bakedShapePx[0] < 120 && bakedShapePx[2] < 120
+        && bakedShapeStrokePx[0] > 180 && bakedShapeStrokePx[1] < 80 && bakedShapeStrokePx[2] < 80;
       state.objects = [];
       state.selectedObjectId = null;
       state.currentColor = '#1f2937';
+      state.backgroundColor = '#ffffff';
       state.currentTool = 'brush';
 
       // --- commitPending: збереження запікає незавершений текст у растр ---
@@ -407,6 +431,8 @@
           w: 30,
           h: 20,
           color: '#00ff00',
+          strokeColor: '#00ff00',
+          fillColor: '#0000ff',
           strokeWidth: 3,
           opacity: 80
         }],
@@ -443,6 +469,8 @@
         && state.currentTool === 'shapes'
         && state.currentShape === 'rect'
         && state.currentColor.toLowerCase() === '#00ff00'
+        && state.objects[0].strokeColor.toLowerCase() === '#00ff00'
+        && state.objects[0].fillColor.toLowerCase() === '#0000ff'
         && !!doc.querySelector('.art-object[data-kind="shape"]');
 
       await docApi.handleProjectFile(new File([JSON.stringify({ format: 'evil', version: 1, document: { width: 100, height: 100 } })], 'b.malyunok', { type: 'application/json' }));
@@ -502,6 +530,7 @@
         check('marquee created via pointer drag', marqueeCreated),
         check('crop to selection resizes and keeps pixels', cropWorks),
         check('image scaling resizes content', scaleWorks),
+        check('scale dialog keeps aspect and pixel mode', scaleDialogOptionsWork),
         check('draft storage layer wired (IndexedDB + reconciliation)', storageWired && storageReconciles),
         check('transparent document shows checkerboard stage', stageTransparentClass && stageOpaqueClass),
         check('eraser clears alpha on transparent document', eraserClearsAlpha),
