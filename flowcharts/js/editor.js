@@ -548,7 +548,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     let snapshotTaken = false;
 
     state.dragState = { el, offsetX: pt.x - el.offsetLeft, offsetY: pt.y - el.offsetTop };
-    el.setPointerCapture(e.pointerId);
+    try { el.setPointerCapture(e.pointerId); } catch { /* pointer вже неактивний */ }
     el.style.cursor = 'grabbing';
 
     const onMove = (ev) => {
@@ -926,7 +926,9 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     openSaveTitlePrompt,
     cycleSelectedConnectionRouteMode,
     snapToggleButton,
-    closeMenus,
+    // Контролер меню повертає UI.initMenus(...); локального closeMenus тут немає,
+    // і посилання на нього кидало ReferenceError, обриваючи решту ініціалізації.
+    closeMenus: menuApi?.closeMenus,
     helpPanel,
     toggleHelp,
     closeModal,

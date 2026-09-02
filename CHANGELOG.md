@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## 2026-09-02 (3)
+
+### Browser smoke падає на необроблених винятках сторінки
+
+Тест міг дійти до кінця й показати PASSED, поки половина ініціалізації редактора мовчки не виконалась через `ReferenceError`. Саме так довго жили два дефекти нижче: обидва були в `main`, обидва ламали редактор, і **жоден smoke їх не спіймав**.
+
+- **`Assert-NoUncaughtPageErrors` у `tests/run-browser-smoke.ps1`.** Chrome запускається з `--enable-logging=stderr --log-level=0` і пише console сторінки в stderr; раннер відхиляє сторінку, якщо там є `Uncaught …` (необроблені винятки й rejection-и). Свідомі `console.error`/`console.warn` із коду — наприклад негативні фікстури імпорту Вектора — помилкою не вважаються.
+- Перевірено зворотним експериментом: з тимчасово поверненим дефектом `flowcharts-behavior` падає з `Uncaught ReferenceError: closeMenus is not defined (flowcharts/js/editor.js (931))`, хоча раніше проходив.
+
+### Виправлено два дефекти, які цим ловляться
+
+- **Flowcharts не завантажувався до кінця.** `initFlowchartsEditor` передавав у контролер гарячих клавіш неоголошений `closeMenus` → `ReferenceError` обривав ініціалізацію після цього рядка. Замінено на `menuApi?.closeMenus`.
+- **Slides губили текст при редагуванні клітинки таблиці.** `onCellInput` у `slides/js/stage-renderer.js` звертався до `slide.id`, якого немає в області видимості. `scheduleThumbnail()` без аргументу бере поточний слайд.
+- Побічно: `setPointerCapture` у Flowcharts обгорнуто try/catch (патерн уже діяв у Slides) — для неактивного вказівника браузер кидає `NotFoundError`, і гвардія його показала.
+
+`PROJECT_DIRECTION.md` §9: вимога «browser smoke зобов'язаний падати на необроблених винятках» зафіксована як частина тестової стратегії.
+
 ## 2026-09-02 (2)
 
 ### Vector + Paint: спільна розкладка «ліва rail + контекстна панель»

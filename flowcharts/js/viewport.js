@@ -88,7 +88,9 @@
       isPanning = true;
       panStart = { x: event.clientX, y: event.clientY };
       panScroll = { left: canvasContainer.scrollLeft, top: canvasContainer.scrollTop };
-      canvasContainer.setPointerCapture?.(event.pointerId);
+      // Захоплення вказівника не критичне: якщо вказівник уже неактивний
+      // (швидкий клік, pointercancel, синтетична подія), браузер кидає NotFoundError.
+      try { canvasContainer.setPointerCapture?.(event.pointerId); } catch { /* pointer вже неактивний */ }
       canvasContainer.style.cursor = 'grabbing';
     }
 

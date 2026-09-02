@@ -64,7 +64,7 @@
       tempLine.style.display = '';
       state.connDrag = { fromShapeId: shapeId };
 
-      this.setPointerCapture(event.pointerId);
+      try { this.setPointerCapture(event.pointerId); } catch { /* pointer вже неактивний */ }
 
       const onMove = (moveEvent) => {
         const pt = clientToCanvas(moveEvent.clientX, moveEvent.clientY);

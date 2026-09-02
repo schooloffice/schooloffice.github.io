@@ -1,4 +1,4 @@
-﻿param(
+param(
   [int]$Port = 4173,
   [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 )
@@ -90,6 +90,37 @@ function Wait-ForServer {
   throw "Local smoke server did not start on port $PortNumber."
 }
 
+# Необроблений виняток у редакторі не валить smoke-сторінку: тест може дійти до
+# кінця й показати PASSED, поки половина ініціалізації мовчки не виконалась (саме
+# так довго жили ReferenceError у Flowcharts і Slides). Тому окремо перевіряємо
+# console сторінки.
+#
+# Chrome пише console у stderr рядками виду:
+#   [pid:tid:date/time:INFO:CONSOLE:12] "повідомлення", source: url (12)
+# Рівень там завжди INFO, тож фільтруємо за самим повідомленням: беремо лише
+# `Uncaught ...` — необроблені винятки й rejection-и. Свідомі console.error/warn
+# із коду (негативні фікстури імпорту) навмисно НЕ вважаємо помилкою.
+function Assert-NoUncaughtPageErrors {
+  param(
+    [string]$Stderr,
+    [string]$Name
+  )
+
+  if (-not $Stderr) { return }
+
+  $uncaught = [regex]::Matches($Stderr, '(?m):CONSOLE:\d+\]\s+"(Uncaught[^"]*)"(?:,\s*source:\s*([^\r\n]*))?') |
+    ForEach-Object {
+      $message = $_.Groups[1].Value
+      $source = $_.Groups[2].Value.Trim()
+      if ($source) { "$message ($source)" } else { $message }
+    } |
+    Sort-Object -Unique
+
+  if ($uncaught.Count -gt 0) {
+    throw "$Name has uncaught page errors:`n  - $($uncaught -join "`n  - ")"
+  }
+}
+
 function Invoke-SmokePage {
   param(
     [string]$Url,
@@ -113,6 +144,10 @@ function Invoke-SmokePage {
       "--user-data-dir=$pageProfile",
       "--disk-cache-dir=$pageCache",
       '--virtual-time-budget=35000',
+      # Console сторінки йде в stderr — так ловимо необроблені винятки, які
+      # не валять сам тест (див. Assert-NoUncaughtPageErrors).
+      '--enable-logging=stderr',
+      '--log-level=0',
       '--dump-dom',
       $Url
     ) -Wait -CaptureOutput
@@ -121,6 +156,7 @@ function Invoke-SmokePage {
       throw "$Name browser process failed with exit code $($result.Process.ExitCode).`n$($result.Stderr)"
     }
 
+    Assert-NoUncaughtPageErrors $result.Stderr $Name
 
     if ($result.Stdout -notmatch $PassPattern) {
       # Витягуємо текст #result (назву перевірки/стек), щоб лог CI був читабельним,

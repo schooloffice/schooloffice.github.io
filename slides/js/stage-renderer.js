@@ -143,7 +143,9 @@ function renderElementNode(element, handlers) {
         const clean = setTableCellText(element.table, row, col, value);
         if (clean !== value) cell.textContent = clean;
         handlers.markDirty('Таблицю змінено');
-        if (handlers.scheduleTableThumbnail) handlers.scheduleTableThumbnail(slide.id);
+        // `slide` у цій області не існує — посилання кидало ReferenceError і
+        // обривало onCellInput. scheduleThumbnail без аргументу бере поточний слайд.
+        if (handlers.scheduleTableThumbnail) handlers.scheduleTableThumbnail();
         else handlers.renderCurrentSlideThumbnail?.();
       },
       onEndEdit: () => { pendingSnapshot = null; }
