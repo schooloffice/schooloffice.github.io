@@ -1126,22 +1126,29 @@
       sw[2].dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, shiftKey: true, pointerId: 98 }));
       await waitFor(() => alStage.querySelectorAll('.stage-element.selected').length === 3, 'three shapes selected');
       checks.push(check('align toolbar shows for multi-select', !doc.querySelector('#alignToolGroup').classList.contains('hidden')));
+      // Чекаємо саме на застосований результат, а не фіксовану паузу: на
+      // навантаженому раннері re-render не встигав за 40 мс, і перевірка падала
+      // на робочому продукті. Якщо результат не з'явиться — waitFor кине помилку.
+      const topSpread = () => {
+        const values = shapeWraps().map(w => parseFloat(w.style.top));
+        return Math.max(...values) - Math.min(...values);
+      };
       // Розподіл по горизонталі: центр середньої фігури — рівно між крайніми.
       clickAction('distribute-h');
-      await wait(40);
-      const byCx = shapeWraps().slice().sort((a, b) => cxOf(a) - cxOf(b));
-      const expectedMid = (cxOf(byCx[0]) + cxOf(byCx[2])) / 2;
-      checks.push(check('distribute centers the middle object', Math.abs(cxOf(byCx[1]) - expectedMid) < 1));
+      const midOffset = () => {
+        const sorted = shapeWraps().slice().sort((a, b) => cxOf(a) - cxOf(b));
+        return Math.abs(cxOf(sorted[1]) - (cxOf(sorted[0]) + cxOf(sorted[2])) / 2);
+      };
+      await waitFor(() => midOffset() < 1, 'distribute applied');
+      checks.push(check('distribute centers the middle object', midOffset() < 1));
       // Вирівнювання догори: усі верхні краї збігаються.
       clickAction('align-objects-top');
-      await wait(40);
-      const tops = shapeWraps().map(w => parseFloat(w.style.top));
-      checks.push(check('align top makes top edges equal', Math.max(...tops) - Math.min(...tops) < 1));
+      await waitFor(() => topSpread() < 1, 'align top applied');
+      checks.push(check('align top makes top edges equal', topSpread() < 1));
       // Undo повертає попередні top-и (різні).
       clickAction('undo');
-      await wait(40);
-      const topsAfterUndo = shapeWraps().map(w => parseFloat(w.style.top));
-      checks.push(check('align participates in Undo', Math.max(...topsAfterUndo) - Math.min(...topsAfterUndo) > 1));
+      await waitFor(() => topSpread() > 1, 'align undo applied');
+      checks.push(check('align participates in Undo', topSpread() > 1));
 
       // === №6: групування / розгрупування (липкий вибір групи) ===
       clickAction('new-slide');
@@ -1675,6 +1682,10 @@
       doc.querySelector('#modalConfirm').click();
       await wait(600);
       checks.push(check('new project cancels pending autosave before clearing draft', await loadDraft() === null));
+      // Спершу вивантажуємо активний редактор: інакше його відкладений autosave
+      // може спрацювати ВЖЕ ПІСЛЯ збереження маркерної чернетки й затерти її.
+      // Фіксована пауза цю гонку лише зменшувала, а на повільному раннері — ні.
+      await loadFrame('about:blank');
       await clearDraft();
       const draftMarker = 'Чернетка-' + Date.now();
       await saveDraft({ schemaVersion: 1, fileName: draftMarker, slides: [{ id: 's1', background: '#ffffff', elements: [{ type: 'text', content: 'Текст', x: 100, y: 100, w: 200, h: 80 }] }], currentSlideId: 's1' });

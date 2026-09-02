@@ -42,6 +42,10 @@
       return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    // Опитуємо через setTimeout, а не requestAnimationFrame: під
+    // --virtual-time-budget (headless smoke) щільний rAF-цикл не дає віртуальному
+    // годиннику рухатися рівномірно — очікування то «згорало» миттєво з
+    // таймаутом, то не завершувалося взагалі. Решта smoke-сторінок опитує так само.
     function waitFor(predicate, label, timeout = 6000) {
       const started = performance.now();
       return new Promise((resolve, reject) => {
@@ -50,7 +54,7 @@
           try { ok = !!predicate(); } catch { ok = false; }
           if (ok) return resolve();
           if (performance.now() - started > timeout) return reject(new Error(`Timed out waiting for ${label}`));
-          requestAnimationFrame(tick);
+          setTimeout(tick, 50);
         }
         tick();
       });
