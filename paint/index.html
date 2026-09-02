@@ -82,6 +82,11 @@
     </div>
     <div class="header-right">
       <span id="saveBadge">Збережено ✓</span>
+      <div class="header-actions" role="group" aria-label="Швидкі дії">
+        <button class="header-btn" type="button" data-action="save-project" title="Зберегти проєкт (Ctrl+S)"><i class="fa-solid fa-floppy-disk"></i></button>
+        <button class="header-btn" type="button" data-action="undo" title="Скасувати (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
+        <button class="header-btn" type="button" data-action="redo" title="Повернути (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
+      </div>
     </div>
   </header>
 
@@ -123,6 +128,8 @@
         <button class="menu-item" data-action="zoom-out"><span><i class="fa-solid fa-magnifying-glass-minus fa-fw"></i> Зменшити масштаб</span><span class="shortcut">Ctrl+-</span></button>
         <button class="menu-item" data-action="zoom-100"><span><i class="fa-solid fa-percent fa-fw"></i> Масштаб 100%</span><span class="shortcut">Ctrl+0</span></button>
         <button class="menu-item" data-action="fit-canvas"><span><i class="fa-solid fa-expand fa-fw"></i> Підігнати полотно до вікна</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="toggle-panel"><span><i class="fa-solid fa-table-columns fa-fw"></i> Панель параметрів</span><span class="shortcut">Ctrl+\</span></button>
       </div>
     </div>
 
@@ -161,14 +168,8 @@
         <button type="button" data-action="redo" data-office-command="redo"></button>
       </div>
 
-      <div class="rail-group rail-actions">
-        <button class="rail-btn" data-action="save-project" title="Зберегти проєкт (Ctrl+S)"><i class="fa-solid fa-floppy-disk"></i><span>Збер.</span></button>
-        <button class="rail-btn" data-action="undo" title="Скасувати (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i><span>Undo</span></button>
-        <button class="rail-btn" data-action="redo" title="Повернути (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i><span>Redo</span></button>
-      </div>
-
       <div class="rail-group rail-tools">
-        <button class="rail-btn rail-tool" data-tool="select" title="Виділення (S)"><i class="fa-solid fa-object-group"></i><span>Виділення</span></button>
+        <button class="rail-btn rail-tool" data-tool="select" title="Виділення (S)"><i class="fa-solid fa-object-group"></i><span>Вибір</span></button>
         <button class="rail-btn rail-tool" data-tool="brush" title="Пензлик (B)"><i class="fa-solid fa-paintbrush"></i><span>Пензлик</span></button>
         <button class="rail-btn rail-tool" data-tool="eraser" title="Гумка (E)"><i class="fa-solid fa-eraser"></i><span>Гумка</span></button>
         <button class="rail-btn rail-tool" data-tool="fill" title="Заливка (F)"><i class="fa-solid fa-fill-drip"></i><span>Заливка</span></button>
@@ -177,9 +178,13 @@
         <button class="rail-btn rail-tool" data-tool="shapes" title="Фігури (G)"><i class="fa-solid fa-shapes"></i><span>Фігури</span></button>
         <button class="rail-btn rail-tool" data-tool="stamps" title="Штампи (T)"><i class="fa-solid fa-stamp"></i><span>Штампи</span></button>
       </div>
+
+      <div class="rail-group rail-panel-toggle">
+        <button id="panelToggleBtn" class="rail-btn" type="button" data-action="toggle-panel" aria-expanded="true" aria-controls="propertiesPanel" title="Згорнути панель параметрів (Ctrl+\)"><i id="panelToggleIcon" class="fa-solid fa-chevron-left"></i><span>Панель</span></button>
+      </div>
     </aside>
 
-    <aside class="properties-panel" aria-label="Параметри інструмента">
+    <aside id="propertiesPanel" class="properties-panel" aria-label="Параметри інструмента">
       <div id="propBrush" class="prop-section" data-tool-section="brush">
         <div class="prop-title">Режим пензлика</div>
         <div id="brushGrid" class="brush-grid"></div>
@@ -274,7 +279,7 @@
           <button class="panel-action" type="button" data-action="resize-canvas" title="Змінити розмір полотна"><i class="fa-solid fa-crop-simple"></i><span>Розмір</span></button>
           <button class="panel-action" type="button" data-action="scale-image" title="Масштабувати зображення"><i class="fa-solid fa-up-right-and-down-left-from-center"></i><span>Масштаб</span></button>
           <button class="panel-action" type="button" data-action="crop-selection" title="Обрізати до виділення"><i class="fa-solid fa-crop"></i><span>Обрізати</span></button>
-          <button class="panel-action" type="button" data-action="fit-canvas" title="Підігнати полотно до вікна"><i class="fa-solid fa-expand"></i><span>У вікно</span></button>
+          <!-- «Підігнати до вікна» живе в статус-смузі й меню — тут не дублюємо. -->
         </div>
         <div class="segmented-control guide-control" role="group" aria-label="Підкладка">
           <button class="segmented-btn active" type="button" data-guide="none" title="Без підкладки"><i class="fa-regular fa-square"></i></button>

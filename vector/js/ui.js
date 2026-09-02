@@ -8,13 +8,13 @@ window.ArtVector = window.ArtVector || {};
   const ui = {
     elements: {},
     openMenuName: null,
-    openPickerName: null,
 
     init() {
       this.cacheElements();
       this.renderPalette();
       this.bindMenus();
       this.updateAll();
+      this.applyPanelState(this.isPanelCollapsed());
       return this.elements;
     },
 
@@ -61,15 +61,20 @@ window.ArtVector = window.ArtVector || {};
         zoomValueButtons: utils.$$('.zoom-value'),
         selectionState: utils.$('selectionState'),
 
-        drawGroupTrigger: utils.$('drawGroupTrigger'),
-        drawGroupIcon: utils.$('drawGroupIcon'),
-        drawGroupLabel: utils.$('drawGroupLabel'),
-        shapeGroupTrigger: utils.$('shapeGroupTrigger'),
-        shapeGroupIcon: utils.$('shapeGroupIcon'),
-        shapeGroupLabel: utils.$('shapeGroupLabel'),
-        toolPickerTriggers: utils.$$('.tool-group-trigger'),
-        toolPickerMenus: utils.$$('.tool-picker-menu'),
-        toolMenuOptions: utils.$$('.tool-menu-option'),
+        canvasScroller: utils.$('canvasScroller'),
+
+        railLineBtn: utils.$('railLineBtn'),
+        railLineIcon: utils.$('railLineIcon'),
+        railShapeBtn: utils.$('railShapeBtn'),
+        railShapeIcon: utils.$('railShapeIcon'),
+        panelToggleBtn: utils.$('panelToggleBtn'),
+        panelToggleIcon: utils.$('panelToggleIcon'),
+        propLine: utils.$('propLine'),
+        propShape: utils.$('propShape'),
+        lineToolName: utils.$('lineToolName'),
+        shapeToolName: utils.$('shapeToolName'),
+        propText: utils.$('propText'),
+        propObject: utils.$('propObject'),
 
         statusCoords: utils.$('statusCoords'),
         statusTool: utils.$('statusTool'),
@@ -80,7 +85,8 @@ window.ArtVector = window.ArtVector || {};
 
         menuTitles: utils.$$('.menu-title'),
         menuDropdowns: utils.$$('.menu-dropdown'),
-        toolSwitches: utils.$$('.tool-switch[data-tool]'),
+        railTools: utils.$$('.rail-tool'),
+        toolChips: utils.$$('.prop-chip[data-tool]'),
         guideButtons: utils.$$('.segmented-btn[data-guide]'),
         guideMenuItems: utils.$$('[data-action^="guide-"]'),
         snapMenuItem: document.querySelector('[data-action="toggle-snap"]')
@@ -97,30 +103,16 @@ window.ArtVector = window.ArtVector || {};
         });
       });
 
-      this.elements.toolPickerTriggers.forEach((button) => {
-        button.addEventListener('click', (event) => {
-          event.stopPropagation();
-          const wrapper = button.closest('.tool-picker');
-          const name = wrapper?.dataset.picker;
-          if (!name) return;
-          if (this.openPickerName === name) this.closeToolPickers();
-          else this.openToolPicker(name);
-        });
-      });
-
       document.addEventListener('click', (event) => {
         if (!event.target.closest('.menu-item-wrap')) this.closeMenus();
-        if (!event.target.closest('.tool-picker')) this.closeToolPickers();
       });
 
       document.addEventListener('office:overlayclose', (event) => {
         if (event.detail?.type === 'menu') this.openMenuName = null;
-        if (event.detail?.type === 'picker') this.openPickerName = null;
       });
     },
 
     openMenu(name) {
-      this.closeToolPickers();
       this.closeMenus();
       this.openMenuName = name;
       const title = document.querySelector(`.menu-title[data-menu="${name}"]`);
@@ -136,25 +128,45 @@ window.ArtVector = window.ArtVector || {};
       this.elements.menuDropdowns.forEach((item) => item.classList.remove('open'));
     },
 
-    openToolPicker(name) {
-      this.closeMenus();
-      this.closeToolPickers();
-      this.openPickerName = name;
-      const wrap = document.querySelector(`.tool-picker[data-picker="${name}"]`);
-      const trigger = wrap?.querySelector('.tool-group-trigger');
-      if (!wrap || !trigger) return;
-      wrap.classList.add('open');
-      trigger.setAttribute('aria-expanded', 'true');
+    // Згорнутість панелі параметрів — дрібне UI-налаштування, тож localStorage
+    // (не чернетка): воно має пережити «новий проєкт» і не залежати від документа.
+    isPanelCollapsed() {
+      try {
+        return localStorage.getItem(constants.PANEL_STATE_KEY) === '1';
+      } catch {
+        return false;
+      }
     },
 
-    closeToolPickers() {
-      this.openPickerName = null;
-      utils.$$('.tool-picker').forEach((wrap) => wrap.classList.remove('open'));
-      this.elements.toolPickerTriggers.forEach((trigger) => trigger.setAttribute('aria-expanded', 'false'));
+    applyPanelState(collapsed) {
+      document.body.classList.toggle('panel-collapsed', collapsed);
+      const button = this.elements.panelToggleBtn;
+      if (button) {
+        button.setAttribute('aria-expanded', String(!collapsed));
+        button.title = collapsed
+          ? 'Показати панель параметрів (Ctrl+\\)'
+          : 'Згорнути панель параметрів (Ctrl+\\)';
+      }
+      if (this.elements.panelToggleIcon) {
+        this.elements.panelToggleIcon.className = collapsed
+          ? 'fa-solid fa-chevron-right'
+          : 'fa-solid fa-chevron-left';
+      }
+      try {
+        localStorage.setItem(constants.PANEL_STATE_KEY, collapsed ? '1' : '0');
+      } catch {
+        // Налаштування необов'язкове: недоступне сховище не має ламати редактор.
+      }
+    },
+
+    togglePanel() {
+      const collapsed = !document.body.classList.contains('panel-collapsed');
+      this.applyPanelState(collapsed);
+      return collapsed;
     },
 
     renderPalette() {
-      this.elements.colorPalette.innerHTML = '';
+      this.elements.colorPalette.replaceChildren();
       constants.COLOR_PALETTE.forEach((hex) => {
         const button = document.createElement('button');
         button.type = 'button';
@@ -182,29 +194,43 @@ window.ArtVector = window.ArtVector || {};
       this.updateSelectionStatus();
     },
 
+    // Rail показує п'ять груп; конкретний підінструмент групи (яка саме фігура,
+    // лінія чи стрілка) вибирається чипами в панелі параметрів. Іконка кнопки
+    // групи повторює активний підінструмент, щоб вибір було видно і згорнутою панеллю.
     updateToolUI() {
-      this.elements.toolSwitches.forEach((button) => {
-        button.classList.toggle('active', button.dataset.tool === state.currentTool);
-      });
-      this.elements.toolMenuOptions.forEach((button) => {
-        button.classList.toggle('active', button.dataset.tool === state.currentTool);
+      const activeGroup = constants.getToolGroup(state.currentTool);
+
+      this.elements.railTools.forEach((button) => {
+        const groupName = button.dataset.toolGroup;
+        const isActive = groupName
+          ? groupName === activeGroup
+          : button.dataset.tool === state.currentTool;
+        button.classList.toggle('active', isActive);
       });
 
-      const drawTool = constants.TOOL_GROUPS.draw.includes(state.currentTool) ? state.currentTool : constants.TOOL_GROUPS.draw[0];
-      const shapeTool = constants.TOOL_GROUPS.shape.includes(state.currentTool) ? state.currentTool : constants.TOOL_GROUPS.shape[0];
-      this.updateToolGroupButton('draw', drawTool, this.elements.drawGroupTrigger, this.elements.drawGroupIcon, this.elements.drawGroupLabel);
-      this.updateToolGroupButton('shape', shapeTool, this.elements.shapeGroupTrigger, this.elements.shapeGroupIcon, this.elements.shapeGroupLabel);
+      this.elements.toolChips.forEach((chip) => {
+        chip.classList.toggle('active', chip.dataset.tool === state.currentTool);
+      });
+
+      this.updateGroupDisplay('line', this.elements.railLineIcon, this.elements.lineToolName);
+      this.updateGroupDisplay('shape', this.elements.railShapeIcon, this.elements.shapeToolName);
+
+      // Секція параметрів показується лише для активної групи.
+      this.elements.propLine?.classList.toggle('hidden', activeGroup !== 'line');
+      this.elements.propShape?.classList.toggle('hidden', activeGroup !== 'shape');
+      this.elements.propText?.classList.toggle('hidden', state.currentTool !== 'text');
 
       this.elements.statusTool.textContent = `Інструмент: ${constants.TOOLS[state.currentTool]?.label || '—'}`;
     },
 
-    updateToolGroupButton(groupName, toolName, trigger, iconNode, labelNode) {
-      if (!trigger || !iconNode || !labelNode) return;
-      const tool = constants.TOOLS[toolName] || { label: toolName, icon: 'fa-solid fa-shapes' };
-      iconNode.className = tool.icon;
-      labelNode.textContent = tool.label;
-      trigger.classList.toggle('active', constants.TOOL_GROUPS[groupName].includes(state.currentTool));
-      trigger.closest('.tool-picker')?.classList.toggle('is-active', constants.TOOL_GROUPS[groupName].includes(state.currentTool));
+    // Іконка кнопки групи в rail і назва в заголовку секції показують той самий
+    // активний підінструмент — вибір видно і зі згорнутою панеллю.
+    updateGroupDisplay(groupName, iconNode, nameNode) {
+      const members = constants.TOOL_GROUPS[groupName] || [];
+      const toolName = members.includes(state.currentTool) ? state.currentTool : members[0];
+      const tool = constants.TOOLS[toolName];
+      if (iconNode) iconNode.className = tool?.icon || 'fa-solid fa-shapes';
+      if (nameNode) nameNode.textContent = tool?.label || '';
     },
 
     updateColorUI() {
@@ -283,6 +309,9 @@ window.ArtVector = window.ArtVector || {};
     },
 
     updateSelectionStatus(selectedObject = null) {
+      // Дії над об'єктом мають сенс лише при виділенні — інакше секція просто
+      // витісняє «Підкладку» за нижній край панелі на ноутбуці.
+      this.elements.propObject?.classList.toggle('hidden', !selectedObject);
       if (!selectedObject) {
         this.elements.statusSelection.textContent = 'Вибрано: нічого';
         if (this.elements.selectionState) {

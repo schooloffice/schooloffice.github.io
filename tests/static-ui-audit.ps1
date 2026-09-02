@@ -1248,8 +1248,9 @@ foreach ($sharedModalApiFile in $sharedModalApiFiles) {
 $menuStateContractFiles = @(
   @{ File = 'text/ui/menu.js'; State = '_openMenu' },
   @{ File = 'paint/js/ui.js'; State = 'openMenuName' },
+  # Vector більше не має floating tool-пікерів: інструменти живуть у лівій rail,
+  # а підінструмент вибирається інлайн у панелі параметрів (openPickerName прибрано).
   @{ File = 'vector/js/ui.js'; State = 'openMenuName' },
-  @{ File = 'vector/js/ui.js'; State = 'openPickerName' },
   @{ File = 'flowcharts/js/ui.js'; State = 'openMenuName' }
 )
 

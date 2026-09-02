@@ -4,16 +4,26 @@ window.ArtVector = window.ArtVector || {};
 window.VectorApp = window.VectorApp || {};
 
 (() => {
-  const { constants, state, utils, editor, ui } = window.ArtVector;
+  const { constants, state, utils, editor, ui, projectIo, vectorStorage } = window.ArtVector;
 
-  const autosaveDraft = debounce(() => {
+  const persistDraft = debounce(() => {
     if (state.suppressAutosave) return;
-    try {
-      localStorage.setItem(constants.STORAGE_KEY, JSON.stringify(editor.buildProjectPayload()));
-    } catch (error) {
+    // Чернетка негарантована: помилка сховища не повинна ламати редагування.
+    vectorStorage.saveDraft(editor.buildProjectPayload()).catch((error) => {
       console.warn('Не вдалося зберегти чернетку.', error);
-    }
+    });
   }, 220);
+
+  // Лічильник дій користувача. Відновлення чернетки асинхронне, тож перед
+  // застосуванням треба переконатися, що за час читання зі сховища користувач
+  // нічого не зробив — інакше чернетка затре перейменування, зміну інструмента
+  // чи щойно відкритий проєкт. Усі дії редактора вже проходять через autosaveDraft.
+  let userActionSeq = 0;
+
+  function autosaveDraft() {
+    userActionSeq += 1;
+    persistDraft();
+  }
 
   function debounce(fn, delay = 180) {
     let timeoutId = null;
@@ -66,11 +76,21 @@ window.VectorApp = window.VectorApp || {};
     markDirty();
   }
 
+  // Останній обраний підінструмент кожної групи: кнопка групи в rail повертає
+  // саме його, а не завжди перший у списку.
+  const lastGroupTool = { line: 'line', shape: 'rect' };
+
   function setTool(toolName) {
+    if (!Object.prototype.hasOwnProperty.call(constants.TOOLS, toolName)) return;
+    const group = constants.getToolGroup(toolName);
+    if (group) lastGroupTool[group] = toolName;
     state.currentTool = toolName;
-    ui.closeToolPickers();
     ui.updateToolUI();
     autosaveDraft();
+  }
+
+  function setToolGroup(groupName) {
+    setTool(lastGroupTool[groupName] || constants.TOOL_GROUPS[groupName]?.[0]);
   }
 
   function getSelectedObject() {
@@ -208,7 +228,9 @@ window.VectorApp = window.VectorApp || {};
   }
 
   function setZoom(value) {
-    state.zoom = utils.clamp(value, 0.5, 2);
+    // Нижня межа менша за перший ZOOM_STEP: «вмістити у вікно» має працювати
+    // і для великого полотна на невеликому екрані.
+    state.zoom = utils.clamp(value, 0.1, 2);
     ui.updateZoomUI();
     ui.updateCanvasInfo();
   }
@@ -228,6 +250,26 @@ window.VectorApp = window.VectorApp || {};
 
   function zoomReset() {
     setZoom(1);
+  }
+
+  // Артборд ландшафтний, а на ноутбуці дефіцитна саме висота — тож масштаб
+  // рахуємо за меншим коефіцієнтом і лишаємо поле навколо полотна.
+  function fitToWindow() {
+    const scroller = ui.elements.canvasScroller;
+    if (!scroller) return;
+    const available = scroller.getBoundingClientRect();
+    if (!available.width || !available.height) return;
+    const padding = 32;
+    const scale = Math.min(
+      (available.width - padding) / state.canvasWidth,
+      (available.height - padding) / state.canvasHeight
+    );
+    setZoom(scale);
+    scroller.scrollTo({ top: 0, left: 0 });
+  }
+
+  function togglePropertiesPanel() {
+    ui.togglePanel();
   }
 
   async function newProject() {
@@ -259,21 +301,44 @@ window.VectorApp = window.VectorApp || {};
     window.OfficeShell?.openFilePicker?.(ui.elements.projectFileInput) || ui.elements.projectFileInput.click();
   }
 
+  const IMPORT_ERRORS = {
+    'too-large': 'Файл проєкту завеликий. Максимальний розмір — 8 МБ.',
+    'not-json': 'Не вдалося прочитати файл проєкту. Перевірте, чи це коректний JSON-файл редактора.',
+    schema: 'Файл проєкту не відповідає формату редактора або перевищує допустимі межі (кількість об’єктів, розмір полотна).',
+    read: 'Не вдалося прочитати файл. Спробуйте ще раз.'
+  };
+
+  function showImportError(reason) {
+    ui.showInfoModal('Помилка відкриття', IMPORT_ERRORS[reason] || IMPORT_ERRORS.read, '⚠️');
+  }
+
+  // Недовірений файл: ліміт розміру -> JSON -> schema-валідація. У state
+  // потрапляє лише нормалізований payload (див. vector/js/project-io.js).
   async function handleProjectFile(file) {
     if (!file) return;
+    if (file.size > projectIo.LIMITS.MAX_FILE_BYTES) {
+      showImportError('too-large');
+      return;
+    }
+    let text;
     try {
-      const text = await utils.fileToText(file);
-      const payload = JSON.parse(text);
-      restorePayload(payload);
-      state.undoStack.length = 0;
-      state.redoStack.length = 0;
-      state.unsavedChanges = false;
-      ui.updateAll();
-      markSaved();
+      text = await utils.fileToText(file);
     } catch (error) {
       console.error(error);
-      ui.showInfoModal('Помилка відкриття', 'Не вдалося прочитати файл проєкту. Перевірте, чи це коректний JSON-файл редактора.', '⚠️');
+      showImportError('read');
+      return;
     }
+    const parsed = projectIo.parseProjectText(text);
+    if (!parsed.ok) {
+      showImportError(parsed.reason);
+      return;
+    }
+    restorePayload(parsed.payload);
+    state.undoStack.length = 0;
+    state.redoStack.length = 0;
+    state.unsavedChanges = false;
+    ui.updateAll();
+    markSaved();
   }
 
   function exportSvg() {
@@ -713,6 +778,8 @@ window.VectorApp = window.VectorApp || {};
       case 'zoom-out': zoomOut(); break;
       case 'zoom-reset': zoomReset(); break;
       case 'zoom-in': zoomIn(); break;
+      case 'fit-canvas': fitToWindow(); break;
+      case 'toggle-panel': togglePropertiesPanel(); break;
       case 'show-help':
         ui.showInfoModal('Довідка та поради', `Що вміє редактор
 • Редаговані векторні фігури, лінії та стрілки
@@ -727,7 +794,7 @@ window.VectorApp = window.VectorApp || {};
 • Експорт SVG підходить для подальшого редагування, PNG — для вставки в презентації та документи`, '💡');
         break;
       case 'show-shortcuts':
-        ui.showInfoModal('Клавіатурні скорочення', 'V — вибір\nP — олівець\nL — лінія\nA — стрілка\nR — прямокутник\nO — еліпс\nD — ромб\nS — зірка\nT — текст\nDelete / Backspace — видалити\nCtrl+Z / Ctrl+Y — скасувати / повернути\nCtrl+D — дублювати\nCtrl+C / Ctrl+V — копіювати / вставити\nCtrl+S — зберегти проєкт\nCtrl+Shift+S — PNG\nEsc — зняти виділення', '⌨️');
+        ui.showInfoModal('Клавіатурні скорочення', 'V — вибір\nP — олівець\nL — лінія\nA — стрілка\nR — прямокутник\nO — еліпс\nD — ромб\nS — зірка\nT — текст\nDelete / Backspace — видалити\nCtrl+Z / Ctrl+Y — скасувати / повернути\nCtrl+D — дублювати\nCtrl+C / Ctrl+V — копіювати / вставити\nCtrl+S — зберегти проєкт\nCtrl+Shift+S — PNG\nCtrl+0 — масштаб 100%\nCtrl+\\ — згорнути панель параметрів\nEsc — зняти виділення', '⌨️');
         break;
       case 'show-about':
         ui.showInfoModal('Про ПЛЮС Вектор', 'ПЛЮС Вектор — браузерний векторний редактор для шкільного офісного набору. Інтерфейс узгоджений з іншими програмами Офіс ПЛЮС: кольоровий хедер, верхнє меню, компактна панель інструментів і чисте робоче поле без зайвих бокових підказок. Редактор працює без реєстрації, зберігає проєкти локально та дозволяє експортувати роботи у SVG і PNG.', '🧩');
@@ -736,7 +803,6 @@ window.VectorApp = window.VectorApp || {};
         break;
     }
     ui.closeMenus();
-    ui.closeToolPickers();
   }
 
   function bindUi() {
@@ -747,15 +813,15 @@ window.VectorApp = window.VectorApp || {};
       }
     });
 
-    ui.elements.toolSwitches.forEach((button) => {
-      button.addEventListener('click', () => setTool(button.dataset.tool));
+    ui.elements.railTools.forEach((button) => {
+      button.addEventListener('click', () => {
+        if (button.dataset.toolGroup) setToolGroup(button.dataset.toolGroup);
+        else setTool(button.dataset.tool);
+      });
     });
 
-    ui.elements.toolMenuOptions.forEach((button) => {
-      button.addEventListener('click', (event) => {
-        event.stopPropagation();
-        setTool(button.dataset.tool);
-      });
+    ui.elements.toolChips.forEach((chip) => {
+      chip.addEventListener('click', () => setTool(chip.dataset.tool));
     });
 
     ui.elements.guideButtons.forEach((button) => {
@@ -902,6 +968,16 @@ window.VectorApp = window.VectorApp || {};
         runOfficeCommand('new') || newProject();
         return;
       }
+      if (event.ctrlKey && event.key === '\\') {
+        event.preventDefault();
+        togglePropertiesPanel();
+        return;
+      }
+      if (event.ctrlKey && event.key === '0') {
+        event.preventDefault();
+        zoomReset();
+        return;
+      }
       if (event.ctrlKey && event.key.toLowerCase() === 'd') {
         event.preventDefault();
         duplicateSelected();
@@ -934,34 +1010,57 @@ window.VectorApp = window.VectorApp || {};
     });
   }
 
-  function tryRestoreAutosave() {
-    const raw = localStorage.getItem(constants.STORAGE_KEY);
-    if (!raw) return;
+  // Чернетка теж проходить нормалізацію: сховище браузера могло бути змінене
+  // ззовні, а формат — застаріти між версіями редактора.
+  async function tryRestoreAutosave() {
+    const seqAtStart = userActionSeq;
+    let raw;
     try {
-      const payload = JSON.parse(raw);
-      restorePayload(payload);
-      state.unsavedChanges = false;
-      ui.updateAll();
+      raw = await vectorStorage.loadDraft();
     } catch (error) {
-      console.warn('Не вдалося відновити чернетку.', error);
+      console.warn('Не вдалося прочитати чернетку.', error);
+      return;
     }
+    if (!raw) return;
+    // Будь-яка дія користувача за час читання зі сховища скасовує відновлення:
+    // його робота важливіша за чернетку.
+    if (userActionSeq !== seqAtStart) return;
+    const payload = projectIo.normalizeProject(raw);
+    if (!payload) {
+      console.warn('Чернетку відхилено: не відповідає формату проєкту.');
+      return;
+    }
+    restorePayload(payload);
+    state.unsavedChanges = false;
+    ui.updateAll();
   }
 
   function initVectorEditor() {
     const elements = ui.init();
     editor.init(elements);
     editor.resizeArtboard(state.canvasWidth, state.canvasHeight);
-    tryRestoreAutosave();
     bindUi();
     bindCanvas();
     bindKeyboard();
     ui.updateAll();
+    // Асинхронне сховище не блокує показ редактора; відновлення саме оновить UI.
+    window.ArtVector.draftRestored = tryRestoreAutosave();
   }
 
-  window.VectorApp.boot = () =>
-    window.OfficeShell?.bootEditor?.({
-      source: 'vector',
-      commands: createShellCommands,
-      boot: initVectorEditor
-    }) ?? (window.OfficeUI?.registerCommands?.(createShellCommands(), { source: 'vector' }), initVectorEditor());
+  // Boot має відбутися РІВНО один раз. Раніше тут стояв `bootEditor(...) ?? fallback`,
+  // але синхронний initVectorEditor повертає undefined — тож fallback спрацьовував
+  // завжди, редактор ініціалізувався двічі й кожен слухач вішався двічі
+  // (один клік = дві дії). Перевіряємо наявність shell явно.
+  window.VectorApp.boot = () => {
+    if (window.OfficeShell?.bootEditor) {
+      window.OfficeShell.bootEditor({
+        source: 'vector',
+        commands: createShellCommands,
+        boot: initVectorEditor
+      });
+      return;
+    }
+    window.OfficeUI?.registerCommands?.(createShellCommands(), { source: 'vector' });
+    initVectorEditor();
+  };
 })();

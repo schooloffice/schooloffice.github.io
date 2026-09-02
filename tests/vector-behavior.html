@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vector Behavior</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    /* Ноутбучний viewport: перевірки розкладки мають відповідати цільовому екрану. */
+    iframe { width: 1366px; height: 768px; border: 1px solid #d6dce5; border-radius: 8px; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Vector Behavior</h1>
+  <pre id="result">Running...</pre>
+  <iframe id="vectorFrame" src="../vector/index.html"></iframe>
+
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('vectorFrame');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function waitFor(predicate, label, timeout = 7000) {
+      const start = performance.now();
+      while (performance.now() - start < timeout) {
+        if (predicate()) return;
+        await wait(100);
+      }
+      throw new Error(label);
+    }
+
+    function check(name, ok) {
+      if (!ok) throw new Error(name);
+      return `PASS ${name}`;
+    }
+
+    // Кожен вузол сцени перевіряємо на подієві атрибути: саме вони є ціллю
+    // ін'єкції через рядкові шаблони.
+    function hasEventAttribute(root) {
+      return Array.from(root.querySelectorAll('*')).some(node =>
+        Array.from(node.attributes).some(attr => attr.name.toLowerCase().startsWith('on')));
+    }
+
+    function rectObject(overrides) {
+      return Object.assign({
+        id: 'r1', type: 'rect', x: 10, y: 20, w: 100, h: 60,
+        stroke: '#111827', fill: '#ffffff', strokeWidth: 3, opacity: 100
+      }, overrides);
+    }
+
+    async function run() {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('vector iframe load timed out')), 7000);
+        frame.addEventListener('load', () => {
+          clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
+
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      await waitFor(() => typeof win.VectorApp?.boot === 'function', 'VectorApp boot exported');
+      await waitFor(() => !!win.ArtVector?.editor?.elements?.contentLayer, 'vector editor initialized');
+      // Відновлення чернетки асинхронне — чекаємо, щоб воно не втрутилося в тести.
+      await win.ArtVector.draftRestored;
+
+      const { state, editor, projectIo, vectorStorage, constants } = win.ArtVector;
+      const contentLayer = editor.elements.contentLayer;
+
+      // --- Рендеринг сцени ---
+      state.objects = [rectObject({})];
+      state.selectedObjectId = null;
+      editor.renderAll();
+      const renderedRect = contentLayer.querySelector('rect');
+      const rendersShapes = contentLayer.children.length === 1
+        && contentLayer.children[0].dataset.id === 'r1'
+        && !!renderedRect
+        && renderedRect.getAttribute('width') === '100';
+
+      // --- P0: ворожі рядки не стають розміткою ---
+      // Об'єкт кладемо в state НАПРЯМУ, минаючи валідацію: перевіряємо саме
+      // рендер, а не другий рівень захисту.
+      const hostileStroke = '#000" onmouseover="window.__vectorXss=1';
+      state.objects = [rectObject({ id: 'hostile', stroke: hostileStroke })];
+      editor.renderAll();
+      const hostileNode = contentLayer.querySelector('rect');
+      const renderKeepsAttributeValue = hostileNode.getAttribute('stroke') === hostileStroke;
+      const renderInjectsNothing = !hasEventAttribute(contentLayer) && win.__vectorXss === undefined;
+
+      // Текст із розміткою лишається текстом.
+      state.objects = [{
+        id: 'hostileText', type: 'text', x: 10, y: 40,
+        text: '</text><image href="x" onerror="window.__vectorXss=2">',
+        fontSize: 32, stroke: '#111827', fill: 'none', opacity: 100
+      }];
+      editor.renderAll();
+      const textStaysText = contentLayer.querySelector('tspan')?.textContent
+          === '</text><image href="x" onerror="window.__vectorXss=2">'
+        && !contentLayer.querySelector('image')
+        && !hasEventAttribute(contentLayer)
+        && win.__vectorXss === undefined;
+
+
+      // --- P0: SVG-експорт теж екранує ---
+      state.canvasWidth = 400;
+      state.canvasHeight = 300;
+      const exported = editor.exportSvgMarkup();
+      const exportedDoc = new DOMParser().parseFromString(
+        exported.replace(/^<\?xml[^>]*\?>\s*/, ''), 'image/svg+xml');
+      const exportEscapes = !exportedDoc.querySelector('parsererror')
+        && !exportedDoc.querySelector('image')
+        && !hasEventAttribute(exportedDoc.documentElement)
+        && exportedDoc.querySelector('tspan')?.textContent
+          === '</text><image href="x" onerror="window.__vectorXss=2">';
+
+      // XML 1.0 забороняє NUL і більшість C0-символів навіть екранованими: якщо вони
+      // доживуть до тексту, експортований SVG перестане бути валідним XML.
+      const controlPayload = projectIo.normalizeProject({
+        objects: [{ id: 'ctl', type: 'text', x: 10, y: 40, text: 'A\u0000B\u0001C\tD\nE' }]
+      });
+      const controlText = controlPayload.objects[0].text;
+      const stripsXmlInvalidChars = controlText === 'ABC\tD\nE'
+        && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(controlText);
+      state.objects = controlPayload.objects;
+      editor.renderAll();
+      const controlSvg = editor.exportSvgMarkup();
+      const controlDoc = new DOMParser().parseFromString(
+        controlSvg.replace(/^<\?xml[^>]*\?>\s*/, ''), 'image/svg+xml');
+      const exportStaysValidXml = !controlDoc.querySelector('parsererror');
+
+      // --- Валідація недовіреного project-файлу ---
+      const rejects = [
+        projectIo.normalizeProject(null),
+        projectIo.normalizeProject('строка'),
+        projectIo.normalizeProject([]),
+        projectIo.normalizeProject({ format: 'not-our-format', objects: [] }),
+        projectIo.normalizeProject({ version: 99, objects: [] }),
+        projectIo.normalizeProject({ objects: 'не масив' }),
+        projectIo.normalizeProject({ objects: new Array(projectIo.LIMITS.MAX_OBJECTS + 1).fill(rectObject({})) })
+      ];
+      const rejectsBadProjects = rejects.every(value => value === null);
+
+      // Сумарний ліміт точок pen: 20 контурів по 4000 точок > 60000.
+      const fatPen = { id: 'p', type: 'pen', points: new Array(projectIo.LIMITS.MAX_PEN_POINTS).fill({ x: 1, y: 1 }) };
+      const rejectsPointFlood = projectIo.normalizeProject({ objects: new Array(20).fill(fatPen) }) === null;
+
+      // Площа полотна: сторони проходять по MAX_CANVAS, але 10000×10000 = 100 Мп,
+      // і PNG-експорт створив би canvas на ~400 МБ RGBA.
+      const rejectsHugeCanvasArea = projectIo.normalizeProject({ canvasWidth: 10000, canvasHeight: 10000, objects: [] }) === null;
+      const acceptsSaneCanvas = !!projectIo.normalizeProject({ canvasWidth: 4000, canvasHeight: 3000, objects: [] });
+
+      const sanitized = projectIo.normalizeProject({
+        fileName: 'звіт',
+        canvasWidth: 99999,
+        canvasHeight: -5,
+        guideMode: 'evil',
+        currentTool: 'nope',
+        objects: [
+          rectObject({ id: 'ok-1', stroke: hostileStroke, fill: 'url(#x)' }),
+          rectObject({ id: 'ok-1' }),
+          { type: 'script', x: 0, y: 0 },
+          { id: 'bad chars!', type: 'ellipse', x: 1e9, y: 'NaN', w: 10, h: 10 },
+          { id: 'shortPen', type: 'pen', points: [{ x: 1, y: 1 }] },
+          { id: 'txt', type: 'text', x: 0, y: 0, text: 'x'.repeat(99999), fontSize: 10000 }
+        ]
+      });
+      const sanitizesColors = sanitized.objects[0].stroke === '#1f2937' && sanitized.objects[0].fill === 'none';
+      const dropsUnknownTypes = !sanitized.objects.some(obj => obj.type === 'script');
+      const dropsDegeneratePen = !sanitized.objects.some(obj => obj.type === 'pen');
+      const dedupesIds = new Set(sanitized.objects.map(obj => obj.id)).size === sanitized.objects.length;
+      const clampsCanvas = sanitized.canvasWidth === projectIo.LIMITS.MAX_CANVAS
+        && sanitized.canvasHeight === projectIo.LIMITS.MIN_CANVAS;
+      const clampsCoords = sanitized.objects.every(obj =>
+        [obj.x, obj.y, obj.w, obj.h].every(value => value === undefined || Math.abs(value) <= projectIo.LIMITS.MAX_COORD));
+      const clampsText = sanitized.objects.at(-1).text.length === projectIo.LIMITS.MAX_TEXT_LENGTH
+        && sanitized.objects.at(-1).fontSize === projectIo.LIMITS.MAX_FONT_SIZE;
+      const fallsBackEnums = sanitized.guideMode === 'grid' && sanitized.currentTool === 'select';
+      // Нормалізатор будує нові об'єкти, тому сторонні ключі не переносяться.
+      const dropsUnknownKeys = projectIo.normalizeProject({
+        objects: [rectObject({ onload: 'alert(1)', __proto__: null, extra: 'x' })]
+      }).objects[0].extra === undefined;
+
+      // --- parseProjectText: причини відмови ---
+      const notJson = projectIo.parseProjectText('{ це не json');
+      const tooLarge = projectIo.parseProjectText('x'.repeat(projectIo.LIMITS.MAX_FILE_CHARS + 1));
+      const goodParse = projectIo.parseProjectText(JSON.stringify({ objects: [rectObject({})] }));
+      const reportsReasons = notJson.reason === 'not-json' && !notJson.ok
+        && tooLarge.reason === 'too-large' && !tooLarge.ok
+        && goodParse.ok && goodParse.payload.objects.length === 1;
+
+      // --- Round-trip: save -> open ---
+      state.fileName = 'коло і текст';
+      state.canvasWidth = 800;
+      state.canvasHeight = 600;
+      state.objects = [
+        rectObject({ id: 'rt1', stroke: '#ef4444', fill: '#eab308' }),
+        { id: 'rt2', type: 'text', x: 30, y: 90, text: 'Привіт\nсвіт', fontSize: 24, stroke: '#111827', fill: 'none', opacity: 80 }
+      ];
+      const saved = JSON.stringify(editor.buildProjectPayload());
+      state.objects = [];
+      editor.renderAll();
+      const reopened = projectIo.parseProjectText(saved);
+      editor.restoreProject(reopened.payload);
+      const roundTrips = reopened.ok
+        && state.objects.length === 2
+        && state.objects[0].stroke === '#ef4444'
+        && state.objects[0].fill === '#eab308'
+        && state.objects[1].text === 'Привіт\nсвіт'
+        && state.objects[1].opacity === 80
+        && state.fileName === 'коло і текст'
+        && state.canvasWidth === 800
+        && contentLayer.children.length === 2;
+      // Старі файли (без format) мусять і далі відкриватися.
+      const legacyOpens = !!projectIo.normalizeProject(JSON.parse(saved.replace('"format"', '"formatWas"')));
+
+      // --- Чернетка через IndexedDB-шар ---
+      const storageWired = typeof vectorStorage?.saveDraft === 'function'
+        && typeof vectorStorage?.loadDraft === 'function'
+        && typeof vectorStorage?.clearDraft === 'function';
+      const storageReconciles = vectorStorage.chooseNewerDraftRecord(
+        { savedAt: 2, payload: { objects: [] } },
+        { savedAt: 1, payload: null }
+      ).savedAt === 2 && vectorStorage.chooseNewerDraftRecord(
+        { savedAt: 1, payload: { objects: [] } },
+        { savedAt: 3, payload: null }
+      ).savedAt === 3;
+      const usesOwnStorageKey = constants.STORAGE_KEY === 'art_vector_draft_v1';
+
+      // --- Розкладка: ліва rail + контекстна панель ---
+      const railTools = Array.from(doc.querySelectorAll('.rail-tool')).map(b => b.textContent.trim());
+      const layout = {
+        railOnLeft: Math.round(doc.querySelector('.tool-rail').getBoundingClientRect().x) === 0,
+        noTopToolbar: !doc.querySelector('.toolbar'),
+        noFloatingPickers: !doc.querySelector('.tool-picker'),
+        tools: railTools,
+        railIsToolbar: doc.querySelector('.tool-rail')?.classList.contains('office-toolbar')
+      };
+      const layoutOk = layout.railOnLeft && layout.noTopToolbar && layout.noFloatingPickers
+        && layout.railIsToolbar
+        && railTools.join(',') === 'Вибір,Олівець,Лінія,Фігури,Текст';
+
+      // --- Регресія: boot має відбутися РІВНО один раз ---
+      // Раніше `bootEditor(...) ?? fallback` ініціалізував редактор двічі, тож
+      // кожен слухач вішався двічі й один клік давав дві дії.
+      state.zoom = 1;
+      win.ArtVector.ui.updateZoomUI();
+      doc.querySelector('.zoom-btn[data-action="zoom-in"]').click();
+      const oneClickOneStep = state.zoom === 1.25;
+
+      // --- Групи інструментів і чипи ---
+      doc.querySelector('#railShapeBtn').click();
+      const groupPicksDefault = state.currentTool === 'rect';
+      doc.querySelector('.prop-chip[data-tool="star"]').click();
+      const chipPicksTool = state.currentTool === 'star'
+        && doc.querySelector('#shapeToolName').textContent === 'Зірка'
+        && doc.querySelector('#railShapeIcon').className === 'fa-solid fa-star';
+      doc.querySelector('.rail-tool[data-tool="select"]').click();
+      doc.querySelector('#railShapeBtn').click();
+      const groupRemembersTool = state.currentTool === 'star';
+
+      // --- Контекстні секції ---
+      const sectionVisible = id => !!doc.querySelector(id)?.offsetHeight;
+      const shapeSectionShown = sectionVisible('#propShape') && !sectionVisible('#propLine');
+      doc.querySelector('#railLineBtn').click();
+      const lineSectionShown = sectionVisible('#propLine') && !sectionVisible('#propShape');
+      doc.querySelector('.rail-tool[data-tool="text"]').click();
+      const textSectionShown = sectionVisible('#propText') && !sectionVisible('#propShape');
+
+      state.objects = [rectObject({ id: 'sel' })];
+      state.selectedObjectId = null;
+      editor.renderAll();
+      win.ArtVector.ui.updateSelectionStatus(null);
+      const objectSectionHidden = !sectionVisible('#propObject');
+      state.selectedObjectId = 'sel';
+      win.ArtVector.ui.updateSelectionStatus(state.objects[0]);
+      const objectSectionShown = sectionVisible('#propObject');
+
+      // Панель має вміщатися без прокрутки на ноутбучній висоті.
+      const panel = doc.querySelector('.properties-panel');
+      const panelFits = panel.scrollHeight <= panel.clientHeight + 1;
+
+      // --- Згортання панелі ---
+      const workspaceWidth = () => Math.round(doc.querySelector('.workspace').getBoundingClientRect().width);
+      const widthOpen = workspaceWidth();
+      doc.querySelector('#panelToggleBtn').click();
+      const widthCollapsed = workspaceWidth();
+      const collapseState = doc.body.classList.contains('panel-collapsed')
+        && doc.querySelector('#panelToggleBtn').getAttribute('aria-expanded') === 'false';
+      doc.querySelector('#panelToggleBtn').click();
+      const collapseWorks = widthCollapsed > widthOpen && collapseState
+        && !doc.body.classList.contains('panel-collapsed')
+        && workspaceWidth() === widthOpen;
+
+      // --- Вмістити у вікно ---
+      state.canvasWidth = 1200;
+      state.canvasHeight = 700;
+      // Розмір полотна живе і в state, і в CSS-змінних артборда — оновлюємо обидва.
+      editor.resizeArtboard(state.canvasWidth, state.canvasHeight);
+      state.zoom = 2;
+      win.ArtVector.ui.updateCanvasInfo();
+      const scrollerNode = doc.querySelector('#canvasScroller');
+      doc.querySelector('.zoom-btn[data-action="fit-canvas"]').click();
+      const scroller = scrollerNode.getBoundingClientRect();
+      const expectedFit = Math.min((scroller.width - 32) / state.canvasWidth, (scroller.height - 32) / state.canvasHeight);
+      // Масштаб задається шириною SVG, а не transform, тож після «вмістити»
+      // область прокрутки має збігтися з вікном і смуги мають зникнути.
+      const fitRemovesScrollbars = scrollerNode.scrollWidth <= scrollerNode.clientWidth + 1
+        && scrollerNode.scrollHeight <= scrollerNode.clientHeight + 1;
+      const fitWorks = Math.abs(state.zoom - expectedFit) < 0.01 && state.zoom < 2 && fitRemovesScrollbars;
+
+      const checks = [
+        check('VectorApp boot exported', typeof win.VectorApp?.boot === 'function'),
+        check('tools live in a left rail, not a top toolbar', layoutOk),
+        check('editor boots once (one click = one action)', oneClickOneStep),
+        check('rail group activates its default tool', groupPicksDefault),
+        check('panel chip picks the concrete tool', chipPicksTool),
+        check('rail group remembers the last sub-tool', groupRemembersTool),
+        check('shape section shows only for shapes', shapeSectionShown),
+        check('line section shows only for lines', lineSectionShown),
+        check('text section shows only for text', textSectionShown),
+        check('object section hidden without selection', objectSectionHidden),
+        check('object section shows on selection', objectSectionShown),
+        check('properties panel fits without scrolling', panelFits),
+        check('properties panel collapses and restores', collapseWorks),
+        check('fit to window scales the artboard and clears scrollbars', fitWorks),
+        check('project-io module exported', typeof projectIo?.normalizeProject === 'function'),
+        check('storage module exported', storageWired),
+        check('standard commands exported', ['new', 'open', 'save', 'undo', 'redo'].every(command => !!doc.querySelector(`[data-office-command="${command}"]`))),
+        check('scene renders shapes as DOM nodes', rendersShapes),
+        check('hostile attribute stays a value, not markup', renderKeepsAttributeValue),
+        check('render injects no event attributes', renderInjectsNothing),
+        check('text content stays text', textStaysText),
+        check('SVG export escapes hostile content', exportEscapes),
+        check('import rejects malformed projects', rejectsBadProjects),
+        check('import rejects pen point flood', rejectsPointFlood),
+        check('import rejects oversized canvas area', rejectsHugeCanvasArea && acceptsSaneCanvas),
+        check('text strips XML-invalid control characters', stripsXmlInvalidChars),
+        check('SVG export stays valid XML', exportStaysValidXml),
+        check('import sanitizes colors to hex or none', sanitizesColors),
+        check('import drops unknown object types', dropsUnknownTypes),
+        check('import drops degenerate pen strokes', dropsDegeneratePen),
+        check('import dedupes object ids', dedupesIds),
+        check('import clamps canvas size', clampsCanvas),
+        check('import clamps coordinates', clampsCoords),
+        check('import clamps text length and font size', clampsText),
+        check('import falls back to known enum values', fallsBackEnums),
+        check('import drops unknown keys', dropsUnknownKeys),
+        check('import reports a specific failure reason', reportsReasons),
+        check('project save/open round-trips', roundTrips),
+        check('legacy project without format still opens', legacyOpens),
+        check('draft storage layer wired (IndexedDB + reconciliation)', storageReconciles),
+        check('draft uses versioned storage key', usesOwnStorageKey)
+      ];
+
+      result.className = 'pass';
+      result.textContent = checks.join('\n') + '\n\nPASSED';
+      document.body.dataset.vectorBehavior = 'passed';
+    }
+
+    run().catch(error => {
+      result.className = 'fail';
+      result.textContent = String(error && error.stack || error);
+      document.body.dataset.vectorBehavior = 'failed';
+    });
+  </script>
+</body>
+</html>

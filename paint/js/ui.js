@@ -29,7 +29,45 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.updateZoomUI();
       this.updateFileNameUI();
       this.updateDirtyUI();
+      this.applyPanelState(this.isPanelCollapsed());
       return this.elements;
+    },
+
+    // Згорнутість панелі параметрів — дрібне UI-налаштування, тож localStorage
+    // (не чернетка): воно має пережити «новий малюнок» і не залежати від документа.
+    isPanelCollapsed() {
+      try {
+        return localStorage.getItem(constants.PANEL_STATE_KEY) === '1';
+      } catch {
+        return false;
+      }
+    },
+
+    applyPanelState(collapsed) {
+      document.body.classList.toggle('panel-collapsed', collapsed);
+      const button = this.elements.panelToggleBtn;
+      if (button) {
+        button.setAttribute('aria-expanded', String(!collapsed));
+        button.title = collapsed
+          ? 'Показати панель параметрів (Ctrl+\\)'
+          : 'Згорнути панель параметрів (Ctrl+\\)';
+      }
+      if (this.elements.panelToggleIcon) {
+        this.elements.panelToggleIcon.className = collapsed
+          ? 'fa-solid fa-chevron-right'
+          : 'fa-solid fa-chevron-left';
+      }
+      try {
+        localStorage.setItem(constants.PANEL_STATE_KEY, collapsed ? '1' : '0');
+      } catch {
+        // Налаштування необов'язкове: недоступне сховище не має ламати редактор.
+      }
+    },
+
+    togglePanel() {
+      const collapsed = !document.body.classList.contains('panel-collapsed');
+      this.applyPanelState(collapsed);
+      return collapsed;
     },
 
     cacheElements() {
@@ -67,6 +105,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
         zoomLevelLabel: utils.$('zoomLevelLabel'),
         statusZoom: utils.$('statusZoom'),
+
+        panelToggleBtn: utils.$('panelToggleBtn'),
+        panelToggleIcon: utils.$('panelToggleIcon'),
 
         brushGrid: utils.$('brushGrid'),
         shapeGrid: utils.$('shapeGrid'),

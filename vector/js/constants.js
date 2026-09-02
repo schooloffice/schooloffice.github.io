@@ -4,6 +4,7 @@ window.ArtVector = window.ArtVector || {};
 
 window.ArtVector.constants = {
   STORAGE_KEY: 'art_vector_draft_v1',
+  PANEL_STATE_KEY: 'art_vector_panel_v1',
   MAX_UNDO: 60,
   DEFAULT_FILE_NAME: 'векторний_малюнок',
   DEFAULT_CANVAS_WIDTH: 1200,
@@ -30,9 +31,15 @@ window.ArtVector.constants = {
     star: { label: 'Зірка', icon: 'fa-solid fa-star' },
     text: { label: 'Текст', icon: 'fa-solid fa-font' }
   },
+  // Групи інструментів для лівої rail: кнопка групи вмикає останній обраний
+  // підінструмент, а конкретний вибір робиться чипами в панелі параметрів.
   TOOL_GROUPS: {
-    draw: ['pen', 'line', 'arrow'],
+    line: ['line', 'arrow'],
     shape: ['rect', 'ellipse', 'triangle', 'diamond', 'star']
+  },
+  getToolGroup(tool) {
+    const groups = window.ArtVector.constants.TOOL_GROUPS;
+    return Object.keys(groups).find((name) => groups[name].includes(tool)) || null;
   },
   GUIDE_LABELS: {
     none: 'Немає',

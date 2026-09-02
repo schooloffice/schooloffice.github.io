@@ -14,8 +14,11 @@
   --shadow: 0 10px 26px rgba(15, 23, 42, .08);
   --header-h: 42px;
   --menubar-h: 34px;
-  --toolbar-h: 50px;
   --status-h: 28px;
+  /* Ліва колонка: вузький rail з інструментами + контекстна панель параметрів.
+     Полотно обмежене висотою вікна, тому горизонтальних смуг над ним не тримаємо. */
+  --rail-w: 72px;
+  --panel-w: 232px;
 }
 
 * { box-sizing: border-box; }
@@ -190,71 +193,210 @@ button, input, textarea { font: inherit; }
   background: var(--line);
 }
 
-.toolbar {
-  padding: 6px 10px 7px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
+.editor-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--rail-w) var(--panel-w) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+body.panel-collapsed .editor-body {
+  grid-template-columns: var(--rail-w) 0 minmax(0, 1fr);
+}
+body.panel-collapsed .properties-panel {
+  display: none;
+}
+
+.tool-rail {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
-  overflow: visible;
+  gap: 4px;
+  padding: 8px 6px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
 }
-.toolbar-row {
+.rail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* Перемикач панелі притискаємо донизу: він потрібен і коли панель згорнута. */
+.rail-panel-toggle {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+/* Іконка над коротким підписом: назва інструмента лишається видимою учневі,
+   але колонка займає 72px замість повної ширини вікна. */
+.rail-btn {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 4px 2px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: .6rem;
+  font-weight: 800;
+  line-height: 1.1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rail-btn i { flex: 0 0 auto; font-size: 1.05rem; }
+.rail-btn span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.rail-tool { min-height: 52px; }
+.rail-btn:hover { background: var(--accent-soft-2); border-color: var(--accent); }
+.rail-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.properties-panel {
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.prop-section { display: flex; flex-direction: column; gap: 8px; }
+.prop-section.hidden { display: none; }
+.prop-title {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  min-width: 0;
-}
-.toolbar-row-top {
-  flex-wrap: nowrap;
-}
-.toolbar-row-bottom {
-  flex-wrap: wrap;
-}
-.toolbar-section {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: nowrap;
-  flex-shrink: 0;
-  min-width: 0;
-}
-.toolbar-label {
-  font-size: .76rem;
+  font-size: .8rem;
   font-weight: 800;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: .02em;
 }
-.toolbar-zoom-actions {
-  margin-left: auto;
-}
-.toolbar-divider {
-  width: 1px;
-  height: 28px;
-  align-self: center;
-  background: var(--line);
-  flex-shrink: 0;
-}
-.toolbar-divider-spacer {
-  margin-left: auto;
-  background: transparent;
-}
+.prop-section input[type="range"] { width: 100%; }
 
-.tool-btn,
-.tool-switch,
+/* Чипи вибору конкретної фігури/лінії — інлайн у панелі, без floating-дропдаунів. */
+.chip-grid { display: grid; gap: 6px; }
+.chip-grid-icons { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.prop-title-value {
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: .74rem;
+}
+.prop-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 4px;
+  line-height: 1.05;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: .72rem;
+  font-weight: 800;
+  cursor: pointer;
+  overflow: hidden;
+}
+/* Підпис переноситься на два рядки замість обрізання: у панелі 232px
+   «Прямокутник» і «Трикутник» інакше перетворюються на «Прямо…». */
+.prop-chip span { min-width: 0; }
+.prop-chip:hover { background: var(--accent-soft-2); border-color: var(--accent); }
+.prop-chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-dark); }
+
+.panel-actions-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.panel-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 8px;
+  text-align: left;
+  line-height: 1.05;
+  white-space: normal;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: .72rem;
+  font-weight: 800;
+  cursor: pointer;
+  overflow: hidden;
+}
+.panel-action span { min-width: 0; }
+.panel-action:hover { background: var(--accent-soft-2); border-color: var(--accent); }
+.panel-action.danger:hover { color: var(--danger); background: #fff5f5; border-color: #fecaca; }
+
+.color-targets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.color-extra { display: flex; align-items: center; gap: 6px; }
+.color-extra .mini-btn { flex: 1; gap: 6px; font-size: .72rem; }
+
+/* Зберегти / скасувати / повернути живуть у header: він уже займає свою висоту,
+   тому ці дії не забирають ані рядка робочої області, ані місця в tool rail. */
+.header-actions { display: flex; align-items: center; gap: 4px; }
+.header-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+  font-size: .85rem;
+  cursor: pointer;
+}
+.header-btn:hover { background: rgba(255, 255, 255, .26); border-color: rgba(255, 255, 255, .6); }
+
+/* Текстовий «Масштаб: N%» лишається для status API і тестів, але візуально
+   дублював би кнопку масштабу в тій самій смузі. */
+.status-hidden-metric { display: none; }
+.status-zoom { display: inline-flex; align-items: center; gap: 4px; }
+.zoom-btn {
+  min-width: 26px;
+  height: 22px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: .7rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.zoom-btn:hover { background: var(--accent-soft-2); border-color: var(--accent); }
+.zoom-btn.zoom-value { min-width: 44px; }
+
 .segmented-btn,
 .mini-btn,
 .color-target,
-.zoom-value,
-.modal-btn,
-.tool-menu-option {
+.modal-btn {
   border: 1.5px solid transparent;
   background: transparent;
   color: var(--text);
 }
-.tool-btn, .mini-btn {
+.mini-btn {
   width: 34px;
   height: 34px;
   display: inline-flex;
@@ -264,9 +406,7 @@ button, input, textarea { font: inherit; }
   flex-shrink: 0;
   border-radius: 8px;
 }
-.tool-switch,
-.color-target,
-.zoom-value {
+.color-target {
   min-height: 34px;
   padding: 0 10px;
   display: inline-flex;
@@ -278,7 +418,6 @@ button, input, textarea { font: inherit; }
   cursor: pointer;
   border-radius: 8px;
 }
-.tool-switch.compact { padding: 0 10px; }
 .segmented {
   display: inline-flex;
   border: 1.5px solid var(--line-strong);
@@ -297,27 +436,17 @@ button, input, textarea { font: inherit; }
   background: #fff;
 }
 .segmented-btn + .segmented-btn { border-left: 1px solid var(--line-strong); }
-.tool-btn:hover,
-.tool-switch:hover,
 .segmented-btn:hover,
 .mini-btn:hover,
 .color-target:hover,
-.zoom-value:hover,
-.modal-btn:hover,
-.tool-menu-option:hover {
+.modal-btn:hover {
   background: var(--accent-soft);
   color: var(--accent-dark);
   border-color: #e9d5ff;
 }
-.tool-btn.danger:hover { color: var(--danger); background: #fff5f5; border-color: #fecaca; }
-.tool-switch.active,
 .segmented-btn.active,
 .mini-btn.active,
-.color-target.active,
-.zoom-value.active,
-.tool-picker.open > .tool-group-trigger,
-.tool-picker.is-active > .tool-group-trigger,
-.tool-menu-option.active {
+.color-target.active {
   background: var(--accent-soft);
   border-color: #d8b4fe;
   color: var(--accent-dark);
@@ -345,46 +474,6 @@ button, input, textarea { font: inherit; }
   white-space: nowrap;
 }
 .selection-state.is-empty { color: var(--muted); }
-
-.tool-picker {
-  position: relative;
-}
-.tool-group-trigger {
-  background: #fff;
-  border-color: var(--line-strong);
-}
-.tool-picker-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 190px;
-  padding: 6px;
-  border: 1.5px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
-  display: none;
-  z-index: 120;
-}
-.tool-picker.open > .tool-picker-menu { display: grid; gap: 4px; }
-.tool-picker-menu-grid { min-width: 220px; grid-template-columns: 1fr 1fr; }
-.tool-menu-option {
-  min-height: 38px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  border-radius: 8px;
-  font-weight: 800;
-  font-size: .8rem;
-  cursor: pointer;
-  background: #fff;
-  border: 1px solid transparent;
-  justify-content: flex-start;
-}
-.tool-picker-menu-grid .tool-menu-option {
-  min-height: 40px;
-}
 
 .inline-palette {
   display: flex;
@@ -415,7 +504,6 @@ button, input, textarea { font: inherit; }
   background: #fff;
 }
 .color-target-label { font-size: .76rem; }
-.toolbar-color-actions { gap: 4px; }
 .color-chip {
   width: 18px;
   height: 18px;
@@ -450,19 +538,6 @@ button, input, textarea { font: inherit; }
   cursor: pointer;
 }
 
-.control-stack {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: .74rem;
-  font-weight: 800;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.control-stack input[type="range"] {
-  width: 84px;
-  accent-color: var(--accent);
-}
 .value-badge {
   min-width: 52px;
   height: 28px;
@@ -476,17 +551,13 @@ button, input, textarea { font: inherit; }
   font-size: .76rem;
   font-weight: 800;
 }
-.zoom-value {
-  min-width: 64px;
-  justify-content: center;
-  border: 1.5px solid #d8b4fe;
-  background: var(--accent-soft);
-  color: var(--accent-dark);
-}
-
 .workspace {
   position: relative;
-  flex: 1;
+  /* Явна колонка обов'язкова: коли панель згорнута (display:none), автоматичне
+     розміщення поставило б workspace у порожню другу колонку нульової ширини. */
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
 }
@@ -504,21 +575,23 @@ button, input, textarea { font: inherit; }
   overflow: auto;
   padding: 0;
 }
+/* Масштаб задається шириною самого SVG, а не transform: scale(). transform не
+   змінює layout-розмір, тому при «вмістити у вікно» полотно зменшувалося, але
+   scrollWidth лишався 1200×700 — смуги прокрутки не зникали, і можна було
+   прокрутити в порожнечу. */
 .artboard-wrap {
   display: block;
   width: max-content;
-  min-width: 100%;
-  transform-origin: top left;
-  transform: scale(var(--zoom, 1));
+  margin: 16px auto;
 }
 .drawing-svg {
-  width: max(100%, var(--canvas-width, 1200px));
+  width: calc(var(--canvas-width, 1200px) * var(--zoom, 1));
   height: auto;
   display: block;
   background: #fff;
   border: 0;
   border-radius: 0;
-  box-shadow: none;
+  box-shadow: var(--shadow);
 }
 .guide-line {
   stroke: rgba(148, 163, 184, .24);
@@ -644,59 +717,6 @@ button:focus-visible,
   outline-offset: 2px;
 }
 
-@media (max-width: 1180px) {
-  .toolbar-row-top {
-    flex-wrap: wrap;
-  }
-  .toolbar-divider-spacer {
-    display: none;
-  }
-  .toolbar-zoom-actions {
-    margin-left: 0;
-  }
-}
-.toolbar-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.toolbar-row-top {
-  flex-wrap: nowrap;
-}
-.toolbar-row-bottom {
-  flex-wrap: wrap;
-}
-.toolbar-section {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: nowrap;
-  flex-shrink: 0;
-  min-width: 0;
-}
-.toolbar-label {
-  font-size: .76rem;
-  font-weight: 800;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: .02em;
-}
-.toolbar-zoom-actions {
-  margin-left: auto;
-}
-.toolbar-divider {
-  width: 1px;
-  height: 28px;
-  align-self: center;
-  background: var(--line);
-  flex-shrink: 0;
-}
-.toolbar-divider-spacer {
-  margin-left: auto;
-  background: transparent;
-}
-}
 
 @media (max-width: 980px) {
   .selection-state { min-width: 150px; max-width: 180px; }
@@ -711,29 +731,7 @@ button:focus-visible,
 @media (max-width: 760px) {
   .app-header { padding: 0 10px; }
   #fileName { max-width: 150px; }
-  .tool-switch span,
-  .tool-menu-option span,
-  .color-target-label,
-  .toolbar-label { display: none; }
-  .tool-switch,
-  .color-target,
-  .zoom-value { padding: 0 8px; }
-  .selection-state { display: none; }
-  .toolbar {
-    padding: 6px 8px;
-    gap: 5px;
-  }
-  .toolbar-row,
-  .toolbar-row-top,
-  .toolbar-row-bottom,
-  .toolbar-section {
-    flex-wrap: wrap;
-  }
-  .tool-picker-menu-grid {
-    grid-template-columns: 1fr;
-    min-width: 180px;
-  }
-  .toolbar-zoom-actions {
-    margin-left: 0;
-  }
+  .color-target-label { display: none; }
+  .color-target { padding: 0 8px; }
+  .chip-grid-2, .panel-actions-grid, .color-targets { grid-template-columns: 1fr; }
 }

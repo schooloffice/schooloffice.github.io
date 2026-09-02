@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v34';
+const CACHE_VERSION = 'office-plus-v36';
 const PRECACHE_NAME = `${CACHE_VERSION}-precache`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const MAX_RUNTIME_ENTRIES = 80;
@@ -141,15 +141,14 @@ const CORE_ASSETS = [
   './style.css',
   './web-app-manifest-192x192.png',
   './web-app-manifest-512x512.png',
-  './vector/filetest.png',
-  './vector/home.png',
-  './vector/home2.png',
   './vector/index.html',
   './vector/js/app.js',
   './vector/js/constants.js',
   './vector/js/editor.js',
+  './vector/js/project-io.js',
   './vector/js/runtime.js',
   './vector/js/state.js',
+  './vector/js/storage.js',
   './vector/js/ui.js',
   './vector/js/utils.js',
   './vector/style.css',

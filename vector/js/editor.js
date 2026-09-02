@@ -5,6 +5,26 @@ window.ArtVector = window.ArtVector || {};
 (() => {
   const { state, utils, constants } = window.ArtVector;
 
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  // Сцена будується вузлами DOM, а не рядковими шаблонами: значення з project-файлу
+  // потрапляють у setAttribute/textContent, тож жоден рядок не може «вийти» з
+  // атрибута й стати розміткою. Той самий шлях використовує й SVG-експорт.
+  function svgEl(tag, attrs = {}) {
+    const node = document.createElementNS(SVG_NS, tag);
+    Object.entries(attrs).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === false) return;
+      node.setAttribute(key, String(value));
+    });
+    return node;
+  }
+
+  function fragmentOf(nodes) {
+    const fragment = document.createDocumentFragment();
+    nodes.forEach((node) => { if (node) fragment.appendChild(node); });
+    return fragment;
+  }
+
   const editor = {
     elements: {},
 
@@ -119,45 +139,60 @@ window.ArtVector = window.ArtVector || {};
 
     renderGuides() {
       const { canvasWidth, canvasHeight, guideMode } = state;
-      let markup = '';
+      const layer = this.elements.guideLayer;
       if (guideMode === 'grid') {
         const lines = [];
         for (let x = constants.GRID_SIZE; x < canvasWidth; x += constants.GRID_SIZE) {
-          lines.push(`<line x1="${x}" y1="0" x2="${x}" y2="${canvasHeight}" class="guide-line"></line>`);
+          lines.push(svgEl('line', { x1: x, y1: 0, x2: x, y2: canvasHeight, class: 'guide-line' }));
         }
         for (let y = constants.GRID_SIZE; y < canvasHeight; y += constants.GRID_SIZE) {
-          lines.push(`<line x1="0" y1="${y}" x2="${canvasWidth}" y2="${y}" class="guide-line"></line>`);
+          lines.push(svgEl('line', { x1: 0, y1: y, x2: canvasWidth, y2: y, class: 'guide-line' }));
         }
-        markup = `<g class="guide-grid">${lines.join('')}</g>`;
-      } else if (guideMode === 'lines') {
+        const group = svgEl('g', { class: 'guide-grid' });
+        group.appendChild(fragmentOf(lines));
+        layer.replaceChildren(group);
+        return;
+      }
+      if (guideMode === 'lines') {
         const lines = [];
         for (let y = 32; y < canvasHeight; y += 28) {
-          lines.push(`<line x1="0" y1="${y}" x2="${canvasWidth}" y2="${y}" class="guide-line notebook-line"></line>`);
+          lines.push(svgEl('line', { x1: 0, y1: y, x2: canvasWidth, y2: y, class: 'guide-line notebook-line' }));
         }
-        markup = `<g class="guide-lines">${lines.join('')}</g>`;
+        const group = svgEl('g', { class: 'guide-lines' });
+        group.appendChild(fragmentOf(lines));
+        layer.replaceChildren(group);
+        return;
       }
-      this.elements.guideLayer.innerHTML = markup;
+      layer.replaceChildren();
     },
 
     renderContent() {
       const all = [...state.objects];
       if (state.draftObject) all.push(state.draftObject);
-      this.elements.contentLayer.innerHTML = all.map((obj) => this.objectMarkup(obj)).join('');
+      this.elements.contentLayer.replaceChildren(fragmentOf(all.map((obj) => this.objectNode(obj))));
+    },
+
+    // Пошук вузла обходом дітей замість CSS-селектора: id з файла не мусить
+    // бути валідним селектором, щоб виділення працювало.
+    findObjectNode(id) {
+      if (!id) return null;
+      return Array.from(this.elements.contentLayer.children).find((node) => node.dataset.id === id) || null;
     },
 
     renderSelection() {
+      const layer = this.elements.selectionLayer;
       const selected = this.getObjectById(state.selectedObjectId);
       if (!selected) {
-        this.elements.selectionLayer.innerHTML = '';
+        layer.replaceChildren();
         return;
       }
       if (constants.LINE_TYPES.includes(selected.type)) {
-        this.elements.selectionLayer.innerHTML = this.lineSelectionMarkup(selected);
+        layer.replaceChildren(this.lineSelectionNode(selected));
         return;
       }
-      const node = this.elements.contentLayer.querySelector(`[data-id="${selected.id}"]`);
+      const node = this.findObjectNode(selected.id);
       if (!node || typeof node.getBBox !== 'function') {
-        this.elements.selectionLayer.innerHTML = '';
+        layer.replaceChildren();
         return;
       }
       const box = node.getBBox();
@@ -166,88 +201,153 @@ window.ArtVector = window.ArtVector || {};
       const y = Math.max(0, box.y - pad);
       const w = box.width + pad * 2;
       const h = box.height + pad * 2;
-      const rect = `<rect class="selection-box" x="${x}" y="${y}" width="${w}" height="${h}" rx="4"></rect>`;
-      if (selected.type === 'text') {
-        this.elements.selectionLayer.innerHTML = `<g>${rect}</g>`;
-        return;
+      const group = svgEl('g');
+      group.appendChild(svgEl('rect', { class: 'selection-box', x, y, width: w, height: h, rx: 4 }));
+      if (selected.type !== 'text') {
+        const handles = [
+          ['nw', x, y], ['n', x + w / 2, y], ['ne', x + w, y],
+          ['e', x + w, y + h / 2], ['se', x + w, y + h], ['s', x + w / 2, y + h],
+          ['sw', x, y + h], ['w', x, y + h / 2]
+        ].map(([handle, cx, cy]) => svgEl('rect', {
+          class: 'selection-handle',
+          'data-handle': handle,
+          x: cx - 5,
+          y: cy - 5,
+          width: 10,
+          height: 10,
+          rx: 2
+        }));
+        group.appendChild(fragmentOf(handles));
       }
-      const handles = [
-        ['nw', x, y], ['n', x + w / 2, y], ['ne', x + w, y],
-        ['e', x + w, y + h / 2], ['se', x + w, y + h], ['s', x + w / 2, y + h],
-        ['sw', x, y + h], ['w', x, y + h / 2]
-      ].map(([handle, cx, cy]) => `<rect class="selection-handle" data-handle="${handle}" x="${cx - 5}" y="${cy - 5}" width="10" height="10" rx="2"></rect>`).join('');
-      this.elements.selectionLayer.innerHTML = `<g>${rect}${handles}</g>`;
+      layer.replaceChildren(group);
     },
 
-    lineSelectionMarkup(obj) {
-      return `
-        <g>
-          <line class="selection-line" x1="${obj.x1}" y1="${obj.y1}" x2="${obj.x2}" y2="${obj.y2}"></line>
-          <circle class="selection-endpoint" data-handle="line-start" cx="${obj.x1}" cy="${obj.y1}" r="6"></circle>
-          <circle class="selection-endpoint" data-handle="line-end" cx="${obj.x2}" cy="${obj.y2}" r="6"></circle>
-        </g>`;
+    lineSelectionNode(obj) {
+      const group = svgEl('g');
+      group.appendChild(svgEl('line', { class: 'selection-line', x1: obj.x1, y1: obj.y1, x2: obj.x2, y2: obj.y2 }));
+      group.appendChild(svgEl('circle', { class: 'selection-endpoint', 'data-handle': 'line-start', cx: obj.x1, cy: obj.y1, r: 6 }));
+      group.appendChild(svgEl('circle', { class: 'selection-endpoint', 'data-handle': 'line-end', cx: obj.x2, cy: obj.y2, r: 6 }));
+      return group;
     },
 
-    objectMarkup(obj) {
-      const selected = obj.id === state.selectedObjectId ? 'selected' : '';
-      const common = `data-id="${obj.id}" class="vector-object ${selected}"`;
+    // forExport: у файл ідуть лише геометрія й стиль, без редакторських
+    // data-id/класів виділення.
+    objectNode(obj, { forExport = false } = {}) {
+      if (!obj || typeof obj !== 'object') return null;
+      const shape = this.shapeNode(obj);
+      if (!shape) return null;
+      const group = forExport
+        ? svgEl('g')
+        : svgEl('g', {
+          'data-id': obj.id,
+          class: obj.id === state.selectedObjectId ? 'vector-object selected' : 'vector-object'
+        });
+      group.appendChild(shape);
+      return group;
+    },
+
+    shapeNode(obj) {
       switch (obj.type) {
         case 'rect':
-          return `<g ${common}>${this.rectMarkup(obj)}</g>`;
+          return this.rectNode(obj);
         case 'ellipse':
-          return `<g ${common}>${this.ellipseMarkup(obj)}</g>`;
+          return this.ellipseNode(obj);
         case 'triangle':
-          return `<g ${common}>${this.polygonMarkup(obj, this.trianglePoints(obj))}</g>`;
+          return this.polygonNode(obj, this.trianglePoints(obj));
         case 'diamond':
-          return `<g ${common}>${this.polygonMarkup(obj, this.diamondPoints(obj))}</g>`;
+          return this.polygonNode(obj, this.diamondPoints(obj));
         case 'star':
-          return `<g ${common}>${this.polygonMarkup(obj, this.starPoints(obj))}</g>`;
+          return this.polygonNode(obj, this.starPoints(obj));
         case 'line':
-          return `<g ${common}>${this.lineMarkup(obj, false)}</g>`;
+          return this.lineNode(obj, false);
         case 'arrow':
-          return `<g ${common}>${this.lineMarkup(obj, true)}</g>`;
+          return this.lineNode(obj, true);
         case 'pen':
-          return `<g ${common}>${this.penMarkup(obj)}</g>`;
+          return this.penNode(obj);
         case 'text':
-          return `<g ${common}>${this.textMarkup(obj)}</g>`;
+          return this.textNode(obj);
         default:
-          return '';
+          return null;
       }
     },
 
     commonShapeAttrs(obj) {
-      const fill = obj.fill && obj.fill !== 'none' ? obj.fill : 'none';
-      return `stroke="${obj.stroke || '#1f2937'}" stroke-width="${obj.strokeWidth || 3}" fill="${fill}" opacity="${(obj.opacity || 100) / 100}" stroke-linecap="round" stroke-linejoin="round"`;
+      return {
+        stroke: obj.stroke || '#1f2937',
+        'stroke-width': obj.strokeWidth || 3,
+        fill: obj.fill && obj.fill !== 'none' ? obj.fill : 'none',
+        opacity: (obj.opacity ?? 100) / 100,
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round'
+      };
     },
 
-    rectMarkup(obj) {
-      return `<rect x="${obj.x}" y="${obj.y}" width="${obj.w}" height="${obj.h}" rx="4" ${this.commonShapeAttrs(obj)}></rect>`;
+    rectNode(obj) {
+      return svgEl('rect', { x: obj.x, y: obj.y, width: obj.w, height: obj.h, rx: 4, ...this.commonShapeAttrs(obj) });
     },
 
-    ellipseMarkup(obj) {
-      return `<ellipse cx="${obj.x + obj.w / 2}" cy="${obj.y + obj.h / 2}" rx="${obj.w / 2}" ry="${obj.h / 2}" ${this.commonShapeAttrs(obj)}></ellipse>`;
+    ellipseNode(obj) {
+      return svgEl('ellipse', {
+        cx: obj.x + obj.w / 2,
+        cy: obj.y + obj.h / 2,
+        rx: obj.w / 2,
+        ry: obj.h / 2,
+        ...this.commonShapeAttrs(obj)
+      });
     },
 
-    polygonMarkup(obj, points) {
-      return `<polygon points="${points}" ${this.commonShapeAttrs(obj)}></polygon>`;
+    polygonNode(obj, points) {
+      return svgEl('polygon', { points, ...this.commonShapeAttrs(obj) });
     },
 
-    lineMarkup(obj, withArrow) {
-      const marker = withArrow ? 'marker-end="url(#arrowHead)"' : '';
-      return `<line x1="${obj.x1}" y1="${obj.y1}" x2="${obj.x2}" y2="${obj.y2}" stroke="${obj.stroke || '#1f2937'}" stroke-width="${obj.strokeWidth || 3}" opacity="${(obj.opacity || 100) / 100}" stroke-linecap="round" ${marker} style="color:${obj.stroke || '#1f2937'}"></line>`;
+    lineNode(obj, withArrow) {
+      const stroke = obj.stroke || '#1f2937';
+      const node = svgEl('line', {
+        x1: obj.x1,
+        y1: obj.y1,
+        x2: obj.x2,
+        y2: obj.y2,
+        stroke,
+        'stroke-width': obj.strokeWidth || 3,
+        opacity: (obj.opacity ?? 100) / 100,
+        'stroke-linecap': 'round',
+        'marker-end': withArrow ? 'url(#arrowHead)' : undefined
+      });
+      // Маркер стрілки успадковує колір через currentColor.
+      node.style.setProperty('color', stroke);
+      return node;
     },
 
-    penMarkup(obj) {
-      const points = (obj.points || []).map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
-      return `<path d="${points}" stroke="${obj.stroke || '#1f2937'}" stroke-width="${obj.strokeWidth || 3}" fill="none" opacity="${(obj.opacity || 100) / 100}" stroke-linecap="round" stroke-linejoin="round"></path>`;
+    penNode(obj) {
+      const d = (obj.points || []).map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+      return svgEl('path', {
+        d,
+        stroke: obj.stroke || '#1f2937',
+        'stroke-width': obj.strokeWidth || 3,
+        fill: 'none',
+        opacity: (obj.opacity ?? 100) / 100,
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round'
+      });
     },
 
-    textMarkup(obj) {
-      const lines = utils.serializeLines(obj.text);
-      return `
-        <text x="${obj.x}" y="${obj.y}" fill="${obj.fill && obj.fill !== 'none' ? obj.fill : (obj.stroke || '#1f2937')}" font-size="${obj.fontSize || 32}" font-family="'Nunito Sans', 'Nunito', sans-serif" font-weight="800" opacity="${(obj.opacity || 100) / 100}">
-          ${lines.map((line, index) => `<tspan x="${obj.x}" dy="${index === 0 ? 0 : (obj.fontSize || 32) * 1.25}">${utils.escapeHtml(line || ' ')}</tspan>`).join('')}
-        </text>`;
+    textNode(obj) {
+      const fontSize = obj.fontSize || 32;
+      const node = svgEl('text', {
+        x: obj.x,
+        y: obj.y,
+        fill: obj.fill && obj.fill !== 'none' ? obj.fill : (obj.stroke || '#1f2937'),
+        'font-size': fontSize,
+        'font-family': "'Nunito Sans', 'Nunito', sans-serif",
+        'font-weight': 800,
+        opacity: (obj.opacity ?? 100) / 100
+      });
+      utils.serializeLines(obj.text).forEach((line, index) => {
+        const tspan = svgEl('tspan', { x: obj.x, dy: index === 0 ? 0 : fontSize * 1.25 });
+        tspan.textContent = line || ' ';
+        node.appendChild(tspan);
+      });
+      return node;
     },
 
     trianglePoints(obj) {
@@ -275,7 +375,10 @@ window.ArtVector = window.ArtVector || {};
     },
 
     buildProjectPayload() {
+      const { projectIo } = window.ArtVector;
       return {
+        format: projectIo.PROJECT_FORMAT,
+        version: projectIo.PROJECT_VERSION,
         fileName: state.fileName,
         canvasWidth: state.canvasWidth,
         canvasHeight: state.canvasHeight,
@@ -321,11 +424,35 @@ window.ArtVector = window.ArtVector || {};
       }
     },
 
-    exportSvgMarkup() {
+    // Дерево будується тими самими вузлами, що й сцена, і серіалізується
+    // XMLSerializer — екранування атрибутів і тексту робить браузер.
+    exportSvgNode() {
       const width = state.canvasWidth;
       const height = state.canvasHeight;
-      const objectsMarkup = state.objects.map((obj) => this.objectMarkup(obj)).join('');
-      return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n  <defs>\n    <marker id="arrowHead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">\n      <path d="M0,0 L12,6 L0,12 z" fill="currentColor"/>\n    </marker>\n  </defs>\n  <rect width="100%" height="100%" fill="#ffffff"/>\n  ${objectsMarkup}\n</svg>`;
+      const svg = svgEl('svg', { width, height, viewBox: `0 0 ${width} ${height}` });
+
+      const marker = svgEl('marker', {
+        id: 'arrowHead',
+        markerWidth: 12,
+        markerHeight: 12,
+        refX: 10,
+        refY: 6,
+        orient: 'auto',
+        markerUnits: 'strokeWidth'
+      });
+      marker.appendChild(svgEl('path', { d: 'M0,0 L12,6 L0,12 z', fill: 'currentColor' }));
+      const defs = svgEl('defs');
+      defs.appendChild(marker);
+
+      svg.appendChild(defs);
+      svg.appendChild(svgEl('rect', { width: '100%', height: '100%', fill: '#ffffff' }));
+      svg.appendChild(fragmentOf(state.objects.map((obj) => this.objectNode(obj, { forExport: true }))));
+      return svg;
+    },
+
+    exportSvgMarkup() {
+      const markup = new XMLSerializer().serializeToString(this.exportSvgNode());
+      return `<?xml version="1.0" encoding="UTF-8"?>\n${markup}`;
     },
 
     async exportPngBlob() {

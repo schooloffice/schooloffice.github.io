@@ -17,6 +17,13 @@
 | Вирізати | Ctrl+X |
 | Закрити верхній overlay | Esc |
 
+## Графічні редактори (`paint`, `vector`)
+
+| Дія | Комбінація |
+|---|---|
+| Згорнути / показати панель параметрів | Ctrl+\ |
+| Масштаб 100% | Ctrl+0 |
+
 ## Контракт
 
 - `new/open/save/undo/redo` мають маршрутизуватись через `OfficeShell.runCommand` або `OfficeUI.runCommand`.

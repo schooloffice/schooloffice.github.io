@@ -506,6 +506,32 @@
         && ip[1] > 150 && ip[0] < 120;
       canvasApi.setDocumentSize(800, 600, { clear: true });
 
+      // --- Розкладка: інструменти в лівій rail ---
+      const rail = doc.querySelector('.tool-rail');
+      const railOnLeft = !!rail
+        && Math.round(rail.getBoundingClientRect().x) === 0
+        && rail.classList.contains('office-toolbar')
+        && doc.querySelectorAll('.rail-tool').length === 8;
+
+      // --- Регресія: boot має відбутися РІВНО один раз ---
+      // `bootEditor(...) ?? fallback` міг ініціалізувати редактор двічі, тоді
+      // кожен слухач вішався двічі й один клік давав дві дії.
+      let toggleCalls = 0;
+      const originalTogglePanel = win.ArtMalyunky.ui.togglePanel.bind(win.ArtMalyunky.ui);
+      win.ArtMalyunky.ui.togglePanel = () => { toggleCalls += 1; return originalTogglePanel(); };
+      const workspaceWidth = () => Math.round(doc.querySelector('.workspace').getBoundingClientRect().width);
+      const widthOpen = workspaceWidth();
+      doc.querySelector('#panelToggleBtn').click();
+      const panelToggleFiresOnce = toggleCalls === 1;
+      const widthCollapsed = workspaceWidth();
+      const collapsedState = doc.body.classList.contains('panel-collapsed')
+        && doc.querySelector('#panelToggleBtn').getAttribute('aria-expanded') === 'false';
+      doc.querySelector('#panelToggleBtn').click();
+      win.ArtMalyunky.ui.togglePanel = originalTogglePanel;
+      const panelCollapseWorks = widthCollapsed > widthOpen && collapsedState
+        && !doc.body.classList.contains('panel-collapsed')
+        && workspaceWidth() === widthOpen;
+
       const checks = baseChecks.concat([
         check('setDocumentSize sets dimensions', sizeSet),
         check('window resize keeps document size', docStableAfterResize),
@@ -547,6 +573,9 @@
         check('project file save/open round-trips', projectRoundTrips),
         check('project file restores editable state', projectRestoresEditableState),
         check('project import validates and rejects bad files', projectValidates),
+        check('tools live in a left rail', railOnLeft),
+        check('editor boots once (one click = one action)', panelToggleFiresOnce),
+        check('properties panel collapses and restores', panelCollapseWorks),
         check('large image import plan scales within limits', planScalesDown && planKeepsSmall),
         check('image decode + place sets document', importPlaces)
       ]);

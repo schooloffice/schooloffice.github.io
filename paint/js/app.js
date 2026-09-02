@@ -368,6 +368,20 @@ window.PaintApp = window.PaintApp || {};
     };
   }
 
+  // Робоча область змінила розмір (вікно або згортання панелі): документ у пікселях
+  // лишається тим самим, перераховується лише fit-zoom і накладені overlay.
+  function reflowWorkspace() {
+    canvasApi.refit();
+    ui.updateCanvasInfo(state.document.width, state.document.height);
+    ui.updateZoomUI();
+    paintText.syncTextBoxStyle();
+  }
+
+  function togglePropertiesPanel() {
+    ui.togglePanel();
+    reflowWorkspace();
+  }
+
   function handleMenuAction(action) {
     switch (action) {
       case 'new-drawing':
@@ -419,6 +433,9 @@ window.PaintApp = window.PaintApp || {};
       case 'fit-canvas':
         fitToWindow();
         break;
+      case 'toggle-panel':
+        togglePropertiesPanel();
+        break;
       case 'zoom-in':
         zoomIn();
         break;
@@ -453,7 +470,7 @@ window.PaintApp = window.PaintApp || {};
         flipCanvas('vertical');
         break;
       case 'show-shortcuts':
-        ui.showInfoModal('Клавіатурні скорочення', 'B — пензлик\nE — гумка\nF — заливка\nI — піпетка\nG — фігури\nT — штампи\nDelete / Backspace — видалити вибране\n[ / ] — менша або більша товщина\nCtrl + колесо — масштаб\nПробіл + перетягування — панорамування\nCtrl+0 / Ctrl+± — масштаб\nCtrl+Z — скасувати\nCtrl+Y — повернути\nCtrl+S — зберегти проєкт\nCtrl+N — новий малюнок\nEsc — закрити меню або зняти виділення', '⌨️');
+        ui.showInfoModal('Клавіатурні скорочення', 'B — пензлик\nE — гумка\nF — заливка\nI — піпетка\nG — фігури\nT — штампи\nDelete / Backspace — видалити вибране\n[ / ] — менша або більша товщина\nCtrl + колесо — масштаб\nПробіл + перетягування — панорамування\nCtrl+0 / Ctrl+± — масштаб\nCtrl+Z — скасувати\nCtrl+Y — повернути\nCtrl+S — зберегти проєкт\nCtrl+N — новий малюнок\nCtrl+\\ — згорнути панель параметрів\nEsc — закрити меню або зняти виділення', '⌨️');
         break;
       case 'show-about':
         ui.showInfoModal('Про ПЛЮС Малюнки', 'ПЛЮС Малюнки — графічний редактор у стилі вашого офісного набору. Основна палітра завжди видима, пензлик має кілька режимів, а фігури й штампи можна пересувати та змінювати за розміром.', '🎨');
@@ -594,7 +611,7 @@ window.PaintApp = window.PaintApp || {};
       if (!spacePanning && event.button !== 1) return;
       event.preventDefault();
       panOrigin = { x: event.clientX, y: event.clientY, left: stageWrap.scrollLeft, top: stageWrap.scrollTop };
-      stageWrap.setPointerCapture?.(event.pointerId);
+      try { stageWrap.setPointerCapture?.(event.pointerId); } catch { /* pointer вже неактивний */ }
     });
     stageWrap.addEventListener('pointermove', (event) => {
       if (!panOrigin) return;
@@ -662,7 +679,7 @@ window.PaintApp = window.PaintApp || {};
         return;
       }
 
-      const toolbarAction = event.target.closest('.rail-btn[data-action], .panel-action[data-action], .zoom-btn[data-action]');
+      const toolbarAction = event.target.closest('.rail-btn[data-action], .header-btn[data-action], .panel-action[data-action], .zoom-btn[data-action]');
       if (toolbarAction) {
         handleMenuAction(toolbarAction.dataset.action);
         return;
@@ -741,6 +758,10 @@ window.PaintApp = window.PaintApp || {};
           case 'n':
             event.preventDefault();
             runOfficeCommand('new') || newDrawing();
+            return;
+          case '\\':
+            event.preventDefault();
+            togglePropertiesPanel();
             return;
           case 'p':
             event.preventDefault();
@@ -848,10 +869,7 @@ window.PaintApp = window.PaintApp || {};
 
     window.addEventListener('resize', utils.debounce(() => {
       // Resize вікна НЕ змінює пікселі документа — лише перераховує fit-zoom.
-      canvasApi.refit();
-      ui.updateCanvasInfo(state.document.width, state.document.height);
-      ui.updateZoomUI();
-      paintText.syncTextBoxStyle();
+      reflowWorkspace();
     }, 120));
 
     window.addEventListener('beforeunload', (event) => {
@@ -884,10 +902,19 @@ window.PaintApp = window.PaintApp || {};
     canvasApi.drawGuides();
   }
 
-  window.PaintApp.boot = () =>
-    window.OfficeShell?.bootEditor?.({
-      source: 'paint',
-      commands: createShellCommands,
-      boot: initPaintEditor
-    }) ?? (window.OfficeUI?.registerCommands?.(createShellCommands(), { source: 'paint' }), initPaintEditor());
+  // Boot має відбутися РІВНО один раз. Тут `bootEditor(...) ?? fallback` не давав
+  // подвійної ініціалізації лише випадково — бо async initPaintEditor повертає
+  // Promise. Не покладаємося на це: перевіряємо наявність shell явно.
+  window.PaintApp.boot = () => {
+    if (window.OfficeShell?.bootEditor) {
+      window.OfficeShell.bootEditor({
+        source: 'paint',
+        commands: createShellCommands,
+        boot: initPaintEditor
+      });
+      return;
+    }
+    window.OfficeUI?.registerCommands?.(createShellCommands(), { source: 'paint' });
+    initPaintEditor();
+  };
 })();

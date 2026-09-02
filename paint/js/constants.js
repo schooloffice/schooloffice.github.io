@@ -4,6 +4,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
 window.ArtMalyunky.constants = {
   STORAGE_KEY: 'art_malyunky_draft_v2',
+  PANEL_STATE_KEY: 'art_malyunky_panel_v1',
   MAX_UNDO: 80,
   HISTORY_MAX_BYTES: 128 * 1024 * 1024,
   PROJECT_FORMAT: 'office-plus-paint',

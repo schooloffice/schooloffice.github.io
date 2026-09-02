@@ -23,15 +23,6 @@ window.ArtVector.utils = {
     return Math.round(value / step) * step;
   },
 
-  escapeHtml(value = '') {
-    return String(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  },
-
   deepClone(value) {
     return JSON.parse(JSON.stringify(value));
   },

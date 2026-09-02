@@ -1,4 +1,4 @@
-param(
+﻿param(
   [int]$Port = 4173,
   [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 )
@@ -121,6 +121,7 @@ function Invoke-SmokePage {
       throw "$Name browser process failed with exit code $($result.Process.ExitCode).`n$($result.Stderr)"
     }
 
+
     if ($result.Stdout -notmatch $PassPattern) {
       # Витягуємо текст #result (назву перевірки/стек), щоб лог CI був читабельним,
       # а не дампом усього DOM.
@@ -162,6 +163,7 @@ try {
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/paint-behavior.html" 'data-paint-behavior="passed"' 'Paint behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-render-behavior.html" 'data-tables-render="passed"' 'Tables render smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-formula-behavior.html" 'data-tables-formula="passed"' 'Tables formula smoke'
+  Invoke-SmokePage "http://127.0.0.1:$Port/tests/vector-behavior.html" 'data-vector-behavior="passed"' 'Vector behavior smoke'
 } finally {
   if ($server -and -not $server.HasExited) {
     Stop-Process -Id $server.Id -Force
