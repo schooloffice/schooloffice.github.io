@@ -573,26 +573,28 @@
           <div class="page-setup-margins">
             <label class="page-setup-field">
               Верхнє
-              <input type="number" id="pageMarginTop" min="0.5" max="10" step="0.1" value="2" aria-label="Верхнє поле, см">
+              <input type="text" inputmode="decimal" id="pageMarginTop" value="2" aria-label="Верхнє поле, см" autocomplete="off">
             </label>
             <label class="page-setup-field">
               Нижнє
-              <input type="number" id="pageMarginBottom" min="0.5" max="10" step="0.1" value="2" aria-label="Нижнє поле, см">
+              <input type="text" inputmode="decimal" id="pageMarginBottom" value="2" aria-label="Нижнє поле, см" autocomplete="off">
             </label>
             <label class="page-setup-field">
               Ліворуч
-              <input type="number" id="pageMarginLeft" min="0.5" max="10" step="0.1" value="3" aria-label="Ліве поле, см">
+              <input type="text" inputmode="decimal" id="pageMarginLeft" value="3" aria-label="Ліве поле, см" autocomplete="off">
             </label>
             <label class="page-setup-field">
               Праворуч
-              <input type="number" id="pageMarginRight" min="0.5" max="10" step="0.1" value="1.5" aria-label="Праве поле, см">
+              <input type="text" inputmode="decimal" id="pageMarginRight" value="1.5" aria-label="Праве поле, см" autocomplete="off">
             </label>
           </div>
         </fieldset>
+        <button class="page-setup-reset" type="button" data-page-setup-reset>
+          Повернути стандартні поля
+        </button>
       </form>
 
       <div class="modal-actions modal-actions-spaced">
-        <button class="btn-secondary" type="button" data-page-setup-reset>Стандартні поля</button>
         <button class="btn-secondary" type="button" data-close-modal="modalPageSetup">Скасувати</button>
         <button class="btn-primary" type="submit" data-page-setup-apply form="pageSetupForm">Застосувати</button>
       </div>

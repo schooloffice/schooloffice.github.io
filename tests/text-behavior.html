@@ -519,6 +519,20 @@
         && doc.getElementById('pageSetupSize').options.length === 3
         && doc.getElementById('pageMarginLeft').value === '3.0';
 
+      // Жоден елемент діалогу не має виїжджати за межі вікна: раніше три кнопки
+      // не вміщалися в рядок і «Стандартні поля» опинялася поза модалкою.
+      const setupBox = doc.querySelector('#modalPageSetup .modal-box').getBoundingClientRect();
+      const setupControls = Array.from(
+        doc.querySelectorAll('#modalPageSetup button, #modalPageSetup input, #modalPageSetup select')
+      );
+      const setupOverflow = setupControls.filter(control => {
+        const rect = control.getBoundingClientRect();
+        return rect.left < setupBox.left - 1 || rect.right > setupBox.right + 1;
+      });
+      const setupDialogFitsBox = setupControls.length > 0
+        && setupOverflow.length === 0
+        && setupBox.bottom <= win.innerHeight + 1;
+
       doc.getElementById('pageMarginLeft').value = '2.5';
       doc.getElementById('pageMarginTop').value = '1.5';
       doc.getElementById('pageSetupSize').value = 'a5';
@@ -561,6 +575,14 @@
         && win.art.state.get('orientation') === 'landscape'
         && win.art.page.margins().left === 2.5
         && win.art.state.isDirty();
+
+      // Кома як десятковий розділювач — звичний для української розкладки ввід.
+      win.art.page.openSetup();
+      await wait(300);
+      doc.getElementById('pageMarginBottom').value = '2,5';
+      doc.querySelector('[data-page-setup-apply]').click();
+      await wait(700);
+      const commaMarginAccepted = win.art.page.margins().bottom === 2.5;
 
       // Поля впливають на місткість сторінки.
       win.art.state.set('pageSize', 'a4');
@@ -646,6 +668,8 @@
         check('ruler reports the current left margin', rulerReportsMargin),
         check('ruler handle responds to the keyboard', rulerKeyboardWorks),
         check('page setup dialog opens with current values', setupDialogOpens),
+        check('page setup dialog keeps every control inside the modal', setupDialogFitsBox),
+        check('margins accept a comma as the decimal separator', commaMarginAccepted),
         check('page setup applies paper size, orientation and margins', setupAppliesGeometry),
         check('page setup marks the document as changed', pageSetupMarksDocumentDirty),
         check('Undo restores page geometry and saved state', pageSetupUndoWorks),
@@ -679,6 +703,8 @@
         `focus on document host: ${focusOnDocument}`,
         `page geometry: ${JSON.stringify(defaultGeometry)}`,
         `applied geometry: ${JSON.stringify(appliedGeometry)}`,
+        `page setup controls outside the modal: ${setupOverflow.length}`,
+        `comma margin accepted: ${commaMarginAccepted}`,
         `pages with normal/wide margins: ${pagesWithNormalMargins}/${pagesWithWideMargins}`
       ];
 
