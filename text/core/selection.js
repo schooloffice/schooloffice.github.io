@@ -62,10 +62,12 @@ const ArtSelection = (() => {
   }
 
   function focusEditor(editor) {
-    restoreLast(editor);
     const active = getActivePageContent(editor) || getPageContents(editor)[0];
     if (!active) return false;
-    active.focus();
+    // #editor — єдиний editing host. Сторінки лише візуально групують вміст,
+    // тому фокусуємо документ, а потрібну сторінку визначає сам Range.
+    editor.focus({ preventScroll: true });
+    restoreLast(editor);
     const range = getRange(editor);
     if (range) return true;
     const block = active.querySelector(BLOCK_SELECTOR) || active;
@@ -414,13 +416,17 @@ const ArtSelection = (() => {
     return page?.querySelector(BLOCK_SELECTOR) || page || null;
   }
 
+  function _isSelMarker(node) {
+    return node.nodeType === 1 && node.classList.contains('art-sel-marker');
+  }
+
   function normalizeEditor(editor) {
     const pages = getPageContents(editor);
     if (!pages.length) return;
 
     pages.forEach(page => {
       // move non-block loose nodes into paragraph wrappers
-      const loose = [...page.childNodes].filter(node => !_isAllowedRootNode(node));
+      const loose = [...page.childNodes].filter(node => !_isAllowedRootNode(node) && !_isSelMarker(node));
       if (loose.length) {
         const p = document.createElement('p');
         loose.forEach(node => p.appendChild(node));
@@ -428,6 +434,9 @@ const ArtSelection = (() => {
       }
 
       page.querySelectorAll('span,strong,b,em,i,u,s,strike').forEach(el => {
+        // Порожні маркери каретки ставить пагінатор — їх чіпати не можна,
+        // інакше після переносу абзацу на наступну сторінку губиться курсор.
+        if (el.classList.contains('art-sel-marker')) return;
         if (el.textContent === ZWSP && !el.querySelector('*')) return;
         if (!el.textContent && !el.querySelector('br,img,table,hr')) el.remove();
       });

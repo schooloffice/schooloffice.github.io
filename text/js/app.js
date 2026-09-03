@@ -129,7 +129,7 @@ window.TextApp.boot = () => {
     if (!ctrl) return;
 
     const target = e.target;
-    const isEditorTarget = !!target?.closest?.('.page-content');
+    const isEditorTarget = target === editor || !!target?.closest?.('.page-content');
     const isFormField = !!target?.closest?.('input, textarea, select');
     if (isFormField && !isEditorTarget) return;
 

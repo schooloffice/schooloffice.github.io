@@ -90,6 +90,12 @@
       sel.addRange(range);
     }
 
+    function caretPageContent(win) {
+      const sel = win.getSelection();
+      const node = sel?.anchorNode?.nodeType === Node.ELEMENT_NODE ? sel.anchorNode : sel?.anchorNode?.parentElement;
+      return node?.closest?.(".page-content") || null;
+    }
+
     function selectionCell(win) {
       const sel = win.getSelection();
       const node = sel?.anchorNode?.nodeType === Node.ELEMENT_NODE ? sel.anchorNode : sel?.anchorNode?.parentElement;
@@ -119,7 +125,11 @@
       const baseChecks = [
         check('TextApp boot facade is exposed', typeof win.TextApp.boot === 'function'),
         check('editor facade is exposed', !!win.art?.editor?.insertTable),
-        check('initial document has one editable page', initialPages.length === 1 && initialPages[0].isContentEditable),
+        check('document has one contenteditable host',
+          editor.getAttribute('contenteditable') === 'true'
+          && initialPages.length === 1
+          && initialPages[0].isContentEditable
+          && initialPages.every(page => !page.hasAttribute('contenteditable'))),
         check('standard shell commands are present', ['new', 'open', 'save', 'undo', 'redo'].every(cmd => doc.querySelector(`[data-office-command="${cmd}"]`))),
         check('status counters are present', !!doc.getElementById('statusWords') && !!doc.getElementById('statusChars'))
       ];
@@ -132,8 +142,18 @@
       firstPage.innerHTML = paragraphs;
       setCaretAtEnd(win, firstPage.lastElementChild);
       editor.dispatchEvent(new win.Event('input', { bubbles: true }));
-      await waitFor(() => pageContents(doc).length > 1, 'long document pagination', 9000);
-      await wait(1200);
+      // Розбиття на сторінки йде кількома проходами, а під --virtual-time-budget
+      // віртуальний годинник стрибає — тож чекаємо не лише на другу сторінку,
+      // а на стабілізацію їх кількості.
+      await waitFor(() => pageContents(doc).length > 1, 'long document pagination', 20000);
+      let settled = pageContents(doc).length;
+      await waitFor(() => {
+        const now = pageContents(doc).length;
+        const stable = now === settled;
+        settled = now;
+        return stable;
+      }, 'pagination to settle', 20000);
+      await wait(600);
 
       const longPages = pageContents(doc);
       const longOverflows = longPages.map(isOverflowing);
@@ -142,11 +162,68 @@
         : win.getSelection()?.anchorNode?.parentElement;
       const selectionPageIndex = longPages.indexOf(activeNode?.closest?.('.page-content'));
       const knownPaginationOverflowDetected = longPages.length > 1 && longOverflows.some(Boolean);
-      const selectionDidNotReachLastPage = selectionPageIndex !== -1 && selectionPageIndex !== longPages.length - 1;
+      const selectionReachedLastPage = selectionPageIndex === longPages.length - 1;
+
+      // Один editing host дозволяє Range і браузерному mouse-selection
+      // перетинати візуальну межу двох сторінок. Тут додатково перевіряємо,
+      // що пагінація зберігає такий наскрізний Range.
+      const startBlock = Array.from(longPages[0].children).reverse().find(node => (node.textContent || '').trim());
+      const endBlock = Array.from(longPages[1].children).find(node => (node.textContent || '').trim());
+      const startText = startBlock?.firstChild;
+      const endText = endBlock?.firstChild;
+      if (startText?.nodeType === Node.TEXT_NODE && endText?.nodeType === Node.TEXT_NODE) {
+        const crossRange = doc.createRange();
+        crossRange.setStart(startText, Math.max(0, startText.textContent.length - 12));
+        crossRange.setEnd(endText, Math.min(12, endText.textContent.length));
+        const crossSelection = win.getSelection();
+        crossSelection.removeAllRanges();
+        crossSelection.addRange(crossRange);
+        editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+        await wait(250);
+      }
+      const crossPages = pageContents(doc);
+      const crossSelection = win.getSelection();
+      const crossAnchorNode = crossSelection?.anchorNode?.nodeType === Node.ELEMENT_NODE
+        ? crossSelection.anchorNode : crossSelection?.anchorNode?.parentElement;
+      const crossFocusNode = crossSelection?.focusNode?.nodeType === Node.ELEMENT_NODE
+        ? crossSelection.focusNode : crossSelection?.focusNode?.parentElement;
+      const crossPageSelectionWorks = crossPages.indexOf(crossAnchorNode?.closest?.('.page-content')) === 0
+        && crossPages.indexOf(crossFocusNode?.closest?.('.page-content')) === 1
+        && (crossSelection?.toString() || '').length > 12;
+
+      win.art.toolbar.applyCommand('bold');
+      await wait(250);
+      const formattedPages = pageContents(doc);
+      const crossPageFormattingWorks = !!formattedPages[0]?.querySelector('strong')
+        && !!formattedPages[1]?.querySelector('strong');
+      const selectionMarkersCleaned = !editor.querySelector('.art-sel-marker');
+
+      // Шапка, меню й панель мають лишатися на місці: скролиться лише область
+      // аркушів, а не сама сторінка застосунку.
+      const scroller = doc.querySelector(".editor-scroll");
+      const chromeStaysFixed = doc.body.scrollHeight <= doc.body.clientHeight + 1 &&
+        scroller.scrollHeight > scroller.clientHeight + 1 &&
+        Math.round(doc.querySelector(".app-header").getBoundingClientRect().top) === 0;
+
+      // Enter унизу заповненого аркуша має відкривати наступну сторінку,
+      // переносити туди карету й дозволяти набирати далі.
+      const pagesBeforeEnter = pageContents(doc).length;
+      setCaretAtEnd(win, pageContents(doc).slice(-1)[0].lastElementChild);
+      for (let i = 0; i < 45; i += 1) {
+        editor.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+        await wait(40);
+        if (pageContents(doc).length > pagesBeforeEnter) break;
+      }
+      await wait(500);
+
+      const pagesAfterEnter = pageContents(doc);
+      const caretPageIndex = pagesAfterEnter.indexOf(caretPageContent(win));
+      // Фокус лишається на єдиному editing host, а Range визначає сторінку.
+      const focusOnDocument = doc.activeElement === editor;
 
       await resetDocument(win, doc);
       firstPage = pageContents(doc)[0];
-      firstPage.focus();
+      editor.focus();
       setCaretAtStart(win, firstPage.querySelector('p') || firstPage);
       win.art.editor.insertTable(50, 4);
       await wait(800);
@@ -173,6 +250,15 @@
       const checks = [
         ...baseChecks,
         check('long document creates multiple page nodes', longPages.length > 1),
+        check('caret follows moved text to the last page', selectionReachedLastPage),
+        check('selection spans adjacent pages and survives pagination', crossPageSelectionWorks),
+        check('formatting applies across the page boundary', crossPageFormattingWorks),
+        check('pagination leaves no selection markers in the document', selectionMarkersCleaned),
+        check('long document leaves no overflowing page', !longOverflows.some(Boolean)),
+        check('app chrome stays fixed while the document scrolls', chromeStaysFixed),
+        check('Enter at the bottom of a page starts a new page', pagesAfterEnter.length > pagesBeforeEnter),
+        check('caret moves to the new page after Enter', caretPageIndex === pagesAfterEnter.length - 1),
+        check('document host keeps focus after caret moves to a new page', focusOnDocument),
         check('large table inserts requested rows', rows === 50),
         check('large table exposes editable cells', cells.length === 200)
       ];
@@ -184,13 +270,20 @@
         `long page count: ${longPages.length}`,
         `overflowing long pages: ${longOverflows.map((value, index) => value ? index + 1 : null).filter(Boolean).join(', ') || 'none'}`,
         `selection page after pagination: ${selectionPageIndex + 1 || 'unknown'}`,
-        `selection stayed before last page: ${selectionDidNotReachLastPage}`,
+        `selection reached last page: ${selectionReachedLastPage}`,
+        `selection spans adjacent pages: ${crossPageSelectionWorks}`,
+        `formatting spans adjacent pages: ${crossPageFormattingWorks}`,
+        `selection markers cleaned: ${selectionMarkersCleaned}`,
         `table page count: ${tablePages.length}`,
         `table rows: ${rows}`,
         `table first page overflow: ${isOverflowing(tablePages[0])}`,
         `known pagination overflow reproduced: ${knownPaginationOverflowDetected}`,
         `known large table overflow reproduced: ${knownLargeTableOverflowDetected}`,
-        `known table Tab navigation gap reproduced: ${knownTableTabMissingDetected}`
+        `known table Tab navigation gap reproduced: ${knownTableTabMissingDetected}`,
+        `pages before/after Enter: ${pagesBeforeEnter}/${pagesAfterEnter.length}`,
+        `caret page after Enter: ${caretPageIndex + 1 || 'unknown'}`,
+        `chrome stays fixed: ${chromeStaysFixed}`,
+        `focus on document host: ${focusOnDocument}`
       ];
 
       result.textContent = checks

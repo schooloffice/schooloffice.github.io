@@ -40,6 +40,13 @@ body {
   overflow: hidden;
 }
 
+/* Колонка застосунку: шапка, меню й панель фіксовані, скролиться лише область аркушів. */
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .app-header {
   height: var(--header-h);
   background: var(--accent);
@@ -403,8 +410,11 @@ body {
 }
 
 .editor-scroll {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding: 2rem;
   background: #e8edf3;
   padding: 2rem 1rem 4rem;
 }
@@ -1159,6 +1169,7 @@ mark.search-hit.current {
 
   body,
   html {
+    display: block !important;
     overflow: visible !important;
     height: auto !important;
   }

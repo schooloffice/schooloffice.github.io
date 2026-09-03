@@ -29,7 +29,7 @@ function Send-Response {
     [string]$ContentType = 'text/plain; charset=utf-8'
   )
 
-  $headers = "HTTP/1.1 $Status $StatusText`r`nContent-Type: $ContentType`r`nContent-Length: $($Body.Length)`r`nConnection: close`r`n`r`n"
+  $headers = "HTTP/1.1 $Status $StatusText`r`nContent-Type: $ContentType`r`nContent-Length: $($Body.Length)`r`nCache-Control: no-store`r`nConnection: close`r`n`r`n"
   $headerBytes = [Text.Encoding]::ASCII.GetBytes($headers)
   $Stream.Write($headerBytes, 0, $headerBytes.Length)
   if ($Body.Length -gt 0) {
@@ -46,6 +46,9 @@ try {
     $client = $server.AcceptTcpClient()
     try {
       $stream = $client.GetStream()
+      # Chrome тримає спекулятивні зʼєднання, у які нічого не пише. Без таймауту
+      # однопотоковий сервер завис би на них назавжди.
+      $stream.ReadTimeout = 3000
       $buffer = New-Object byte[] 8192
       $read = $stream.Read($buffer, 0, $buffer.Length)
       if ($read -le 0) { continue }

@@ -6,6 +6,7 @@ const ArtEditor = (() => {
   let _announcer = null;
   let _findState = { query: '', index: -1, matches: [] };
   let _layoutQueued = 0;
+  let _layoutTimer = 0;
   let _layoutLock = false;
   let _selectedImage = null;
   let _resizeState = null;
@@ -248,7 +249,53 @@ const ArtEditor = (() => {
 
     if (e.key === 'Enter' && _handleListEnter(e)) {
       ArtHistory.pushNow();
+      return;
     }
+
+    if (e.key === 'Enter' && _handleParagraphEnter(e)) {
+      ArtHistory.pushNow();
+    }
+  }
+
+  // Chrome після Enter у кінці заповненого аркуша лишає карету на рівні блоків
+  // (батько — сам аркуш). Така позиція не переживає перекомпонування сторінок,
+  // тому новий абзац створюємо самі й одразу ставимо карету всередину нього.
+  const ENTER_BLOCKS = ['P', 'H1', 'H2', 'H3', 'H4', 'BLOCKQUOTE'];
+
+  function _handleParagraphEnter(e) {
+    const range = ArtSelection.getRange(_editor);
+    if (!range || !range.collapsed) return false;
+
+    const node = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+    if (!node || node.closest('table, li')) return false;
+
+    const page = node.closest('.page-content');
+    if (!page) return false;
+
+    const block = [...page.children].find(child => child === node || child.contains(node));
+    if (!block || !ENTER_BLOCKS.includes(block.tagName)) return false;
+
+    e.preventDefault();
+
+    const tail = range.cloneRange();
+    tail.setEnd(block, block.childNodes.length);
+    const rest = tail.extractContents();
+
+    // Після заголовка Word починає звичайний абзац — робимо так само.
+    const next = document.createElement(block.tagName === 'BLOCKQUOTE' ? 'blockquote' : 'p');
+    next.appendChild(rest);
+    if (!_hasMeaningfulContent(next)) next.innerHTML = '<br>';
+    if (!_hasMeaningfulContent(block)) block.innerHTML = '<br>';
+    block.insertAdjacentElement('afterend', next);
+
+    const caret = document.createRange();
+    caret.selectNodeContents(next);
+    caret.collapse(true);
+    ArtSelection.restore(caret);
+    ArtSelection.remember(_editor);
+
+    _editor.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
   }
 
   function _handleListEnter(e) {
@@ -409,7 +456,6 @@ const ArtEditor = (() => {
     page.className = 'page';
     const content = document.createElement('div');
     content.className = 'page-content';
-    content.contentEditable = 'true';
     content.spellcheck = true;
     content.dataset.placeholder = 'Почни вводити текст…';
     content.setAttribute('aria-label', 'Сторінка документа');
@@ -486,11 +532,26 @@ const ArtEditor = (() => {
 
   function _queueRepaginate(preserveSelection = true) {
     cancelAnimationFrame(_layoutQueued);
-    _layoutQueued = requestAnimationFrame(() => _repaginate(preserveSelection));
+    clearTimeout(_layoutTimer);
+    const run = () => {
+      cancelAnimationFrame(_layoutQueued);
+      clearTimeout(_layoutTimer);
+      _layoutQueued = 0;
+      _layoutTimer = 0;
+      _repaginate(preserveSelection);
+    };
+    // У прихованій вкладці requestAnimationFrame не викликається, тож дублюємо
+    // таймером: спрацьовує той, хто перший, другий одразу скасовується.
+    _layoutQueued = requestAnimationFrame(run);
+    _layoutTimer = setTimeout(run, 32);
   }
   function _saveSelectionMarkers() {
     const range = ArtSelection.getRange(_editor);
     if (!range) return null;
+
+    // Після перерваної попередньої пагінації службових маркерів у документі
+    // лишатися не повинно.
+    _clearSelectionMarkers();
 
     const start = document.createElement('span');
     start.dataset.artSel = 'start';
@@ -521,75 +582,156 @@ const ArtEditor = (() => {
   function _restoreSelectionMarkers() {
     const start = _editor.querySelector('.art-sel-marker[data-art-sel="start"]');
     const end = _editor.querySelector('.art-sel-marker[data-art-sel="end"]');
-    if (!start) return;
-
-    const range = document.createRange();
-    if (end) {
-      range.setStartAfter(start);
-      range.setEndBefore(end);
-    } else {
-      range.setStartAfter(start);
-      range.collapse(true);
+    if (!start) {
+      _clearSelectionMarkers();
+      return;
     }
 
-    start.remove();
-    end?.remove();
-    ArtSelection.restore(range);
-    ArtSelection.remember(_editor);
+    try {
+      const range = document.createRange();
+      const blockCaret = !end ? _blockLevelCaretTarget(start) : null;
+      if (end) {
+        range.setStartAfter(start);
+        range.setEndBefore(end);
+      } else if (blockCaret) {
+        // Каретка стояла між абзацами (Chrome так робить після Enter у кінці
+        // сторінки). Ставимо її всередину сусіднього абзацу, інакше браузер
+        // сам поверне її в кінець попереднього — і новий абзац зникне.
+        range.selectNodeContents(blockCaret.block);
+        range.collapse(blockCaret.atStart);
+      } else {
+        range.setStartAfter(start);
+        range.collapse(true);
+      }
+
+      start.remove();
+      end?.remove();
+      // Увесь документ має один editing host; Range визначає активну сторінку.
+      if (document.activeElement !== _editor) _editor.focus({ preventScroll: true });
+      ArtSelection.restore(range);
+      ArtSelection.remember(_editor);
+      _scrollCaretIntoView();
+    } finally {
+      _clearSelectionMarkers();
+    }
+  }
+
+  function _clearSelectionMarkers() {
+    _editor.querySelectorAll('.art-sel-marker').forEach(marker => marker.remove());
+  }
+
+  // Каретка на рівні блоків (батько — сам аркуш) не переживає перекомпонування:
+  // повертаємо її в сусідній абзац.
+  function _blockLevelCaretTarget(marker) {
+    const parent = marker.parentElement;
+    if (!parent || !parent.classList.contains('page-content')) return null;
+    const next = marker.nextElementSibling;
+    if (next) return { block: next, atStart: true };
+    const prev = marker.previousElementSibling;
+    // У порожньому абзаці позиція після <br> для браузера некоректна —
+    // він відкидає карету в попередній блок. Тому ставимо її на початок.
+    if (prev) return { block: prev, atStart: !(prev.textContent || '').trim() };
+    return null;
+  }
+
+  function _scrollCaretIntoView() {
+    const scroller = _editor.closest('.editor-scroll');
+    const range = ArtSelection.getRange(_editor);
+    if (!scroller || !range) return;
+
+    let rect = range.getBoundingClientRect();
+    if (!rect || (!rect.height && !rect.top)) {
+      const node = range.startContainer;
+      const el = node.nodeType === 1 ? node : node.parentElement;
+      rect = el?.getBoundingClientRect() || null;
+    }
+    if (!rect || (!rect.height && !rect.top)) return;
+
+    const view = scroller.getBoundingClientRect();
+    const margin = 32;
+    if (rect.top < view.top + margin) scroller.scrollTop -= view.top + margin - rect.top;
+    else if (rect.bottom > view.bottom - margin) scroller.scrollTop += rect.bottom - view.bottom + margin;
   }
 
   function _repaginate(preserveSelection = true) {
     if (_layoutLock) return;
     _layoutLock = true;
+    let incomplete = false;
+    try {
+      incomplete = _runPagination(preserveSelection);
+    } catch (err) {
+      console.error('[text] помилка розбиття на сторінки', err);
+    } finally {
+      // Замок обовʼязково знімаємо: інакше одна помилка назавжди зупиняє
+      // розбиття на сторінки і документ росте однією стрічкою.
+      _layoutLock = false;
+    }
+    // Великий документ (вставка, відкритий .docx) не вміщається в один прохід:
+    // ліміт перестановок захищає від зависання, тож доганяємо наступним кадром.
+    if (incomplete) _queueRepaginate(preserveSelection);
+  }
 
+  function _runPagination(preserveSelection) {
     const markers = preserveSelection ? _saveSelectionMarkers() : null;
-    _normalizePages();
+    try {
+      _normalizePages();
 
-    let pages = _getPages();
-    let layoutGuard = 0;
-    for (let i = 0; i < pages.length; i++) {
-      const current = _getPageContent(pages[i]);
-      while (_isOverflowing(current)) {
-        if (++layoutGuard > 250) break;
-        const next = _getPageContent(_getOrCreatePage(i + 1));
-        if (!_moveOverflowToNext(current, next)) break;
-        pages = _getPages();
+      let pages = _getPages();
+      let layoutGuard = 0;
+      let guardHit = false;
+      for (let i = 0; i < pages.length; i++) {
+        const current = _getPageContent(pages[i]);
+        while (_isOverflowing(current)) {
+          if (++layoutGuard > 250) { guardHit = true; break; }
+          const next = _getPageContent(_getOrCreatePage(i + 1));
+          if (!_moveOverflowToNext(current, next)) break;
+          pages = _getPages();
+        }
       }
-    }
 
-    pages = _getPages();
-    for (let i = 0; i < pages.length - 1; i++) {
-      const current = _getPageContent(pages[i]);
-      const next = _getPageContent(pages[i + 1]);
-      let pullGuard = 0;
-      while (_pullFromNextIfFits(current, next)) {
-        if (++pullGuard > 250) break;
-        if (!_getPages()[i + 1]) break;
+      pages = _getPages();
+      for (let i = 0; i < pages.length - 1; i++) {
+        const current = _getPageContent(pages[i]);
+        const next = _getPageContent(pages[i + 1]);
+        let pullGuard = 0;
+        while (_pullFromNextIfFits(current, next)) {
+          if (++pullGuard > 250) break;
+          if (!_getPages()[i + 1]) break;
+        }
       }
+
+      _removeTrailingEmptyPages();
+      _updatePageNumbers();
+      _updateEmptyState();
+      _updateStatusBar();
+
+      return guardHit;
+    } finally {
+      if (markers) _restoreSelectionMarkers();
     }
-
-    _removeTrailingEmptyPages();
-    _updatePageNumbers();
-    _updateEmptyState();
-    _updateStatusBar();
-
-    if (markers) _restoreSelectionMarkers();
-    _layoutLock = false;
   }
 
   function _moveOverflowToNext(current, next) {
     if (!current || !next) return false;
     const blocks = [...current.children];
     if (!blocks.length) return false;
-    const last = blocks[blocks.length - 1];
 
-    if (blocks.length === 1) {
-      if (_splitListBlock(current, last, next)) return true;
-      if (_splitTextBlock(current, last, next)) return true;
-      return false;
+    // Переносимо одразу весь «хвіст», що вийшов за нижню межу аркуша: інакше
+    // великий документ вимагав би сотні окремих перестановок з перерахунком
+    // розкладки після кожної.
+    const limit = current.getBoundingClientRect().bottom;
+    let index = blocks.findIndex(block => block.getBoundingClientRect().bottom > limit + 1);
+    if (index === -1) index = blocks.length - 1;
+
+    if (index === 0) {
+      const first = blocks[0];
+      if (_splitListBlock(current, first, next)) return true;
+      if (_splitTextBlock(current, first, next)) return true;
+      if (blocks.length === 1) return false;
+      index = 1;
     }
 
-    next.prepend(last);
+    for (let i = blocks.length - 1; i >= index; i--) next.prepend(blocks[i]);
     _cleanupPage(current);
     _cleanupPage(next);
     return true;
@@ -745,10 +887,19 @@ const ArtEditor = (() => {
     const pages = _getPages();
     for (let i = pages.length - 1; i > 0; i--) {
       const content = _getPageContent(pages[i]);
-      if (_isPageEmpty(content)) pages[i].remove();
+      if (_isPageEmpty(content) && !_holdsCaret(content)) pages[i].remove();
       else break;
     }
     if (!_getPages().length) _editor.appendChild(_createPage());
+  }
+
+  // Порожня сторінка, у якій стоїть курсор, — це новий абзац, який користувач
+  // щойно почав унизу заповненого аркуша. Її видаляти не можна.
+  function _holdsCaret(pageContent) {
+    if (!pageContent) return false;
+    if (pageContent.querySelector('.art-sel-marker')) return true;
+    const range = ArtSelection.getRange(_editor);
+    return !!range && (pageContent.contains(range.startContainer) || pageContent.contains(range.endContainer));
   }
 
   function _isPageEmpty(pageContent) {
@@ -808,7 +959,14 @@ const ArtEditor = (() => {
   }
 
   function _isOverflowing(pageContent) {
-    return pageContent && pageContent.scrollHeight > pageContent.clientHeight + 1;
+    if (!pageContent) return false;
+    if (pageContent.scrollHeight > pageContent.clientHeight + 1) return true;
+    // scrollHeight майже не зростає від порожнього абзацу в кінці аркуша,
+    // тож для такого випадку окремо звіряємо нижню межу останнього блока.
+    let last = pageContent.lastElementChild;
+    while (last && last.classList.contains('art-sel-marker')) last = last.previousElementSibling;
+    if (!last || _hasMeaningfulContent(last)) return false;
+    return last.offsetTop + last.offsetHeight > pageContent.clientHeight + 1;
   }
 
   function _updatePageNumbers() {
