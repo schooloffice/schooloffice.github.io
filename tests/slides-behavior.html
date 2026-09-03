@@ -735,6 +735,45 @@
       await wait(20);
       const activeAfter = Array.from(doc.querySelectorAll('#slideList .slide-card')).findIndex(c => c.classList.contains('active'));
       checks.push(check('Arrow keys navigate slides in the list', activeAfter === activeBefore + 1));
+
+      // Розкладка мініатюри. Регресія: конкурентні правила (height: 56px +
+      // aspect-ratio: unset + scale, підібраний «на око») обрізали слайд
+      // приблизно навпіл, і в списку було видно лише його верхню частину.
+      // Еталон пропорцій беремо з самої сцени, а не з константи в тесті.
+      const stageNode = doc.querySelector('#stage');
+      const stageRatio = stageNode.offsetWidth / stageNode.offsetHeight;
+      const thumbFrame = doc.querySelector('#slideList .slide-thumb');
+      const thumbMini = thumbFrame.querySelector('.slide-thumb-mini');
+      const frameBox = thumbFrame.getBoundingClientRect();
+      const miniBox = thumbMini.getBoundingClientRect();
+      checks.push(check('slide thumbnail keeps the stage aspect ratio',
+        frameBox.width > 0 && Math.abs(frameBox.width / frameBox.height - stageRatio) < 0.02));
+      // Знімок заповнює рамку (з точністю до 1px рамки з кожного боку),
+      // а не обрізається нею.
+      checks.push(check('slide thumbnail snapshot fills its frame without cropping',
+        Math.abs(miniBox.width - (frameBox.width - 2)) <= 1.5
+        && Math.abs(miniBox.height - (frameBox.height - 2)) <= 1.5));
+
+      // Керування карткою приховане, доки картка не під курсором і не у фокусі.
+      const idleCard = Array.from(doc.querySelectorAll('#slideList .slide-card'))
+        .find(card => !card.matches(':hover') && !card.matches(':focus-within'));
+      const idleActions = idleCard?.querySelector('.slide-card-actions');
+      checks.push(check('slide card controls stay hidden until hover or focus',
+        !!idleActions && win.getComputedStyle(idleActions).visibility === 'hidden'));
+      // Клавіатурний шлях: visibility: hidden прибирає кнопки з порядку обходу,
+      // тож дістатися їх можна лише після того, як картка отримала фокус —
+      // фокус на видимій мініатюрі має відкривати дії й робити їх фокусованими.
+      const focusCard = doc.querySelector('#slideList .slide-card');
+      focusCard.querySelector('.slide-thumb-button').focus();
+      const focusActions = focusCard.querySelector('.slide-card-actions');
+      checks.push(check('slide card controls appear on keyboard focus',
+        win.getComputedStyle(focusActions).visibility === 'visible'));
+      const focusButton = focusActions.querySelector('.mini-btn');
+      focusButton.focus();
+      checks.push(check('revealed slide card controls are focusable',
+        doc.activeElement === focusButton
+        && win.getComputedStyle(focusActions).visibility === 'visible'));
+      focusButton.blur();
       checks.push(check('slide thumbnail has aria-label', /Слайд \d+/.test(doc.querySelector('#slideList .slide-thumb-button')?.getAttribute('aria-label') || '')));
 
       // Tab поза полотном НЕ циклить об'єкти (не блокує звичайний обхід).
@@ -1270,6 +1309,16 @@
       checks.push(check('presenter mode opens dedicated panel', !doc.querySelector('#presenterPanel').classList.contains('hidden')));
       checks.push(check('presenter mode shows current notes', doc.querySelector('#presenterNotes').textContent === 'Нотатка слайда один'));
       checks.push(check('presenter mode shows next slide preview', !!doc.querySelector('#presentNextPreview .slide-thumb-mini')));
+      // Прев'ю доповідача масштабується тим самим контейнерним правилом, що й
+      // бічна панель: власного числа, підібраного під одну ширину, тут немає.
+      checks.push(check('presenter preview fills its frame', (() => {
+        const frame = doc.querySelector('#presentNextPreview');
+        const mini = frame.querySelector('.slide-thumb-mini');
+        if (!mini) return false;
+        const frameBox = frame.getBoundingClientRect();
+        const miniBox = mini.getBoundingClientRect();
+        return frameBox.width > 0 && Math.abs(miniBox.width - (frameBox.width - 2)) <= 2;
+      })()));
       checks.push(check('presenter mode shows slide counter', doc.querySelector('#presentSlideCounter').textContent.includes(`1 із ${presenterSlideCount}`)));
       checks.push(check('presenter mode starts elapsed timer', /^\d{2}:\d{2}$/.test(doc.querySelector('#presentTimer').textContent)));
       doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));

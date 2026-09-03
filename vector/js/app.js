@@ -458,11 +458,14 @@ window.VectorApp = window.VectorApp || {};
 
   function createObjectFromTool(tool, point) {
     const snapped = applySnapPoint(point);
+    // Олівець малює від руки: прив'язка до сітки перетворювала б будь-яку
+    // діагональ на сходинки з кроком GRID_SIZE, тож точки контуру лишаються
+    // такими, як їх веде рука. Прив'язка діє на примітиви з опорними точками.
     if (tool === 'pen') {
       return {
         id: utils.uid('pen'),
         type: 'pen',
-        points: [snapped],
+        points: [{ x: point.x, y: point.y }],
         stroke: state.currentStroke,
         strokeWidth: state.currentStrokeWidth,
         opacity: state.currentOpacity
@@ -528,10 +531,12 @@ window.VectorApp = window.VectorApp || {};
     const draft = state.draftObject;
     if (!draft) return;
 
+    // Олівець веде лінію по фактичних координатах курсора — див. коментар
+    // у createObjectFromTool.
     if (tool === 'pen') {
       const last = draft.points[draft.points.length - 1];
-      if (!last || utils.distance(last, snappedPoint) >= 2) {
-        draft.points.push(snappedPoint);
+      if (!last || utils.distance(last, point) >= 2) {
+        draft.points.push({ x: point.x, y: point.y });
       }
       editor.renderAll();
       return;

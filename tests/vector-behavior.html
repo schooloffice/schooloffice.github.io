@@ -281,9 +281,80 @@
       win.ArtVector.ui.updateSelectionStatus(state.objects[0]);
       const objectSectionShown = sectionVisible('#propObject');
 
-      // Панель має вміщатися без прокрутки на ноутбучній висоті.
+      // Панель має вміщатися без прокрутки на ноутбучній висоті й ніколи не
+      // прокручуватися вбік: горизонтальна смуга з'їдає висоту всієї панелі.
       const panel = doc.querySelector('.properties-panel');
       const panelFits = panel.scrollHeight <= panel.clientHeight + 1;
+      const panelHasNoSideScroll = panel.scrollWidth <= panel.clientWidth + 1;
+
+      // --- Прив'язка до сітки: олівець vs примітиви з опорними точками ---
+      // Регресія: applySnapPoint застосовувався і до точок довільного контуру,
+      // тож при увімкненій сітці будь-яка діагональ ламалася на сходинки
+      // з кроком GRID_SIZE. Опорні точки лінії й фігури прив'язуватися мають.
+      const grid = constants.GRID_SIZE;
+      const svgNode = doc.querySelector('#drawingSvg');
+      const onGrid = value => Math.abs(value - Math.round(value / grid) * grid) < 0.01;
+
+      const dragTool = (tool, from, to, steps = 8) => {
+        const railTool = doc.querySelector(`.rail-tool[data-tool="${tool}"]`);
+        if (railTool) railTool.click();
+        else {
+          state.currentTool = tool;
+          win.ArtVector.ui.updateToolUI();
+        }
+        state.objects = [];
+        state.selectedObjectId = null;
+        editor.renderAll();
+
+        const box = svgNode.getBoundingClientRect();
+        const toClient = point => ({
+          clientX: box.left + point.x * (box.width / state.canvasWidth),
+          clientY: box.top + point.y * (box.height / state.canvasHeight)
+        });
+        svgNode.dispatchEvent(new PointerEvent('pointerdown', {
+          ...toClient(from), button: 0, pointerId: 1, bubbles: true
+        }));
+        for (let step = 1; step <= steps; step += 1) {
+          const at = {
+            x: from.x + (to.x - from.x) * (step / steps),
+            y: from.y + (to.y - from.y) * (step / steps)
+          };
+          svgNode.dispatchEvent(new PointerEvent('pointermove', {
+            ...toClient(at), pointerId: 1, bubbles: true
+          }));
+        }
+        doc.dispatchEvent(new PointerEvent('pointerup', { ...toClient(to), pointerId: 1, bubbles: true }));
+        return state.objects[state.objects.length - 1] || null;
+      };
+
+      state.snapToGrid = true;
+
+      // Навмисно не кратні сітці координати на чистій діагоналі.
+      const penStroke = dragTool('pen', { x: 103, y: 107 }, { x: 263, y: 267 });
+      const penPoints = penStroke?.points || [];
+      const penKeepsRawPoints = penStroke?.type === 'pen'
+        && penPoints.length > 2
+        && penPoints.some(point => !onGrid(point.x) || !onGrid(point.y));
+      // Пряма лінія від руки має лишатися прямою: сходинки дають відхилення
+      // до половини кроку сітки, рівний хід — майже нуль. Обидві координати
+      // росли однаково, тож ідеальна траєкторія — це y - x = const.
+      const penOffset = penPoints.map(point => (point.y - point.x) - (penPoints[0].y - penPoints[0].x));
+      const penMaxDeviation = Math.max(...penOffset.map(Math.abs));
+      const penStaysStraight = penMaxDeviation < grid / 4;
+
+      const lineObject = dragTool('line', { x: 103, y: 107 }, { x: 263, y: 267 });
+      const lineSnapsToGrid = lineObject?.type === 'line'
+        && [lineObject.x1, lineObject.y1, lineObject.x2, lineObject.y2].every(onGrid);
+
+      const rectDrawn = dragTool('rect', { x: 103, y: 107 }, { x: 263, y: 267 });
+      const shapeSnapsToGrid = rectDrawn?.type === 'rect'
+        && [rectDrawn.x, rectDrawn.y, rectDrawn.w, rectDrawn.h].every(onGrid);
+
+      state.objects = [];
+      state.selectedObjectId = null;
+      state.undoStack = [];
+      state.redoStack = [];
+      editor.renderAll();
 
       // --- Згортання панелі ---
       const workspaceWidth = () => Math.round(doc.querySelector('.workspace').getBoundingClientRect().width);
@@ -327,6 +398,11 @@
         check('object section hidden without selection', objectSectionHidden),
         check('object section shows on selection', objectSectionShown),
         check('properties panel fits without scrolling', panelFits),
+        check('properties panel never scrolls sideways', panelHasNoSideScroll),
+        check('pen keeps raw pointer coordinates while snap is on', penKeepsRawPoints),
+        check('pen draws a straight diagonal, not grid steps', penStaysStraight),
+        check('line endpoints still snap to the grid', lineSnapsToGrid),
+        check('shape corners still snap to the grid', shapeSnapsToGrid),
         check('properties panel collapses and restores', collapseWorks),
         check('fit to window scales the artboard and clears scrollbars', fitWorks),
         check('project-io module exported', typeof projectIo?.normalizeProject === 'function'),

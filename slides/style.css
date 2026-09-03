@@ -434,14 +434,21 @@ button {
   letter-spacing: .04em;
 }
 
+/* Мініатюра слайда — єдине канонічне визначення на весь файл. Рамка повторює
+   пропорції сцени (960×540), а знімок усередині масштабується від фактичної
+   ширини рамки, тож заповнює її точно за будь-якої ширини бічної панелі.
+   Нових перевизначень нижче по файлу бути не повинно: саме розсинхрон таких
+   overrides (height: 56px + aspect-ratio: unset + scale, підібраний «на око»)
+   обрізав слайд приблизно навпіл. */
 .slide-thumb {
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 960 / 540;
   background: #fff;
   border: 1px solid var(--border-strong);
-  border-radius: .7rem;
+  border-radius: .5rem;
   overflow: hidden;
   position: relative;
+  container-type: size;
 }
 
 .slide-thumb-button {
@@ -455,9 +462,11 @@ button {
 .slide-thumb-mini {
   width: 960px;
   height: 540px;
-  transform: scale(0.22);
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: scale(calc(100cqw / 960px));
   transform-origin: top left;
-  position: relative;
   pointer-events: none;
 }
 
@@ -1548,7 +1557,7 @@ ol.shape-text-element {
 .presenter-next-preview {
   position: relative;
   min-height: 120px;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 960 / 540;
   display: grid;
   place-items: center;
   border: 1px solid #334155;
@@ -1556,12 +1565,9 @@ ol.shape-text-element {
   background: #0f172a;
   color: #94a3b8;
   overflow: hidden;
-}
-
-.presenter-next-preview .slide-thumb-mini {
-  width: 960px;
-  height: 540px;
-  transform: scale(.25);
+  /* Той самий контейнерний масштаб, що й у бічній панелі: власного числа
+     (.25, підібраного під одну ширину панелі) тут більше немає. */
+  container-type: size;
 }
 
 .presenter-notes-text {
@@ -1680,9 +1686,14 @@ ol.shape-text-element {
     max-height: 40vh;
   }
 
+  /* Мініатюра тепер має пропорції слайда, тож картка на всю ширину телефона
+     стала б удвічі вищою за смугу списку. Вужчі колонки повертають у видиму
+     частину кілька слайдів; auto-fill (а не auto-fit) не дає одній картці
+     розтягнутися на весь рядок. */
   .slide-list {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    align-content: start;
   }
 
   .stage-wrap {
@@ -1841,10 +1852,6 @@ ol.shape-text-element {
 .slide-card-actions {
   display: flex;
   gap: .18rem;
-}
-
-.slide-thumb {
-  border-radius: .68rem;
 }
 
 .sidebar-foot-actions {
@@ -2042,14 +2049,6 @@ ol.shape-text-element {
   background: #eef2f7;
 }
 
-.slide-thumb {
-  border-radius: .6rem;
-}
-
-.slide-thumb-mini {
-  transform: scale(0.16);
-}
-
 .mini-btn {
   width: 24px;
   height: 24px;
@@ -2125,33 +2124,6 @@ ol.shape-text-element {
   gap: .04rem;
 }
 
-/* Thumbnail: fixed height, fills full width of card */
-.slide-thumb {
-  height: 56px;
-  aspect-ratio: unset;
-  /* override 16/9 — height is now fixed */
-  border-radius: .5rem;
-  overflow: hidden;
-  position: relative;
-}
-
-/*
-  The mini snapshot is 960×540 px.
-  Card inner width ≈ 224 - 20px (padding+border) = 204px
-  Scale to fill width: 204/960 ≈ 0.213
-  Resulting height:    540 × 0.213 ≈ 115px  (clipped to 56px by parent)
-*/
-.slide-thumb-mini {
-  width: 960px;
-  height: 540px;
-  transform: scale(0.213);
-  transform-origin: top left;
-  position: absolute;
-  top: 0;
-  left: 0;
-  pointer-events: none;
-}
-
 .slide-drag-handle {
   width: 16px;
   height: 16px;
@@ -2195,4 +2167,82 @@ ol.shape-text-element {
 
 .slide-card.dragging-card {
   opacity: .4;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Картка слайда: керування на наведення
+   (сама мініатюра визначена один раз вище — див. .slide-thumb)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* Керування карткою (порядок, дублювання, видалення) лежить поверх мініатюри
+   і з'являється лише під курсором або на фокусі з клавіатури — так у списку
+   лишається місце під самі слайди. */
+.slide-card { position: relative; }
+
+.slide-card-actions {
+  position: absolute;
+  top: .3rem;
+  right: .3rem;
+  z-index: 2;
+  gap: .1rem;
+  padding: .14rem;
+  border-radius: .45rem;
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .2);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .12s ease;
+}
+
+.slide-card:hover .slide-card-actions,
+.slide-card:focus-within .slide-card-actions {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Ручка перетягування ховається без зміни розкладки: місце під неї лишається,
+   тож номер слайда не стрибає при наведенні. Сама картка теж draggable. */
+.slide-drag-handle {
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+
+.slide-card:hover .slide-drag-handle,
+.slide-card:focus-within .slide-drag-handle {
+  opacity: 1;
+}
+
+/* Пристрої без наведення (сенсорні): керування нема де ховати, тож воно
+   лишається видимим — і мусить мати придатний до пальця розмір. 24×24, як у
+   решті .mini-btn бічної панелі, для дотику замалі. */
+@media (hover: none) {
+  /* Панель дій опускається до нижнього краю мініатюри: угорі вона перекривала
+     б номер слайда, бо на телефоні картка вужча за саму панель. */
+  .slide-card-actions {
+    opacity: 1;
+    visibility: visible;
+    top: auto;
+    bottom: .3rem;
+    left: .3rem;
+    right: .3rem;
+    justify-content: space-around;
+    gap: .2rem;
+    padding: .2rem;
+  }
+
+  .slide-card-actions .mini-btn {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    border-radius: .45rem;
+  }
+
+  .slide-card-actions .mini-btn i { font-size: .9rem; }
+
+  .slide-drag-handle {
+    opacity: 1;
+    width: 32px;
+    height: 32px;
+    font-size: .85rem;
+  }
 }

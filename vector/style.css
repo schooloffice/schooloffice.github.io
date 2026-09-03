@@ -267,12 +267,25 @@ body.panel-collapsed .properties-panel {
   grid-row: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Панель не має прокручуватися вбік: усе всередині вкладається в ширину. */
+  overflow-x: hidden;
   padding: 12px;
   background: var(--panel);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+/* Панель поділена на дві частини: зверху параметри активного інструмента,
+   знизу — спільний блок, однаковий для всіх інструментів. Так колір, товщина
+   та підкладка не виглядають як налаштування, що повторюються в кожній
+   «вкладці» інструмента, і завжди лежать на тому самому місці. */
+.panel-tool-area,
+.panel-common { display: flex; flex-direction: column; gap: 14px; }
+.panel-common {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 .prop-section { display: flex; flex-direction: column; gap: 8px; }
 .prop-section.hidden { display: none; }
@@ -436,6 +449,14 @@ body.panel-collapsed .properties-panel {
   background: #fff;
 }
 .segmented-btn + .segmented-btn { border-left: 1px solid var(--line-strong); }
+/* Підкладка займає всю ширину панелі трьома рівними частинами: inline-flex
+   стискав кнопки до ширини іконки, і група виглядала зіжмаканою збоку. */
+.segmented.guide-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+}
+.segmented.guide-control .segmented-btn { min-width: 0; padding: 0; }
 .segmented-btn:hover,
 .mini-btn:hover,
 .color-target:hover,
@@ -456,40 +477,23 @@ body.panel-collapsed .properties-panel {
   font-size: .7rem;
   color: var(--muted);
 }
-.selection-state {
-  min-width: 150px;
-  max-width: 200px;
-  height: 34px;
-  padding: 0 10px;
-  border-radius: 10px;
-  border: 1.5px dashed var(--line-strong);
-  background: #fff;
-  color: var(--text);
-  display: inline-flex;
-  align-items: center;
-  font-size: .8rem;
-  font-weight: 800;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.selection-state.is-empty { color: var(--muted); }
-
+/* Палітра лягає у два рядки по вісім зразків: шістнадцять кольорів в один
+   рядок не вміщаються у 232px панелі й тягнули за собою горизонтальну смугу
+   прокрутки на всю панель параметрів. */
 .inline-palette {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  flex-wrap: nowrap;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px;
 }
 .color-swatch {
-  width: 20px;
-  height: 20px;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
   border: 1px solid var(--line-strong);
   padding: 0;
   cursor: pointer;
-  flex-shrink: 0;
   position: relative;
-  border-radius: 2px;
+  border-radius: 3px;
 }
 .color-swatch.active::after {
   content: '';
@@ -534,6 +538,10 @@ body.panel-collapsed .properties-panel {
 .custom-color-btn input {
   position: absolute;
   inset: 0;
+  /* Явні розміри обов'язкові: браузерна ширина input[type=color] (50px)
+     перемагає inset і вилазила за праву межу панелі. */
+  width: 100%;
+  height: 100%;
   opacity: 0;
   cursor: pointer;
 }
@@ -719,7 +727,6 @@ button:focus-visible,
 
 
 @media (max-width: 980px) {
-  .selection-state { min-width: 150px; max-width: 180px; }
   .statusbar {
     flex-wrap: wrap;
     justify-content: flex-start;

@@ -21,6 +21,9 @@
      а ширину віддаємо панелі, яку можна згорнути. */
   --rail-w: 72px;
   --panel-w: 232px;
+  /* Вертикальний ритм панелі параметрів. Малюнки несуть більше секцій, ніж
+     Вектор, тож крок тісніший: інакше панель не вміщається на 720px заввишки. */
+  --panel-gap: 10px;
 }
 
 * { box-sizing: border-box; }
@@ -292,6 +295,8 @@ body.panel-collapsed .properties-panel {
 .properties-panel {
   min-height: 0;
   overflow-y: auto;
+  /* Панель не має прокручуватися вбік: усе всередині вкладається в ширину. */
+  overflow-x: hidden;
   grid-column: 2;
   grid-row: 1;
   padding: 12px;
@@ -299,9 +304,20 @@ body.panel-collapsed .properties-panel {
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--panel-gap);
 }
-.prop-section { display: flex; flex-direction: column; gap: 8px; }
+/* Панель поділена на дві частини: зверху параметри активного інструмента,
+   знизу — спільний блок, однаковий для всіх інструментів. Так кольори й дії
+   з полотном не виглядають як налаштування, що повторюються в кожній
+   «вкладці» інструмента, і завжди лежать на тому самому місці. */
+.panel-tool-area,
+.panel-common { display: flex; flex-direction: column; gap: var(--panel-gap); }
+.panel-common {
+  margin-top: auto;
+  padding-top: var(--panel-gap);
+  border-top: 1px solid var(--line);
+}
+.prop-section { display: flex; flex-direction: column; gap: 6px; }
 .prop-head {
   display: flex;
   align-items: center;
@@ -319,6 +335,12 @@ body.panel-collapsed .properties-panel {
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: .02em;
+}
+/* Другий заголовок усередині секції — трохи тихіший за головний. */
+.prop-subtitle {
+  margin-top: 2px;
+  font-size: .72rem;
+  letter-spacing: .04em;
 }
 .prop-range { display: flex; flex-direction: column; gap: 6px; }
 .prop-range input { width: 100%; accent-color: var(--accent); }
@@ -382,12 +404,15 @@ body.panel-collapsed .properties-panel {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.guide-control {
+/* Селектор із двома класами навмисно: одинарний .guide-control програвав
+   пізнішому .segmented-control { display: inline-flex }, і три кнопки
+   стискалися до ширини іконки замість того, щоб поділити ширину панелі. */
+.segmented-control.guide-control {
   width: 100%;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
-.guide-control .segmented-btn {
+.segmented-control.guide-control .segmented-btn {
   min-width: 0;
   padding: 0;
 }
@@ -574,6 +599,10 @@ body.panel-collapsed .properties-panel {
 .custom-color-btn input {
   position: absolute;
   inset: 0;
+  /* Явні розміри обов'язкові: браузерна ширина input[type=color] (50px)
+     перемагає inset і вилазила за праву межу панелі. */
+  width: 100%;
+  height: 100%;
   opacity: 0;
   cursor: pointer;
 }
@@ -708,12 +737,14 @@ body.panel-collapsed .properties-panel {
   height: 100%;
   min-height: 0;
 }
+/* Відступ навколо полотна — єдине джерело правди для fitDocumentToViewport():
+   JS читає його з getComputedStyle, тож значення не розходяться. */
 .canvas-stage-wrap {
   height: 100%;
   min-height: 0;
   display: grid;
   overflow: auto;
-  padding: 32px;
+  padding: 12px;
   background-color: #5b6675;
   background-image:
     linear-gradient(45deg, rgba(0,0,0,.07) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.07) 75%),

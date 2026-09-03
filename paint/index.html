@@ -185,6 +185,9 @@
     </aside>
 
     <aside id="propertiesPanel" class="properties-panel" aria-label="Параметри інструмента">
+      <!-- Верхня зона змінюється разом з інструментом, нижня (кольори й полотно)
+           однакова завжди і притиснута до низу панелі. -->
+      <div class="panel-tool-area">
       <div id="propBrush" class="prop-section" data-tool-section="brush">
         <div class="prop-title">Режим пензлика</div>
         <div id="brushGrid" class="brush-grid"></div>
@@ -232,6 +235,9 @@
         </label>
       </div>
 
+      </div>
+
+      <div class="panel-common">
       <div class="prop-section prop-colors">
         <div class="prop-head">
           <div class="prop-title">Кольори</div>
@@ -281,11 +287,13 @@
           <button class="panel-action" type="button" data-action="crop-selection" title="Обрізати до виділення"><i class="fa-solid fa-crop"></i><span>Обрізати</span></button>
           <!-- «Підігнати до вікна» живе в статус-смузі й меню — тут не дублюємо. -->
         </div>
+        <div class="prop-title prop-subtitle">Підкладка</div>
         <div class="segmented-control guide-control" role="group" aria-label="Підкладка">
           <button class="segmented-btn active" type="button" data-guide="none" title="Без підкладки"><i class="fa-regular fa-square"></i></button>
           <button class="segmented-btn" type="button" data-guide="grid" title="Сітка"><i class="fa-solid fa-border-all"></i></button>
           <button class="segmented-btn" type="button" data-guide="lines" title="Рядки"><i class="fa-solid fa-grip-lines"></i></button>
         </div>
+      </div>
       </div>
     </aside>
 

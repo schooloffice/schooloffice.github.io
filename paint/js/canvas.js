@@ -289,11 +289,24 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.objectLayer.style.transform = `scale(${zoom})`;
     },
 
+    // Відступ навколо полотна беремо з CSS: інакше константа й padding
+    // .canvas-stage-wrap розходяться, і полотно або не дотягується до країв,
+    // або вилазить під смуги прокрутки.
+    stagePadding() {
+      if (!this.stageWrap) return { x: 0, y: 0 };
+      const style = getComputedStyle(this.stageWrap);
+      const value = (name) => parseFloat(style.getPropertyValue(name)) || 0;
+      return {
+        x: value('padding-left') + value('padding-right'),
+        y: value('padding-top') + value('padding-bottom')
+      };
+    },
+
     fitDocumentToViewport() {
       if (!this.stageWrap) return;
-      const padding = constants.STAGE_PADDING * 2;
-      const availW = Math.max(1, this.stageWrap.clientWidth - padding);
-      const availH = Math.max(1, this.stageWrap.clientHeight - padding);
+      const padding = this.stagePadding();
+      const availW = Math.max(1, this.stageWrap.clientWidth - padding.x);
+      const availH = Math.max(1, this.stageWrap.clientHeight - padding.y);
       const raw = Math.min(availW / state.document.width, availH / state.document.height);
       state.viewport.zoom = utils.clamp(raw, constants.MIN_ZOOM, constants.MAX_ZOOM);
       state.viewport.fitMode = 'fit';

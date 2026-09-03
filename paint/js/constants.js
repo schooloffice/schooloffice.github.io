@@ -35,7 +35,6 @@ window.ArtMalyunky.constants = {
   MAX_DOC_DIMENSION: 4096,
   MAX_DOC_PIXELS: 16777216,
   DEFAULT_BACKGROUND: '#ffffff',
-  STAGE_PADDING: 32,
   MIN_ZOOM: 0.1,
   MAX_ZOOM: 8,
   ZOOM_LEVELS: [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8],

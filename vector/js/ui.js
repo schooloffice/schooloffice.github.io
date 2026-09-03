@@ -314,19 +314,15 @@ window.ArtVector = window.ArtVector || {};
       this.elements.propObject?.classList.toggle('hidden', !selectedObject);
       if (!selectedObject) {
         this.elements.statusSelection.textContent = 'Вибрано: нічого';
-        if (this.elements.selectionState) {
-          this.elements.selectionState.textContent = 'Нічого не вибрано';
-          this.elements.selectionState.classList.add('is-empty');
-        }
+        if (this.elements.selectionState) this.elements.selectionState.textContent = '';
         return;
       }
       const label = constants.TOOLS[selectedObject.type]?.label
         || ({ rect: 'Прямокутник', ellipse: 'Еліпс', triangle: 'Трикутник', diamond: 'Ромб', star: 'Зірка', line: 'Лінія', arrow: 'Стрілка', pen: 'Олівець', text: 'Текст' }[selectedObject.type] || selectedObject.type);
       this.elements.statusSelection.textContent = `Вибрано: ${label}`;
-      if (this.elements.selectionState) {
-        this.elements.selectionState.textContent = `Вибрано: ${label}`;
-        this.elements.selectionState.classList.remove('is-empty');
-      }
+      // Тип вибраного об'єкта живе в заголовку секції — окрема рамка з тим самим
+      // текстом лише дублювала рядок стану й забирала висоту панелі.
+      if (this.elements.selectionState) this.elements.selectionState.textContent = label;
     },
 
     updateFileNameUI() {

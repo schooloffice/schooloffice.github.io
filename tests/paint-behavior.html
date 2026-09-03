@@ -128,6 +128,57 @@
       const railTools = doc.querySelectorAll('.tool-rail .rail-tool[data-tool]');
       const hasRail = railTools.length === 8 && doc.querySelector('.tool-rail.office-toolbar');
       const hasProps = !!doc.querySelector('.properties-panel');
+
+      // Розкладка панелі: горизонтальна смуга з'їдає висоту всієї панелі, а
+      // спільний блок унизу не має виштовхувати «Підкладку» за нижній край для
+      // інструментів без великих сіток (Фігури й Штампи прокручуються навмисно).
+      const propsPanel = doc.querySelector('.properties-panel');
+      const panelHasNoSideScroll = propsPanel.scrollWidth <= propsPanel.clientWidth + 1;
+      // Спільний блок лишається останнім і притиснутим до низу панелі.
+      const commonZone = doc.querySelector('.properties-panel .panel-common');
+      const commonZoneIsLast = commonZone === propsPanel.lastElementChild;
+
+      // Регресія: fitDocumentToViewport() рахував відступ з власної константи,
+      // яка розійшлася з padding у CSS. Полотно має заповнювати робочу область
+      // рівно до відступу, заданого стилями. Міряємо на «рідній» висоті кадру,
+      // доки її ніхто не чіпав.
+      const stageWrap = doc.querySelector('.canvas-stage-wrap');
+      const wrapStyle = win.getComputedStyle(stageWrap);
+      const padY = parseFloat(wrapStyle.paddingTop) + parseFloat(wrapStyle.paddingBottom);
+      const padX = parseFloat(wrapStyle.paddingLeft) + parseFloat(wrapStyle.paddingRight);
+      canvasApi.setDocumentSize(800, 600, { clear: true });
+      // Стартуємо із свідомо малого масштабу: поки в області є смуги прокрутки
+      // від попереднього зуму, вони зменшують clientWidth/clientHeight, і одне
+      // застосування «вмістити» дає трохи менший масштаб, ніж міг би. Це окрема
+      // давня поведінка, і перевірка тут не про неї, а про врахування padding.
+      canvasApi.setZoom(0.1);
+      canvasApi.fitDocumentToViewport();
+      const expectedFit = Math.min(
+        (stageWrap.clientWidth - padX) / 800,
+        (stageWrap.clientHeight - padY) / 600
+      );
+      const fitUsesCssPadding = Math.abs(canvasApi.getZoom() - expectedFit) < 0.01
+        && stageWrap.scrollWidth <= stageWrap.clientWidth + 1
+        && stageWrap.scrollHeight <= stageWrap.clientHeight + 1;
+
+      // Висота панелі залежить від висоти вікна, а робочий кадр тесту навмисно
+      // низький (540px) заради перевірок полотна. Тимчасово піднімаємо його до
+      // ноутбучної висоти — саме там панель зобов'язана вміщатися. Після зміни
+      // висоти кадру чекаємо: перерахунок розкладки всередині iframe і resize-
+      // обробник редактора виконуються не синхронно з присвоєнням style.height.
+      const frameHeight = frame.style.height;
+      frame.style.height = '768px';
+      await waitFor(() => win.innerHeight >= 760, 'test frame grows to laptop height');
+      const compactTools = ['brush', 'eraser', 'fill', 'eyedropper', 'text', 'select'];
+      const panelFitsPerTool = compactTools.every(tool => {
+        state.currentTool = tool;
+        win.ArtMalyunky.ui.updateToolSections();
+        return propsPanel.scrollHeight <= propsPanel.clientHeight + 1;
+      });
+      frame.style.height = frameHeight;
+      await waitFor(() => win.innerHeight < 600, 'test frame returns to its own height');
+      canvasApi.setDocumentSize(800, 600, { clear: true });
+
       state.currentTool = 'brush';
       win.ArtMalyunky.ui.updateToolSections();
       const brushShown = !doc.getElementById('propBrush').classList.contains('hidden');
@@ -541,6 +592,10 @@
         check('undo restores document size', undoRestoresSize),
         check('tool rail rendered', hasRail),
         check('properties panel rendered', hasProps),
+        check('properties panel never scrolls sideways', panelHasNoSideScroll),
+        check('properties panel fits for tools without large grids', panelFitsPerTool),
+        check('shared panel block stays pinned at the bottom', commonZoneIsLast),
+        check('fit to viewport honours the CSS stage padding', fitUsesCssPadding),
         check('contextual prop sections toggle by tool', contextualSections),
         check('drawing at zoom hits correct pixel', drewAtZoom),
         check('synchronous undo reverts stroke', undoClearsDraw),

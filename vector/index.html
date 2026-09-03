@@ -185,6 +185,9 @@
     </aside>
 
     <aside id="propertiesPanel" class="properties-panel" aria-label="Параметри інструмента">
+      <!-- Верхня зона змінюється разом з інструментом, нижня (кольори, контур,
+           прозорість, підкладка) однакова завжди і притиснута до низу панелі. -->
+      <div class="panel-tool-area">
       <!-- Іконки геометричних примітивів самі є підписом; назву активного вибору
            показує заголовок секції, тож підпис лишається видимим завжди. -->
       <div id="propLine" class="prop-section" data-tool-section="line">
@@ -206,46 +209,13 @@
         </div>
       </div>
 
-      <div class="prop-section prop-colors">
-        <div class="prop-title">Кольори</div>
-        <div class="color-targets">
-          <button id="strokeTargetBtn" class="color-target active" type="button" title="Колір контуру">
-            <span id="strokePreview" class="color-chip stroke-chip"></span>
-            <span class="color-target-label">Контур</span>
-          </button>
-          <button id="fillTargetBtn" class="color-target" type="button" title="Колір заливки">
-            <span id="fillPreview" class="color-chip fill-chip"></span>
-            <span class="color-target-label">Заливка</span>
-          </button>
-        </div>
-        <div id="colorPalette" class="inline-palette" aria-label="Основна палітра кольорів"></div>
-        <div class="color-extra">
-          <button id="noFillBtn" class="mini-btn" type="button" title="Без заливки"><i class="fa-solid fa-ban"></i><span>Без заливки</span></button>
-          <label class="custom-color-btn" title="Власний колір">
-            <i class="fa-solid fa-droplet"></i>
-            <input id="nativeColorPicker" type="color" value="#1f2937" aria-label="Власний колір">
-          </label>
-        </div>
-      </div>
-
-      <div class="prop-section">
-        <div class="prop-title">Контур <span id="strokeWidthValue" class="value-badge">3 px</span></div>
-        <input id="strokeWidthSlider" type="range" min="1" max="18" step="1" value="3" aria-label="Товщина контуру">
-      </div>
-
-      <div class="prop-section">
-        <div class="prop-title">Прозорість <span id="opacityValue" class="value-badge">100%</span></div>
-        <input id="opacitySlider" type="range" min="10" max="100" step="5" value="100" aria-label="Непрозорість">
-      </div>
-
       <div id="propText" class="prop-section" data-tool-section="text">
         <div class="prop-title">Розмір тексту <span id="fontSizeValue" class="value-badge">32 px</span></div>
         <input id="fontSizeSlider" type="range" min="12" max="96" step="2" value="32" aria-label="Розмір шрифту">
       </div>
 
       <div id="propObject" class="prop-section prop-object">
-        <div class="prop-title">Об'єкт</div>
-        <div id="selectionState" class="selection-state is-empty">Нічого не вибрано</div>
+        <div class="prop-title">Об'єкт <span id="selectionState" class="prop-title-value"></span></div>
         <div class="panel-actions-grid">
           <button class="panel-action" type="button" data-action="bring-front" title="На передній план"><i class="fa-solid fa-arrow-up-wide-short"></i><span>Вперед</span></button>
           <button class="panel-action" type="button" data-action="send-back" title="На задній план"><i class="fa-solid fa-arrow-down-short-wide"></i><span>Назад</span></button>
@@ -255,12 +225,48 @@
         </div>
       </div>
 
-      <div class="prop-section">
-        <div class="prop-title">Підкладка</div>
-        <div class="segmented" role="group" aria-label="Підкладка">
-          <button class="segmented-btn" type="button" data-guide="none" title="Без підкладки"><i class="fa-regular fa-square"></i></button>
-          <button class="segmented-btn active" type="button" data-guide="grid" title="Сітка"><i class="fa-solid fa-border-all"></i></button>
-          <button class="segmented-btn" type="button" data-guide="lines" title="Рядки"><i class="fa-solid fa-grip-lines"></i></button>
+      </div>
+
+      <div class="panel-common">
+        <div class="prop-section prop-colors">
+          <div class="prop-title">Кольори</div>
+          <div class="color-targets">
+            <button id="strokeTargetBtn" class="color-target active" type="button" title="Колір контуру">
+              <span id="strokePreview" class="color-chip stroke-chip"></span>
+              <span class="color-target-label">Контур</span>
+            </button>
+            <button id="fillTargetBtn" class="color-target" type="button" title="Колір заливки">
+              <span id="fillPreview" class="color-chip fill-chip"></span>
+              <span class="color-target-label">Заливка</span>
+            </button>
+          </div>
+          <div id="colorPalette" class="inline-palette" aria-label="Основна палітра кольорів"></div>
+          <div class="color-extra">
+            <button id="noFillBtn" class="mini-btn" type="button" title="Без заливки"><i class="fa-solid fa-ban"></i><span>Без заливки</span></button>
+            <label class="custom-color-btn" title="Власний колір">
+              <i class="fa-solid fa-droplet"></i>
+              <input id="nativeColorPicker" type="color" value="#1f2937" aria-label="Власний колір">
+            </label>
+          </div>
+        </div>
+
+        <div class="prop-section">
+          <div class="prop-title">Контур <span id="strokeWidthValue" class="value-badge">3 px</span></div>
+          <input id="strokeWidthSlider" type="range" min="1" max="18" step="1" value="3" aria-label="Товщина контуру">
+        </div>
+
+        <div class="prop-section">
+          <div class="prop-title">Прозорість <span id="opacityValue" class="value-badge">100%</span></div>
+          <input id="opacitySlider" type="range" min="10" max="100" step="5" value="100" aria-label="Непрозорість">
+        </div>
+
+        <div class="prop-section">
+          <div class="prop-title">Підкладка</div>
+          <div class="segmented guide-control" role="group" aria-label="Підкладка">
+            <button class="segmented-btn" type="button" data-guide="none" title="Без підкладки"><i class="fa-regular fa-square"></i></button>
+            <button class="segmented-btn active" type="button" data-guide="grid" title="Сітка"><i class="fa-solid fa-border-all"></i></button>
+            <button class="segmented-btn" type="button" data-guide="lines" title="Рядки"><i class="fa-solid fa-grip-lines"></i></button>
+          </div>
         </div>
       </div>
     </aside>
