@@ -2174,60 +2174,94 @@ ol.shape-text-element {
    (сама мініатюра визначена один раз вище — див. .slide-thumb)
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-/* Керування карткою (порядок, дублювання, видалення) лежить поверх мініатюри
-   і з'являється лише під курсором або на фокусі з клавіатури — так у списку
-   лишається місце під самі слайди. */
+/* Уся верхня плашка (номер, drag handle і дії) лежить поверх мініатюри й не
+   додає картці висоти. На комп'ютері вона з'являється під курсором або коли
+   фокус входить у картку з клавіатури. */
 .slide-card { position: relative; }
 
-.slide-card-actions {
+.slide-card-head {
   position: absolute;
-  top: .3rem;
-  right: .3rem;
-  z-index: 2;
-  gap: .1rem;
-  padding: .14rem;
-  border-radius: .45rem;
-  background: rgba(255, 255, 255, .94);
+  top: .5rem;
+  right: .5rem;
+  left: .5rem;
+  z-index: 3;
+  display: flex;
+  min-height: 0;
+  margin: 0;
+  gap: .25rem;
+  padding: .16rem .2rem;
+  border-radius: .5rem;
+  background: rgba(255, 255, 255, .96);
   box-shadow: 0 2px 8px rgba(15, 23, 42, .2);
   opacity: 0;
   visibility: hidden;
-  transition: opacity .12s ease;
+  transform: translateY(-3px);
+  pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease, visibility 0s linear .12s;
 }
 
-.slide-card:hover .slide-card-actions,
-.slide-card:focus-within .slide-card-actions {
+.slide-card:hover .slide-card-head,
+.slide-card:focus-within .slide-card-head {
   opacity: 1;
   visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+  transition-delay: 0s;
 }
 
-/* Ручка перетягування ховається без зміни розкладки: місце під неї лишається,
-   тож номер слайда не стрибає при наведенні. Сама картка теж draggable. */
-.slide-drag-handle {
-  opacity: 0;
-  transition: opacity .12s ease;
-}
-
-.slide-card:hover .slide-drag-handle,
-.slide-card:focus-within .slide-drag-handle {
-  opacity: 1;
+.slide-card-actions {
+  position: static;
+  gap: .1rem;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 /* Пристрої без наведення (сенсорні): керування нема де ховати, тож воно
    лишається видимим — і мусить мати придатний до пальця розмір. 24×24, як у
    решті .mini-btn бічної панелі, для дотику замалі. */
 @media (hover: none) {
-  /* Панель дій опускається до нижнього краю мініатюри: угорі вона перекривала
-     б номер слайда, бо на телефоні картка вужча за саму панель. */
+  /* На вузькій картці номер і чотири touch-кнопки не вміщаються в один рядок:
+     заголовок лишається зверху, панель дій — унизу. Обидві зони накладаються
+     на мініатюру, тому й тут верхня плашка не збільшує висоту картки. */
+  .slide-card-head {
+    top: .3rem;
+    right: .3rem;
+    bottom: .3rem;
+    left: .3rem;
+    align-items: flex-start;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    pointer-events: none;
+  }
+
+  .slide-card-title-wrap {
+    padding: .12rem .22rem;
+    border-radius: .45rem;
+    background: rgba(255, 255, 255, .96);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, .2);
+    pointer-events: auto;
+  }
+
   .slide-card-actions {
+    position: absolute;
     opacity: 1;
     visibility: visible;
     top: auto;
-    bottom: .3rem;
-    left: .3rem;
-    right: .3rem;
+    bottom: 0;
+    left: 0;
+    right: 0;
     justify-content: space-around;
     gap: .2rem;
     padding: .2rem;
+    border-radius: .45rem;
+    background: rgba(255, 255, 255, .96);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, .2);
+    pointer-events: auto;
   }
 
   .slide-card-actions .mini-btn {
@@ -2240,7 +2274,6 @@ ol.shape-text-element {
   .slide-card-actions .mini-btn i { font-size: .9rem; }
 
   .slide-drag-handle {
-    opacity: 1;
     width: 32px;
     height: 32px;
     font-size: .85rem;

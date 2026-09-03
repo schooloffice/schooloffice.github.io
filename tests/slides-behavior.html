@@ -754,20 +754,28 @@
         Math.abs(miniBox.width - (frameBox.width - 2)) <= 1.5
         && Math.abs(miniBox.height - (frameBox.height - 2)) <= 1.5));
 
-      // Керування карткою приховане, доки картка не під курсором і не у фокусі.
+      // Уся верхня плашка прихована й вилучена з потоку, доки картка не під
+      // курсором і не у фокусі. Це дає списку ще один ряд мініатюр по висоті.
       const idleCard = Array.from(doc.querySelectorAll('#slideList .slide-card'))
         .find(card => !card.matches(':hover') && !card.matches(':focus-within'));
-      const idleActions = idleCard?.querySelector('.slide-card-actions');
-      checks.push(check('slide card controls stay hidden until hover or focus',
-        !!idleActions && win.getComputedStyle(idleActions).visibility === 'hidden'));
+      const idleHead = idleCard?.querySelector('.slide-card-head');
+      checks.push(check('slide card header stays hidden until hover or focus',
+        !!idleHead && win.getComputedStyle(idleHead).visibility === 'hidden'));
+      const compactCardBox = idleCard.getBoundingClientRect();
+      const compactThumbBox = idleCard.querySelector('.slide-thumb').getBoundingClientRect();
+      checks.push(check('slide card header does not add to card height',
+        compactCardBox.height - compactThumbBox.height <= 16));
       // Клавіатурний шлях: visibility: hidden прибирає кнопки з порядку обходу,
       // тож дістатися їх можна лише після того, як картка отримала фокус —
-      // фокус на видимій мініатюрі має відкривати дії й робити їх фокусованими.
+      // фокус на видимій мініатюрі має відкрити всю плашку й зробити дії
+      // фокусованими.
       const focusCard = doc.querySelector('#slideList .slide-card');
       focusCard.querySelector('.slide-thumb-button').focus();
+      const focusHead = focusCard.querySelector('.slide-card-head');
       const focusActions = focusCard.querySelector('.slide-card-actions');
-      checks.push(check('slide card controls appear on keyboard focus',
-        win.getComputedStyle(focusActions).visibility === 'visible'));
+      checks.push(check('slide card header appears on keyboard focus',
+        win.getComputedStyle(focusHead).visibility === 'visible'
+        && win.getComputedStyle(focusActions).visibility === 'visible'));
       const focusButton = focusActions.querySelector('.mini-btn');
       focusButton.focus();
       checks.push(check('revealed slide card controls are focusable',
