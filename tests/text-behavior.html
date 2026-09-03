@@ -96,6 +96,36 @@
       return node?.closest?.(".page-content") || null;
     }
 
+    function tableCells(doc) {
+      return Array.from(doc.querySelectorAll('#editor table th, #editor table td'));
+    }
+
+    function firstTextNode(root) {
+      const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      return walker.nextNode();
+    }
+
+    function selectAcrossCells(win, doc, fromIndex, toIndex) {
+      const cells = tableCells(doc);
+      const start = firstTextNode(cells[fromIndex]);
+      const end = firstTextNode(cells[toIndex]);
+      if (!start || !end) return '';
+      const range = doc.createRange();
+      range.setStart(start, Math.min(2, start.length));
+      range.setEnd(end, Math.min(5, end.length));
+      const sel = win.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      doc.getElementById('editor').dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+      return sel.toString();
+    }
+
+    function dispatchTab(win, editor, shiftKey = false) {
+      editor.dispatchEvent(new win.KeyboardEvent('keydown', {
+        key: 'Tab', shiftKey, bubbles: true, cancelable: true
+      }));
+    }
+
     function selectionCell(win) {
       const sel = win.getSelection();
       const node = sel?.anchorNode?.nodeType === Node.ELEMENT_NODE ? sel.anchorNode : sel?.anchorNode?.parentElement;
@@ -161,7 +191,6 @@
         ? win.getSelection().anchorNode
         : win.getSelection()?.anchorNode?.parentElement;
       const selectionPageIndex = longPages.indexOf(activeNode?.closest?.('.page-content'));
-      const knownPaginationOverflowDetected = longPages.length > 1 && longOverflows.some(Boolean);
       const selectionReachedLastPage = selectionPageIndex === longPages.length - 1;
 
       // Один editing host дозволяє Range і браузерному mouse-selection
@@ -221,31 +250,361 @@
       // Фокус лишається на єдиному editing host, а Range визначає сторінку.
       const focusOnDocument = doc.activeElement === editor;
 
+      // ── Таблиці ──────────────────────────────────────────────────────────
       await resetDocument(win, doc);
       firstPage = pageContents(doc)[0];
       editor.focus();
       setCaretAtStart(win, firstPage.querySelector('p') || firstPage);
+      win.art.editor.insertTable(3, 3);
+      await wait(600);
+
+      tableCells(doc).forEach((cell, index) => { cell.textContent = 'Клітинка' + (index + 1); });
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await wait(400);
+
+      // Inline-форматування виділення через дві клітинки не має виносити <th>
+      // в inline-обгортку й ламати рядок.
+      selectAcrossCells(win, doc, 0, 1);
+      win.art.toolbar.applyCommand('italic');
+      await wait(400);
+
+      const cellsAfterFormatting = tableCells(doc).length;
+      const rowWidths = Array.from(doc.querySelectorAll('#editor table tr')).map(row => row.children.length);
+      const structureSurvivedFormatting = cellsAfterFormatting === 9
+        && rowWidths.every(width => width === 3)
+        && !doc.querySelector('#editor tr > em, #editor em th, #editor em td');
+      const italicStayedInsideCells = doc.querySelectorAll('#editor table th em, #editor table td em').length === 2;
+
+      // Tab/Shift+Tab ходять по клітинках, у останній клітинці додається рядок.
+      const navCells = tableCells(doc);
+      setCaretAtStart(win, navCells[0]);
+      dispatchTab(win, editor);
+      await wait(150);
+      const tabMovedForward = selectionCell(win) === tableCells(doc)[1];
+      dispatchTab(win, editor, true);
+      await wait(150);
+      const shiftTabMovedBack = selectionCell(win) === tableCells(doc)[0];
+
+      const rowsBeforeTab = doc.querySelectorAll('#editor table tr').length;
+      setCaretAtStart(win, tableCells(doc).slice(-1)[0]);
+      dispatchTab(win, editor);
+      await wait(400);
+      const tabAddedRow = doc.querySelectorAll('#editor table tr').length === rowsBeforeTab + 1;
+
+      // Дії контекстної панелі.
+      const contextBar = doc.getElementById('tableContextBar');
+      const contextBarVisibleInTable = contextBar && !contextBar.hidden;
+      const columnsBeforeAction = doc.querySelector('#editor table tr').children.length;
+      setCaretAtStart(win, tableCells(doc)[0]);
+      win.art.editor.tableAction('column-right');
+      await wait(500);
+      const columnAddedEverywhere = Array.from(doc.querySelectorAll('#editor table tr'))
+        .every(row => row.children.length === columnsBeforeAction + 1);
+      const rowsBeforeDelete = doc.querySelectorAll('#editor table tr').length;
+      win.art.editor.tableAction('row-delete');
+      await wait(500);
+      const rowDeleted = doc.querySelectorAll('#editor table tr').length === rowsBeforeDelete - 1;
+      setCaretAtStart(win, tableCells(doc)[0]);
+      win.art.editor.tableAction('table-delete');
+      await wait(100);
+      const tableDeletionNeedsConfirmation = doc.getElementById('modalConfirm').classList.contains('active')
+        && !!doc.querySelector('#editor table');
+      win.art.modals.confirmNo();
+
+      // ── Велика таблиця ділиться між сторінками ──────────────────────────
+      await resetDocument(win, doc);
+      editor.focus();
+      setCaretAtStart(win, pageContents(doc)[0].querySelector('p') || pageContents(doc)[0]);
       win.art.editor.insertTable(50, 4);
-      await wait(800);
+      await waitFor(() => pageContents(doc).length > 1, 'large table pagination', 20000);
+      let settledTablePages = pageContents(doc).length;
+      await waitFor(() => {
+        const now = pageContents(doc).length;
+        const stable = now === settledTablePages;
+        settledTablePages = now;
+        return stable;
+      }, 'large table pagination to settle', 20000);
+      await wait(500);
 
       const tablePages = pageContents(doc);
-      const table = doc.querySelector('#editor table');
-      const rows = doc.querySelectorAll('#editor table tr').length;
-      const cells = Array.from(doc.querySelectorAll('#editor table th, #editor table td'));
-      const knownLargeTableOverflowDetected = !!table && rows === 50 && tablePages.length === 1 && isOverflowing(tablePages[0]);
+      const dataRowSelector = '#editor table tr:not([data-art-table-repeat])';
+      const rows = doc.querySelectorAll(dataRowSelector).length;
+      const cells = Array.from(doc.querySelectorAll(dataRowSelector + ' > th, ' + dataRowSelector + ' > td'));
+      const tableOverflows = tablePages.some(isOverflowing);
+      const clippedRows = Array.from(doc.querySelectorAll('#editor table tr')).filter(row => {
+        const page = row.closest('.page-content');
+        return page && row.getBoundingClientRect().bottom > page.getBoundingClientRect().bottom + 1;
+      }).length;
+      const repeatedHeaders = doc.querySelectorAll('#editor tr[data-art-table-repeat]').length;
+      const firstPageHasContent = !!tablePages[0].querySelector('table, img') || (tablePages[0].textContent || '').trim().length > 0;
 
-      const firstCell = cells[0];
-      const secondCell = cells[1];
-      let knownTableTabMissingDetected = false;
-      if (firstCell && secondCell) {
-        setCaretAtStart(win, firstCell);
-        const tabEvent = new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
-        firstCell.dispatchEvent(tabEvent);
+      // Повторений заголовок — лише представлення: він не редагується, а Tab
+      // переводить карету до справжнього рядка без додавання зайвих рядків.
+      const repeatedHeaderCell = doc.querySelector('#editor tr[data-art-table-repeat] > th');
+      const repeatedHeaderReadOnly = !!repeatedHeaderCell
+        && repeatedHeaderCell.closest('tr').getAttribute('contenteditable') === 'false';
+      const rowsBeforeRepeatedHeaderTab = doc.querySelectorAll(dataRowSelector).length;
+      if (repeatedHeaderCell) {
+        setCaretAtStart(win, repeatedHeaderCell);
+        dispatchTab(win, editor);
         await wait(150);
-        const selectedCell = selectionCell(win);
-        const secondCellText = (secondCell.textContent || '').replace(/\u200B/g, '').trim();
-        knownTableTabMissingDetected = tabEvent.defaultPrevented && selectedCell !== secondCell && secondCellText === '';
       }
+      const repeatedHeaderTabSafe = doc.querySelectorAll(dataRowSelector).length === rowsBeforeRepeatedHeaderTab
+        && !selectionCell(win)?.closest('tr')?.hasAttribute('data-art-table-repeat');
+
+      const exportBox = doc.createElement('div');
+      exportBox.innerHTML = win.art.editor.getExportHTML();
+      const exportTables = exportBox.querySelectorAll('table').length;
+      const exportRows = exportBox.querySelectorAll('tr').length;
+      const exportKeepsHeaderOnce = exportBox.querySelectorAll('th').length === 4;
+
+      // ── DOCX round-trip таблиці ─────────────────────────────────────────
+      const docxSource = '<p>До таблиці</p><table><tbody>'
+        + '<tr><th>Заголовок A</th><th>Заголовок B</th></tr>'
+        + '<tr><td>Рядок<br>другий рядок</td><td><strong>Жирне</strong></td></tr>'
+        + '</tbody></table><p>Після таблиці</p>';
+      let docxRoundTrip = { tables: 0, rows: 0, cells: 0, headerCells: 0, dataCells: 0, lineBreak: false, bold: false, error: null };
+      try {
+        const blob = await win.art.formats.docx.exportDocx(docxSource, {});
+        const file = new win.File([blob], 'smoke.docx', {
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        });
+        const restored = await win.art.formats.docx.importDocx(file);
+        const box = doc.createElement('div');
+        box.innerHTML = restored.html;
+        const restoredCells = Array.from(box.querySelectorAll('td, th'));
+        docxRoundTrip = {
+          tables: box.querySelectorAll('table').length,
+          rows: box.querySelectorAll('tr').length,
+          cells: restoredCells.length,
+          headerCells: box.querySelectorAll('th').length,
+          dataCells: box.querySelectorAll('td').length,
+          lineBreak: !!restoredCells[2] && restoredCells[2].querySelectorAll('br').length > 0,
+          bold: box.querySelectorAll('strong, b').length > 0,
+          error: null
+        };
+      } catch (err) {
+        docxRoundTrip.error = err && err.message ? err.message : String(err);
+      }
+      const docxTableRoundTripWorks = docxRoundTrip.tables === 1
+        && docxRoundTrip.rows === 2
+        && docxRoundTrip.cells === 4
+        && docxRoundTrip.headerCells === 2
+        && docxRoundTrip.dataCells === 2
+        && docxRoundTrip.lineBreak
+        && docxRoundTrip.bold;
+
+      // Геометрія має потрапляти до секції DOCX. Перехоплюємо лише фінальний
+      // Document/Packer, а реальні Paragraph/Table класи лишаємо без змін.
+      let capturedDocxOptions = null;
+      const RealDocument = win.docx.Document;
+      const realToBlob = win.docx.Packer.toBlob;
+      try {
+        win.docx.Document = class {
+          constructor(options) { capturedDocxOptions = options; }
+        };
+        win.docx.Packer.toBlob = async () => new win.Blob(['test']);
+        await win.art.formats.docx.exportDocx('<p>Геометрія</p>', {
+          pageSize: 'a5',
+          orientation: 'landscape',
+          margins: { top: 1, right: 2, bottom: 3, left: 4 }
+        });
+      } finally {
+        win.docx.Document = RealDocument;
+        win.docx.Packer.toBlob = realToBlob;
+      }
+      const exportedPage = capturedDocxOptions?.sections?.[0]?.properties?.page;
+      const docxKeepsPageGeometry = exportedPage?.size?.width === 11906
+        && exportedPage?.size?.height === 8391
+        && exportedPage?.margin?.top === 567
+        && exportedPage?.margin?.right === 1134
+        && exportedPage?.margin?.bottom === 1701
+        && exportedPage?.margin?.left === 2268;
+
+      // Rowspan, що перетинає межу сторінки, не можна рознести по двох
+      // незалежних таблицях. Така таблиця має лишитися цілою і видимою.
+      await resetDocument(win, doc);
+      firstPage = pageContents(doc)[0];
+      const mergedRows = ['<tr><th>Клас</th><th>Учень</th></tr>'];
+      mergedRows.push('<tr><td rowspan="40">7-А</td><td>Учень 1</td></tr>');
+      for (let index = 2; index <= 40; index += 1) mergedRows.push(`<tr><td>Учень ${index}</td></tr>`);
+      for (let index = 41; index <= 50; index += 1) mergedRows.push(`<tr><td>7-Б</td><td>Учень ${index}</td></tr>`);
+      firstPage.innerHTML = `<table><tbody>${mergedRows.join('')}</tbody></table>`;
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await waitFor(() => !!doc.querySelector('#editor .page[data-art-oversize]'), 'rowspan table overflow fallback', 20000);
+      await wait(300);
+      const mergedTable = doc.querySelector('#editor table');
+      const rowspanTableStaysWhole = doc.querySelectorAll('#editor table').length === 1
+        && !doc.querySelector('#editor table[data-art-table-part]')
+        && mergedTable?.querySelector('[rowspan="40"]')?.rowSpan === 40
+        && !isOverflowing(mergedTable?.closest('.page-content'));
+      const mergedColumnCount = mergedTable?.rows?.[0]?.cells?.length || 0;
+      setCaretAtStart(win, mergedTable.querySelector('td[rowspan]'));
+      editor.dispatchEvent(new win.Event('keyup', { bubbles: true }));
+      await wait(100);
+      const mergedActionsDisabled = Array.from(doc.querySelectorAll('#tableContextBar [data-table-action]:not([data-table-action="table-delete"])'))
+        .every(button => button.disabled)
+        && win.art.editor.tableAction('column-right') === false
+        && (mergedTable?.rows?.[0]?.cells?.length || 0) === mergedColumnCount;
+      win.art.modals.close('modalInfo');
+
+      // Один рядок може бути вищим за аркуш. Вміст не повинен ховатися.
+      await resetDocument(win, doc);
+      firstPage = pageContents(doc)[0];
+      firstPage.innerHTML = '<table><tbody><tr><th>Нотатки</th></tr><tr><td>'
+        + Array.from({ length: 90 }, (_, index) => `Рядок ${index + 1}`).join('<br>')
+        + '</td></tr></tbody></table>';
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await waitFor(() => !!doc.querySelector('#editor .page[data-art-oversize]'), 'tall row overflow fallback', 20000);
+      await wait(300);
+      const tallRowContent = pageContents(doc)[0];
+      const tallRowPage = tallRowContent.closest('.page');
+      const tallRowLast = tallRowContent.querySelector('tr:last-child');
+      const tallRowDiagnostics = {
+        pages: pageContents(doc).length,
+        clientHeight: tallRowContent.clientHeight,
+        scrollHeight: tallRowContent.scrollHeight,
+        rowBottom: Math.round(tallRowLast.getBoundingClientRect().bottom),
+        pageBottom: Math.round(tallRowPage.getBoundingClientRect().bottom)
+      };
+      const tallRowVisible = pageContents(doc).length === 1
+        && !isOverflowing(tallRowContent)
+        && tallRowLast.getBoundingClientRect().bottom <= tallRowPage.getBoundingClientRect().bottom + 1;
+
+      // ── Налаштування сторінки й лінійка ─────────────────────────────────
+      await resetDocument(win, doc);
+      win.art.page.setMargins({ top: 2, right: 1.5, bottom: 2, left: 3 });
+      win.art.state.set('pageSize', 'a4');
+      win.art.editor.setOrientation('portrait');
+      await wait(600);
+
+      const pagesWrap = doc.querySelector('.pages-wrap');
+      const pageBox = doc.querySelector('.page');
+      const defaultGeometry = {
+        width: Math.round(pageBox.getBoundingClientRect().width),
+        height: Math.round(pageBox.getBoundingClientRect().height),
+        padLeft: pagesWrap.style.getPropertyValue('--page-pad-left')
+      };
+      // A4 при 96 dpi — 794 × 1123 px, ліве поле 3 см — 113 px.
+      const defaultGeometryOk = defaultGeometry.width === 794
+        && defaultGeometry.height === 1123
+        && defaultGeometry.padLeft === '113px';
+
+      const ruler = doc.getElementById('pageRuler');
+      const rulerTrack = doc.getElementById('rulerTrack');
+      const rulerRect = ruler.getBoundingClientRect();
+      const pageRect = pageBox.getBoundingClientRect();
+      const rulerAligned = !!ruler && !!rulerTrack
+        && Math.abs(parseFloat(rulerTrack.style.left) - (pageRect.left - rulerRect.left)) <= 1
+        && Math.abs(parseFloat(rulerTrack.style.width) - pageRect.width) <= 1
+        && doc.getElementById('rulerTicks').childElementCount > 10;
+
+      const leftHandle = doc.querySelector('[data-ruler-handle="left"]');
+      const rulerReportsMargin = leftHandle.getAttribute('aria-valuenow') === '3.0';
+
+      leftHandle.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+      await wait(400);
+      const rulerKeyboardWorks = win.art.page.margins().left === 3.1;
+      leftHandle.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+      await wait(400);
+
+      // Діалог та його історію перевіряємо з чистого документа, незалежно від
+      // двох попередніх кроків клавіатурного тесту лінійки.
+      await resetDocument(win, doc);
+
+      // Діалог «Налаштування сторінки»
+      win.art.page.openSetup();
+      await wait(300);
+      const setupDialogOpens = doc.getElementById('modalPageSetup').classList.contains('active')
+        && doc.getElementById('pageSetupSize').options.length === 3
+        && doc.getElementById('pageMarginLeft').value === '3.0';
+
+      doc.getElementById('pageMarginLeft').value = '2.5';
+      doc.getElementById('pageMarginTop').value = '1.5';
+      doc.getElementById('pageSetupSize').value = 'a5';
+      doc.querySelector('[name="pageOrientation"][value="landscape"]').checked = true;
+      doc.querySelector('[data-page-setup-apply]').click();
+      await wait(900);
+
+      const appliedGeometry = {
+        width: Math.round(doc.querySelector('.page').getBoundingClientRect().width),
+        height: Math.round(doc.querySelector('.page').getBoundingClientRect().height),
+        padLeft: pagesWrap.style.getPropertyValue('--page-pad-left'),
+        padTop: pagesWrap.style.getPropertyValue('--page-pad-top'),
+        margins: win.art.page.margins(),
+        closed: !doc.getElementById('modalPageSetup').classList.contains('active')
+      };
+      // A5 альбомна — 794 × 559 px, поля 2,5 та 1,5 см.
+      const setupAppliesGeometry = appliedGeometry.width === 794
+        && appliedGeometry.height === 559
+        && appliedGeometry.padLeft === '94px'
+        && appliedGeometry.padTop === '57px'
+        && appliedGeometry.margins.left === 2.5
+        && appliedGeometry.closed;
+      const pageSetupMarksDocumentDirty = win.art.state.isDirty() && win.art.history.canUndo();
+
+      win.art.history.undo();
+      await wait(700);
+      const pageSetupUndoState = {
+        pageSize: win.art.state.get('pageSize'),
+        orientation: win.art.state.get('orientation'),
+        margins: win.art.page.margins(),
+        dirty: win.art.state.isDirty()
+      };
+      const pageSetupUndoWorks = pageSetupUndoState.pageSize === 'a4'
+        && pageSetupUndoState.orientation === 'portrait'
+        && pageSetupUndoState.margins.left === 3
+        && !pageSetupUndoState.dirty;
+      win.art.history.redo();
+      await wait(700);
+      const pageSetupRedoWorks = win.art.state.get('pageSize') === 'a5'
+        && win.art.state.get('orientation') === 'landscape'
+        && win.art.page.margins().left === 2.5
+        && win.art.state.isDirty();
+
+      // Поля впливають на місткість сторінки.
+      win.art.state.set('pageSize', 'a4');
+      win.art.editor.setOrientation('portrait');
+      win.art.page.setMargins({ top: 2, right: 1.5, bottom: 2, left: 3 });
+      await wait(700);
+      const marginTestPage = pageContents(doc)[0];
+      marginTestPage.innerHTML = Array.from({ length: 60 }, (_, index) => {
+        return `<p>Абзац ${index + 1}. Перевірка впливу полів на розбиття документа.</p>`;
+      }).join('');
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await waitFor(() => pageContents(doc).length > 1, 'margin pagination', 20000);
+      let settledMarginPages = pageContents(doc).length;
+      await waitFor(() => {
+        const now = pageContents(doc).length;
+        const stable = now === settledMarginPages;
+        settledMarginPages = now;
+        return stable;
+      }, 'margin pagination to settle', 20000);
+      const pagesWithNormalMargins = pageContents(doc).length;
+
+      win.art.page.setMargins({ top: 5, bottom: 5, left: 3, right: 1.5 });
+      await waitFor(() => pageContents(doc).length !== pagesWithNormalMargins, 'wide margin pagination', 20000);
+      let settledWidePages = pageContents(doc).length;
+      await waitFor(() => {
+        const now = pageContents(doc).length;
+        const stable = now === settledWidePages;
+        settledWidePages = now;
+        return stable;
+      }, 'wide margin pagination to settle', 20000);
+      const pagesWithWideMargins = pageContents(doc).length;
+      const marginsChangePageCapacity = pagesWithWideMargins > pagesWithNormalMargins;
+      win.art.page.setMargins({ top: 2, right: 1.5, bottom: 2, left: 3 });
+      await wait(600);
+
+      win.art.state.set('pageSize', 'letter');
+      win.art.state.set('orientation', 'landscape');
+      win.art.page.setMargins({ top: 4, right: 4, bottom: 4, left: 4 });
+      win.art.editor.newDoc();
+      await wait(500);
+      const newDocumentResetsGeometry = win.art.state.get('pageSize') === 'a4'
+        && win.art.state.get('orientation') === 'portrait'
+        && JSON.stringify(win.art.page.margins()) === JSON.stringify({ top: 2, right: 1.5, bottom: 2, left: 3 })
+        && !win.art.state.isDirty();
 
       const checks = [
         ...baseChecks,
@@ -259,8 +618,40 @@
         check('Enter at the bottom of a page starts a new page', pagesAfterEnter.length > pagesBeforeEnter),
         check('caret moves to the new page after Enter', caretPageIndex === pagesAfterEnter.length - 1),
         check('document host keeps focus after caret moves to a new page', focusOnDocument),
-        check('large table inserts requested rows', rows === 50),
-        check('large table exposes editable cells', cells.length === 200)
+        check('table survives formatting across two cells', structureSurvivedFormatting),
+        check('formatting lands inside the cells', italicStayedInsideCells),
+        check('Tab moves to the next cell', tabMovedForward),
+        check('Shift+Tab moves to the previous cell', shiftTabMovedBack),
+        check('Tab in the last cell adds a row', tabAddedRow),
+        check('table context bar appears inside a table', contextBarVisibleInTable),
+        check('column action applies to every row', columnAddedEverywhere),
+        check('row action removes a row', rowDeleted),
+        check('deleting a table requires confirmation', tableDeletionNeedsConfirmation),
+        check('large table splits across pages', tablePages.length > 1),
+        check('large table keeps all requested rows', rows === 50),
+        check('large table exposes editable cells', cells.length === 200),
+        check('large table leaves no clipped rows', clippedRows === 0 && !tableOverflows),
+        check('table continuation repeats the header row', repeatedHeaders === tablePages.length - 1),
+        check('repeated table headers are read-only', repeatedHeaderReadOnly),
+        check('Tab on a repeated header does not add a row', repeatedHeaderTabSafe),
+        check('table does not push a blank page in front of itself', firstPageHasContent),
+        check('export merges the split table back', exportTables === 1 && exportRows === 50 && exportKeepsHeaderOnce),
+        check('docx round-trip keeps table structure and line breaks', docxTableRoundTripWorks),
+        check('docx export keeps page size, orientation and margins', docxKeepsPageGeometry),
+        check('rowspan table stays structurally whole and visible', rowspanTableStaysWhole),
+        check('unsafe actions are disabled for merged cells', mergedActionsDisabled),
+        check('a single tall table row remains visible', tallRowVisible),
+        check('page starts with A4 geometry and school margins', defaultGeometryOk),
+        check('ruler aligns with the page', rulerAligned),
+        check('ruler reports the current left margin', rulerReportsMargin),
+        check('ruler handle responds to the keyboard', rulerKeyboardWorks),
+        check('page setup dialog opens with current values', setupDialogOpens),
+        check('page setup applies paper size, orientation and margins', setupAppliesGeometry),
+        check('page setup marks the document as changed', pageSetupMarksDocumentDirty),
+        check('Undo restores page geometry and saved state', pageSetupUndoWorks),
+        check('Redo restores changed page geometry', pageSetupRedoWorks),
+        check('margins change how much fits on a page', marginsChangePageCapacity),
+        check('new document restores default page geometry', newDocumentResetsGeometry)
       ];
 
       const failed = checks.filter(item => !item.ok);
@@ -275,15 +666,20 @@
         `formatting spans adjacent pages: ${crossPageFormattingWorks}`,
         `selection markers cleaned: ${selectionMarkersCleaned}`,
         `table page count: ${tablePages.length}`,
-        `table rows: ${rows}`,
-        `table first page overflow: ${isOverflowing(tablePages[0])}`,
-        `known pagination overflow reproduced: ${knownPaginationOverflowDetected}`,
-        `known large table overflow reproduced: ${knownLargeTableOverflowDetected}`,
-        `known table Tab navigation gap reproduced: ${knownTableTabMissingDetected}`,
+        `table data rows: ${rows}`,
+        `table clipped rows: ${clippedRows}`,
+        `repeated header rows: ${repeatedHeaders}`,
+        `export tables/rows: ${exportTables}/${exportRows}`,
+        `docx round-trip: ${JSON.stringify(docxRoundTrip)}`,
+        `tall row: ${JSON.stringify(tallRowDiagnostics)}`,
+        `page setup undo: ${JSON.stringify(pageSetupUndoState)}`,
         `pages before/after Enter: ${pagesBeforeEnter}/${pagesAfterEnter.length}`,
         `caret page after Enter: ${caretPageIndex + 1 || 'unknown'}`,
         `chrome stays fixed: ${chromeStaysFixed}`,
-        `focus on document host: ${focusOnDocument}`
+        `focus on document host: ${focusOnDocument}`,
+        `page geometry: ${JSON.stringify(defaultGeometry)}`,
+        `applied geometry: ${JSON.stringify(appliedGeometry)}`,
+        `pages with normal/wide margins: ${pagesWithNormalMargins}/${pagesWithWideMargins}`
       ];
 
       result.textContent = checks
@@ -302,7 +698,10 @@
 
     run().catch(err => {
       document.body.dataset.textBehavior = 'failed';
-      result.textContent = err?.stack || err?.message || String(err);
+      // Лишаємо список перевірок і діагностику: інакше причину падіння видно
+      // тільки під час ручного відтворення.
+      const previous = result.textContent === 'Running...' ? '' : result.textContent + String.fromCharCode(10, 10);
+      result.textContent = previous + (err?.stack || err?.message || String(err));
     });
   </script>
 </body>

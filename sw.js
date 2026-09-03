@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v39';
+const CACHE_VERSION = 'office-plus-v41';
 const PRECACHE_NAME = `${CACHE_VERSION}-precache`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const MAX_RUNTIME_ENTRIES = 80;
@@ -136,6 +136,7 @@ const CORE_ASSETS = [
   './text/ui/editor.js',
   './text/ui/menu.js',
   './text/ui/modals.js',
+  './text/ui/page.js',
   './text/ui/toolbar.js',
   './UI_TOKENS.css',
   './style.css',

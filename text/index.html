@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="../UI_TOKENS.css">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="../shell-overrides.css">
+  <style id="pagePrintGeometry"></style>
 </head>
 
 <body class="office-app" data-office-service="text">
@@ -74,6 +75,10 @@
         <button class="menu-item" data-action="save-docx" role="menuitem">
           <span><i class="fa-solid fa-file-word fa-fw"></i> Зберегти як .docx</span>
           <span class="shortcut">Ctrl+S</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="page-setup" role="menuitem">
+          <span><i class="fa-solid fa-file-lines fa-fw"></i> Налаштування сторінки…</span>
         </button>
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="print" role="menuitem">
@@ -343,6 +348,89 @@
 
   </div>
 
+
+  <!-- ════════════════════════════════════════
+     КОНТЕКСТНА ПАНЕЛЬ ТАБЛИЦІ
+════════════════════════════════════════ -->
+  <div class="table-bar office-contextbar" id="tableContextBar" role="toolbar" aria-label="Таблиця" hidden>
+    <span class="table-bar-title">Таблиця</span>
+
+    <div class="tb-group office-context-group">
+      <button class="tb-btn" type="button" data-table-action="row-above" title="Додати рядок вище" aria-label="Додати рядок вище">
+        <i class="fa-solid fa-arrow-up fa-fw" aria-hidden="true"></i>
+        <span class="table-bar-label">Рядок</span>
+      </button>
+      <button class="tb-btn" type="button" data-table-action="row-below" title="Додати рядок нижче" aria-label="Додати рядок нижче">
+        <i class="fa-solid fa-arrow-down fa-fw" aria-hidden="true"></i>
+        <span class="table-bar-label">Рядок</span>
+      </button>
+      <button class="tb-btn" type="button" data-table-action="row-delete" title="Видалити рядок" aria-label="Видалити рядок">
+        <i class="fa-solid fa-trash fa-fw" aria-hidden="true"></i>
+        <span class="table-bar-label">Рядок</span>
+      </button>
+    </div>
+
+    <div class="tb-sep" aria-hidden="true"></div>
+
+    <div class="tb-group office-context-group">
+      <button class="tb-btn" type="button" data-table-action="column-left" title="Додати колонку ліворуч" aria-label="Додати колонку ліворуч">
+        <i class="fa-solid fa-arrow-left fa-fw" aria-hidden="true"></i>
+        <span class="table-bar-label">Колонка</span>
+      </button>
+      <button class="tb-btn" type="button" data-table-action="column-right" title="Додати колонку праворуч" aria-label="Додати колонку праворуч">
+        <i class="fa-solid fa-arrow-right fa-fw" aria-hidden="true"></i>
+        <span class="table-bar-label">Колонка</span>
+      </button>
+      <button class="tb-btn" type="button" data-table-action="column-delete" title="Видалити колонку" aria-label="Видалити колонку">
+        <i class="fa-solid fa-trash fa-fw" aria-hidden="true"></i>
+        <span class="table-bar-label">Колонка</span>
+      </button>
+    </div>
+
+    <div class="tb-sep" aria-hidden="true"></div>
+
+    <div class="tb-group office-context-group">
+      <button class="tb-btn" type="button" data-table-action="column-narrower" title="Вужча колонка" aria-label="Вужча колонка">
+        <i class="fa-solid fa-left-right fa-fw icon-flip" aria-hidden="true"></i>
+        <span class="table-bar-label">Вужче</span>
+      </button>
+      <button class="tb-btn" type="button" data-table-action="column-wider" title="Ширша колонка" aria-label="Ширша колонка">
+        <i class="fa-solid fa-left-right fa-fw" aria-hidden="true"></i>
+        <span class="table-bar-label">Ширше</span>
+      </button>
+      <button class="tb-btn" type="button" data-table-action="column-auto" title="Автоматична ширина" aria-label="Автоматична ширина">
+        <i class="fa-solid fa-arrows-to-circle fa-fw" aria-hidden="true"></i>
+        <span class="table-bar-label">Авто</span>
+      </button>
+    </div>
+
+    <div class="tb-sep" aria-hidden="true"></div>
+
+    <button class="tb-btn" type="button" data-table-action="table-delete" title="Видалити таблицю" aria-label="Видалити таблицю">
+      <i class="fa-solid fa-table-cells-large fa-fw" aria-hidden="true"></i>
+      <span class="table-bar-label">Видалити таблицю</span>
+    </button>
+  </div>
+
+
+  <!-- ════════════════════════════════════════
+     ЛІНІЙКА
+════════════════════════════════════════ -->
+  <div class="ruler" id="pageRuler" role="group" aria-label="Лінійка полів сторінки">
+    <div class="ruler-track" id="rulerTrack">
+      <div class="ruler-field" aria-hidden="true"></div>
+      <div class="ruler-ticks" id="rulerTicks" aria-hidden="true"></div>
+      <button class="ruler-handle ruler-handle-left" type="button" data-ruler-handle="left" role="slider"
+        aria-label="Ліве поле, см" aria-valuemin="0.5" aria-valuemax="18" aria-valuenow="3" aria-valuetext="3,0 см">
+        <span class="sr-only">Ліве поле</span>
+      </button>
+      <button class="ruler-handle ruler-handle-right" type="button" data-ruler-handle="right" role="slider"
+        aria-label="Праве поле, см" aria-valuemin="0.5" aria-valuemax="18" aria-valuenow="1.5" aria-valuetext="1,5 см">
+        <span class="sr-only">Праве поле</span>
+      </button>
+    </div>
+  </div>
+
   <!-- ════════════════════════════════════════
      ОБЛАСТЬ АРКУШІВ
 ════════════════════════════════════════ -->
@@ -453,6 +541,64 @@
     </div>
   </div>
 
+
+  <!-- Налаштування сторінки -->
+  <div id="modalPageSetup" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalPageSetupTitle">
+    <div class="modal-box">
+      <div class="modal-title" id="modalPageSetupTitle">
+        <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
+        Налаштування сторінки
+      </div>
+
+      <form id="pageSetupForm" class="page-setup">
+        <fieldset class="page-setup-group">
+          <legend>Орієнтація</legend>
+          <label class="page-setup-radio">
+            <input type="radio" name="pageOrientation" value="portrait" data-autofocus checked>
+            <span>Книжкова</span>
+          </label>
+          <label class="page-setup-radio">
+            <input type="radio" name="pageOrientation" value="landscape">
+            <span>Альбомна</span>
+          </label>
+        </fieldset>
+
+        <label class="page-setup-field">
+          Розмір паперу
+          <select id="pageSetupSize" class="tb-select" aria-label="Розмір паперу"></select>
+        </label>
+
+        <fieldset class="page-setup-group">
+          <legend>Поля (сантиметри)</legend>
+          <div class="page-setup-margins">
+            <label class="page-setup-field">
+              Верхнє
+              <input type="number" id="pageMarginTop" min="0.5" max="10" step="0.1" value="2" aria-label="Верхнє поле, см">
+            </label>
+            <label class="page-setup-field">
+              Нижнє
+              <input type="number" id="pageMarginBottom" min="0.5" max="10" step="0.1" value="2" aria-label="Нижнє поле, см">
+            </label>
+            <label class="page-setup-field">
+              Ліворуч
+              <input type="number" id="pageMarginLeft" min="0.5" max="10" step="0.1" value="3" aria-label="Ліве поле, см">
+            </label>
+            <label class="page-setup-field">
+              Праворуч
+              <input type="number" id="pageMarginRight" min="0.5" max="10" step="0.1" value="1.5" aria-label="Праве поле, см">
+            </label>
+          </div>
+        </fieldset>
+      </form>
+
+      <div class="modal-actions modal-actions-spaced">
+        <button class="btn-secondary" type="button" data-page-setup-reset>Стандартні поля</button>
+        <button class="btn-secondary" type="button" data-close-modal="modalPageSetup">Скасувати</button>
+        <button class="btn-primary" type="submit" data-page-setup-apply form="pageSetupForm">Застосувати</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Масштаб -->
   <div id="modalZoom" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalZoomTitle">
     <div class="modal-box">
@@ -491,6 +637,8 @@
         <kbd>Ctrl+X</kbd><span>Вирізати</span>
         <kbd>Ctrl+C</kbd><span>Копіювати</span>
         <kbd>Ctrl+V</kbd><span>Вставити</span>
+        <kbd>Tab</kbd><span>Наступна клітинка таблиці</span>
+        <kbd>Shift+Tab</kbd><span>Попередня клітинка таблиці</span>
       </div>
       <div class="modal-actions modal-actions-spaced">
         <button class="btn-primary" data-autofocus data-close-modal="modalShortcuts">
@@ -582,6 +730,7 @@
   <script src="ui/toolbar.js"></script>
   <script src="ui/menu.js"></script>
   <script src="ui/editor.js"></script>
+  <script src="ui/page.js"></script>
   <script src="js/app.js"></script>
   <script src="js/runtime.js"></script>
   <script src="../office-shell.js"></script>

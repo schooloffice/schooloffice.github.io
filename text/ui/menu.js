@@ -55,6 +55,7 @@ const ArtMenu = (() => {
       case 'save-txt': return ArtEditor.saveAs('txt');
       case 'save-rtf': return ArtEditor.saveAs('rtf');
       case 'save-docx': return ArtEditor.saveAs('docx');
+      case 'page-setup': ArtPage.openSetup(); break;
       case 'print': window.print(); break;
       case 'undo': ArtHistory.undo(); ArtToolbar.updateState(); break;
       case 'redo': ArtHistory.redo(); ArtToolbar.updateState(); break;

@@ -194,17 +194,19 @@ const ArtSelection = (() => {
       return true;
     }
 
-    const startBlock = _closestBlockWithin(editor, range.startContainer);
-    const endBlock = _closestBlockWithin(editor, range.endContainer);
-
-    if (startBlock && endBlock && startBlock !== endBlock) {
-      _wrapSelectedTextNodes(range, tagName);
+    if (_rangeCrossesBlocks(editor, range)) {
+      const wrappers = _wrapSelectedTextNodes(range, _tagWrapperFactory(tagName));
       normalizeEditor(editor);
+      _selectWrappers(wrappers);
       return true;
     }
 
-    _surroundRange(range, el);
-    _selectNodeContents(el);
+    if (_surroundRange(range, el)) {
+      _selectNodeContents(el);
+    } else {
+      const wrappers = _wrapSelectedTextNodes(range, _tagWrapperFactory(tagName));
+      _selectWrappers(wrappers);
+    }
     normalizeEditor(editor);
     return true;
   }
@@ -219,10 +221,31 @@ const ArtSelection = (() => {
       range.insertNode(span);
       _syncDecorationColor(span, styles, options);
       _placeCaretInsideStart(span, 1);
-    } else {
-      _surroundRange(range, span);
+      normalizeEditor(editor);
+      return true;
+    }
+
+    const styleWrapper = () => {
+      const el = document.createElement('span');
+      Object.assign(el.style, styles);
+      return el;
+    };
+
+    if (_rangeCrossesBlocks(editor, range)) {
+      const wrappers = _wrapSelectedTextNodes(range, styleWrapper);
+      wrappers.forEach(el => _syncDecorationColor(el, styles, options));
+      normalizeEditor(editor);
+      _selectWrappers(wrappers);
+      return true;
+    }
+
+    if (_surroundRange(range, span)) {
       _syncDecorationColor(span, styles, options);
       _selectNodeContents(span);
+    } else {
+      const wrappers = _wrapSelectedTextNodes(range, styleWrapper);
+      wrappers.forEach(el => _syncDecorationColor(el, styles, options));
+      _selectWrappers(wrappers);
     }
     normalizeEditor(editor);
     return true;
@@ -240,6 +263,26 @@ const ArtSelection = (() => {
       range.insertNode(span);
       _placeCaretInsideStart(span, 1);
       normalizeEditor(editor);
+      return true;
+    }
+
+    if (_rangeCrossesBlocks(editor, range)) {
+      const touched = [];
+      _forEachBlockRange(editor, range, sub => {
+        const part = sub.extractContents();
+        _clearStylesInTree(part, props);
+        const first = part.firstChild;
+        const last = part.lastChild;
+        sub.insertNode(part);
+        if (first) touched.push({ first, last: last || first });
+      });
+      normalizeEditor(editor);
+      if (touched.length) {
+        const range2 = document.createRange();
+        range2.setStartBefore(touched[0].first);
+        range2.setEndAfter(touched[touched.length - 1].last);
+        restore(range2);
+      }
       return true;
     }
 
@@ -520,12 +563,28 @@ const ArtSelection = (() => {
   }
 
   function _surroundRange(range, wrapper) {
-    try { range.surroundContents(wrapper); }
-    catch {
+    // Перевіряємо копію: у діапазон зі структурними вузлами inline-елемент
+    // вставляти не можна, і дізнатися це треба до будь-яких змін DOM.
+    if (_fragmentHasStructuralNodes(range.cloneContents())) return false;
+    try {
+      range.surroundContents(wrapper);
+      return true;
+    } catch {
       const frag = range.extractContents();
+      // Фрагмент зі структурними вузлами в inline-обгортку загортати не можна:
+      // саме так у рядок таблиці потрапляє <em><th>…</th></em>.
+      if (_fragmentHasStructuralNodes(frag)) {
+        range.insertNode(frag);
+        return false;
+      }
       wrapper.appendChild(frag);
       range.insertNode(wrapper);
+      return true;
     }
+  }
+
+  function _fragmentHasStructuralNodes(fragment) {
+    return !!fragment.querySelector?.(BLOCK_SELECTOR + ',td,th,tr,tbody,thead,tfoot');
   }
 
   function _unwrap(el) {
@@ -563,16 +622,59 @@ const ArtSelection = (() => {
     });
   }
 
+  // Клітинка таблиці та пункт списку — така сама межа для inline-форматування,
+  // як абзац: inline-тег не має обіймати кілька клітинок, інакше <em> опиняється
+  // в <tr> і рядок розсипається.
+  const LEAF_BLOCK_TAGS = ['TD', 'TH', 'LI'];
+
   function _closestBlockWithin(editor, node) {
     let el = node?.nodeType === 1 ? node : node?.parentElement;
     while (el && el !== editor) {
-      if (_isBlock(el) || el.classList?.contains('page-content')) return el;
+      if (_isBlock(el) || LEAF_BLOCK_TAGS.includes(el.tagName) || el.classList?.contains('page-content')) return el;
       el = el.parentElement;
     }
     return null;
   }
 
-  function _wrapSelectedTextNodes(range, tagName) {
+  function _rangeCrossesBlocks(editor, range) {
+    if (!range || range.collapsed) return false;
+    const startBlock = _closestBlockWithin(editor, range.startContainer);
+    const endBlock = _closestBlockWithin(editor, range.endContainer);
+    // Межа поза блоком (виділити все, клік між сторінками) — теж не той випадок,
+    // коли можна загорнути діапазон одним inline-елементом.
+    if (!startBlock || !endBlock) return true;
+    return startBlock !== endBlock;
+  }
+
+  function _blocksInRange(editor, range) {
+    const startBlock = _closestBlockWithin(editor, range.startContainer);
+    const endBlock = _closestBlockWithin(editor, range.endContainer);
+    if (startBlock && startBlock === endBlock) return [startBlock];
+
+    const selector = BLOCK_SELECTOR + ',td,th,li';
+    const blocks = [...editor.querySelectorAll(selector)]
+      .filter(block => !block.querySelector(selector))
+      .filter(block => range.intersectsNode(block));
+
+    if (startBlock && !blocks.includes(startBlock)) blocks.unshift(startBlock);
+    if (endBlock && !blocks.includes(endBlock)) blocks.push(endBlock);
+    return blocks;
+  }
+
+  // Виконує операцію окремо в межах кожного блока (клітинки, пункту, абзацу),
+  // щоб жодна структурна межа не потрапила всередину inline-обгортки.
+  function _forEachBlockRange(editor, range, handler) {
+    const blocks = _blocksInRange(editor, range);
+    blocks.forEach(block => {
+      const sub = document.createRange();
+      sub.selectNodeContents(block);
+      if (block.contains(range.startContainer)) sub.setStart(range.startContainer, range.startOffset);
+      if (block.contains(range.endContainer)) sub.setEnd(range.endContainer, range.endOffset);
+      if (!sub.collapsed) handler(sub, block);
+    });
+  }
+
+  function _wrapSelectedTextNodes(range, createWrapper) {
     const root = range.commonAncestorContainer.nodeType === 1
       ? range.commonAncestorContainer
       : range.commonAncestorContainer.parentElement;
@@ -592,6 +694,7 @@ const ArtSelection = (() => {
     let node;
     while ((node = walker.nextNode())) nodes.push(node);
 
+    const wrappers = [];
     nodes.forEach(node => {
       let start = 0;
       let end = node.textContent.length;
@@ -608,10 +711,22 @@ const ArtSelection = (() => {
       let target = node;
       if (start > 0) target = target.splitText(start);
       if ((end - start) < target.textContent.length) target.splitText(end - start);
-      if (target.parentElement?.tagName?.toLowerCase() === tagName) return;
 
+      const wrapper = createWrapper(target);
+      if (!wrapper) return;
+
+      target.parentNode.insertBefore(wrapper, target);
+      wrapper.appendChild(target);
+      wrappers.push(wrapper);
+    });
+
+    return wrappers;
+  }
+
+  function _tagWrapperFactory(tagName) {
+    return target => {
+      if (target.parentElement?.tagName?.toLowerCase() === tagName) return null;
       const wrapper = document.createElement(tagName);
-
       if (['u', 's', 'strike'].includes(tagName)) {
         const computed = getComputedStyle(target.parentElement).color;
         if (computed) {
@@ -619,10 +734,16 @@ const ArtSelection = (() => {
           wrapper.style.textDecorationColor = computed;
         }
       }
+      return wrapper;
+    };
+  }
 
-      target.parentNode.insertBefore(wrapper, target);
-      wrapper.appendChild(target);
-    });
+  function _selectWrappers(wrappers) {
+    if (!wrappers.length) return;
+    const range = document.createRange();
+    range.setStartBefore(wrappers[0]);
+    range.setEndAfter(wrappers[wrappers.length - 1]);
+    restore(range);
   }
 
   function _placeCaretAfter(node) {

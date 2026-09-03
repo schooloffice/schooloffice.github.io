@@ -30,6 +30,7 @@ window.TextApp.boot = () => {
   ArtToolbar.init(editor);
   ArtMenu.init();
   ArtEditor.init(editor, announcer);
+  ArtPage.init();
   ArtHistory.init(editor);
   ArtHistory.markSaved();
   ArtHistory.onButtonsUpdate(() => ArtToolbar.updateState());
@@ -72,6 +73,11 @@ window.TextApp.boot = () => {
 
   document.querySelectorAll('[data-align]').forEach(button => {
     button.addEventListener('click', () => ArtToolbar.applyAlign(button.dataset.align));
+  });
+
+  document.querySelectorAll('[data-table-action]').forEach(button => {
+    button.addEventListener('mousedown', event => event.preventDefault());
+    button.addEventListener('click', () => ArtEditor.tableAction(button.dataset.tableAction));
   });
 
   document.querySelectorAll('[data-image-layout]').forEach(button => {
@@ -165,5 +171,10 @@ window.TextApp.boot = () => {
     ArtToolbar.updateState();
   });
 
-  window.art = { menu: ArtMenu, editor: ArtEditor, toolbar: ArtToolbar, modals: ArtModals, history: ArtHistory };
+  window.art = {
+    menu: ArtMenu, editor: ArtEditor, toolbar: ArtToolbar, modals: ArtModals, history: ArtHistory,
+    page: ArtPage,
+    state: ArtState,
+    formats: { docx: ArtDocx, rtf: ArtRtf, txt: ArtTxt }
+  };
 };

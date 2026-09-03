@@ -35,6 +35,9 @@ const ArtEditor = (() => {
       ArtToolbar.updateState();
     });
 
+    document.addEventListener('selectionchange', () => {
+      if (_editor.contains(document.activeElement) || document.activeElement === _editor) _updateTableContext();
+    });
     document.addEventListener('pointermove', _handlePointerMove);
     document.addEventListener('pointerup', _handlePointerUp);
     document.addEventListener('click', e => {
@@ -66,6 +69,7 @@ const ArtEditor = (() => {
   function newDoc() {
     clearFindHighlights();
     clearSelectedImage();
+    ArtState.resetDocument?.();
     _buildEmptyDocument();
     ArtState.set('fileName', 'документ');
     ArtState.set('fileFormat', 'docx');
@@ -91,6 +95,7 @@ const ArtEditor = (() => {
 
       clearFindHighlights();
       clearSelectedImage();
+      ArtState.resetDocument?.();
       _setDocumentHTML(result.html);
       ArtState.set('fileName', _stripExt(file.name));
       ArtState.set('fileFormat', result.meta.format);
@@ -119,7 +124,11 @@ const ArtEditor = (() => {
         blob = new Blob([ArtRtf.exportRtf(html)], { type: 'application/rtf;charset=utf-8' });
         ext = 'rtf';
       } else if (format === 'docx') {
-        blob = await ArtDocx.exportDocx(html, { orientation: ArtState.get('orientation') });
+        blob = await ArtDocx.exportDocx(html, ArtState.documentSnapshot?.() || {
+          orientation: ArtState.get('orientation'),
+          pageSize: ArtState.get('pageSize'),
+          margins: ArtState.get('margins')
+        });
         ext = 'docx';
       } else return;
       _download(blob, `${ArtState.get('fileName')}.${ext}`);
@@ -127,12 +136,31 @@ const ArtEditor = (() => {
       ArtHistory.markSaved();
       _flashSaved();
       _announce(`Збережено як ${ArtState.get('fileName')}.${ext}`);
+      _warnAboutFormatLimits(format, html);
     } catch (err) {
       ArtModals.info('Помилка збереження', err.message || String(err));
     }
   }
 
-  function setOrientation(value) { ArtState.set('orientation', value); }
+  // Чесно попереджаємо про спрощення, а не мовчки втрачаємо оформлення.
+  function _warnAboutFormatLimits(format, html) {
+    const notes = format === 'docx' ? (ArtDocx.describeExportLimits?.(html) || []) : [];
+    if (!notes.length) return;
+    ArtModals.info(
+      'Збережено з застереженнями',
+      `Документ збережено, але деяке оформлення спрощено:\n• ${notes.join('\n• ')}`
+    );
+  }
+
+  function setOrientation(value) {
+    if (value === ArtState.get('orientation')) return;
+    ArtState.set('orientation', value);
+    ArtHistory.pushNow?.();
+  }
+
+  // Зовнішня зміна геометрії сторінки (поля, розмір паперу) вимагає повного
+  // перекомпонування — але без збереження позиції каретки маркерами.
+  function refreshLayout() { _queueRepaginate(false); }
   function setZoom(value) { ArtState.set('zoom', value); }
 
   function _applyOrientation(value) {
@@ -233,6 +261,11 @@ const ArtEditor = (() => {
       return;
     }
 
+    if (e.key === 'Tab' && _handleTableTab(e)) {
+      ArtHistory.pushNow();
+      return;
+    }
+
     if (e.key === 'Tab') {
       e.preventDefault();
       ArtSelection.insertText(_editor, '    ');
@@ -255,6 +288,265 @@ const ArtEditor = (() => {
     if (e.key === 'Enter' && _handleParagraphEnter(e)) {
       ArtHistory.pushNow();
     }
+  }
+
+  // Tab у таблиці ходить по клітинках, як у Word: у останній клітинці додається
+  // новий рядок. Логічна таблиця може бути розрізана сторінками, тому клітинки
+  // збираємо з усіх її частин.
+  function _handleTableTab(e) {
+    const cell = _caretCell();
+    if (!cell) return false;
+
+    e.preventDefault();
+    const cells = _logicalTableCells(cell.closest('table'));
+    const index = cells.indexOf(cell);
+
+    if (e.shiftKey) {
+      if (index > 0) _placeCaretInCell(cells[index - 1]);
+      return true;
+    }
+
+    if (index > -1 && index < cells.length - 1) {
+      _placeCaretInCell(cells[index + 1]);
+      return true;
+    }
+
+    const row = cell.closest('tr');
+    const newRow = _createEmptyRowLike(row);
+    row.after(newRow);
+    _placeCaretInCell(newRow.firstElementChild);
+    _editor.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  }
+
+  // ── Дії над таблицею (контекстна панель) ───────────────────────────────
+  const COLUMN_WIDTH_STEP = 24;
+  const MIN_COLUMN_WIDTH = 48;
+
+  function tableAction(action) {
+    const cell = _caretCell();
+    if (!cell) return false;
+
+    const parts = _logicalTableParts(cell.closest('table'));
+    const row = cell.closest('tr');
+    const columnIndex = cell.cellIndex;
+
+    if (_logicalTableHasMergedCells(parts) && action !== 'table-delete') {
+      ArtModals.info(
+        'Об’єднані клітинки',
+        'Зміна рядків, колонок або їхньої ширини для таблиць з об’єднаними клітинками поки недоступна. Вміст таблиці залишено без змін.'
+      );
+      return false;
+    }
+
+    if (action === 'table-delete') {
+      ArtModals.confirm('Видалити всю таблицю?', () => {
+        _deleteTable(parts);
+        _finishTableAction();
+      });
+      return true;
+    }
+
+    switch (action) {
+      case 'row-above': _insertRow(row, 'beforebegin'); break;
+      case 'row-below': _insertRow(row, 'afterend'); break;
+      case 'row-delete': _deleteRow(parts, row); break;
+      case 'column-left': _insertColumn(parts, columnIndex); break;
+      case 'column-right': _insertColumn(parts, columnIndex + 1); break;
+      case 'column-delete': _deleteColumn(parts, columnIndex); break;
+      case 'column-wider': _resizeColumn(parts, columnIndex, COLUMN_WIDTH_STEP); break;
+      case 'column-narrower': _resizeColumn(parts, columnIndex, -COLUMN_WIDTH_STEP); break;
+      case 'column-auto': _resizeColumn(parts, columnIndex, null); break;
+      default: return false;
+    }
+
+    _finishTableAction();
+    return true;
+  }
+
+  function _finishTableAction() {
+    _editor.dispatchEvent(new Event('input', { bubbles: true }));
+    requestAnimationFrame(() => {
+      ArtHistory.pushNow();
+      _updateTableContext();
+      ArtToolbar.updateState();
+    });
+  }
+
+  function _insertRow(row, position) {
+    const fresh = _createEmptyRowLike(row);
+    row.insertAdjacentElement(position, fresh);
+    _placeCaretInCell(fresh.firstElementChild);
+    _announce(position === 'beforebegin' ? 'Рядок додано вище' : 'Рядок додано нижче');
+  }
+
+  function _deleteRow(parts, row) {
+    const dataRows = _logicalRows(parts);
+    if (dataRows.length <= 1) return _deleteTable(parts);
+
+    const index = dataRows.indexOf(row);
+    const fallback = dataRows[index + 1] || dataRows[index - 1];
+    row.remove();
+    _placeCaretInCell(fallback?.firstElementChild);
+    _announce('Рядок видалено');
+  }
+
+  function _insertColumn(parts, index) {
+    _allRows(parts).forEach(row => {
+      const reference = row.children[index] || null;
+      const source = row.children[Math.min(index, row.children.length - 1)];
+      const fresh = document.createElement(source?.tagName === 'TH' ? 'th' : 'td');
+      fresh.innerHTML = '<br>';
+      row.insertBefore(fresh, reference);
+    });
+    _announce('Колонку додано');
+  }
+
+  function _deleteColumn(parts, index) {
+    const columns = _allRows(parts)[0]?.children.length || 0;
+    if (columns <= 1) return _deleteTable(parts);
+
+    let neighbour = null;
+    _allRows(parts).forEach(row => {
+      const target = row.children[index];
+      if (!target) return;
+      neighbour = neighbour || row.children[index + 1] || row.children[index - 1];
+      target.remove();
+    });
+    _placeCaretInCell(neighbour);
+    _announce('Колонку видалено');
+  }
+
+  function _resizeColumn(parts, index, delta) {
+    const rows = _allRows(parts);
+    if (delta === null) {
+      rows.forEach(row => row.children[index]?.style.removeProperty('width'));
+      _announce('Ширину колонки скинуто');
+      return;
+    }
+
+    // Ширину міряємо один раз до змін: інакше кожна наступна клітинка читала б
+    // уже перелаштовану колонку й отримувала свій розмір.
+    const reference = rows.find(row => row.children[index])?.children[index];
+    if (!reference) return;
+    const width = Math.max(MIN_COLUMN_WIDTH, Math.round(reference.getBoundingClientRect().width + delta));
+    rows.forEach(row => {
+      const target = row.children[index];
+      if (target) target.style.width = width + 'px';
+    });
+    _announce('Ширину колонки змінено');
+  }
+
+  function _deleteTable(parts) {
+    const page = parts[0].closest('.page-content');
+    const fallback = parts[0].previousElementSibling || parts[parts.length - 1].nextElementSibling;
+    parts.forEach(part => part.remove());
+    if (page) _cleanupPage(page);
+    const target = fallback && _editor.contains(fallback) ? fallback : _getPageContent(_getPages()[0])?.firstElementChild;
+    if (target) {
+      const range = document.createRange();
+      range.selectNodeContents(target);
+      range.collapse(true);
+      ArtSelection.restore(range);
+      ArtSelection.remember(_editor);
+    }
+    _announce('Таблицю видалено');
+  }
+
+  function _allRows(parts) {
+    return parts.flatMap(part => [...part.querySelectorAll('tr:not([data-art-table-repeat])')]);
+  }
+
+  function _logicalRows(parts) {
+    return parts.flatMap(part => [...part.querySelectorAll('tr:not([data-art-table-repeat])')]);
+  }
+
+  function _updateTableContext() {
+    const bar = document.getElementById('tableContextBar');
+    if (!bar) return;
+    const cell = _caretCell();
+    bar.hidden = !cell;
+    const merged = cell ? _logicalTableHasMergedCells(_logicalTableParts(cell.closest('table'))) : false;
+    bar.querySelectorAll('[data-table-action]').forEach(button => {
+      if (!button.dataset.defaultTitle) button.dataset.defaultTitle = button.title || '';
+      const unavailable = merged && button.dataset.tableAction !== 'table-delete';
+      button.disabled = unavailable;
+      button.title = unavailable
+        ? 'Недоступно для таблиці з об’єднаними клітинками'
+        : button.dataset.defaultTitle;
+    });
+  }
+
+  function _caretCell() {
+    const range = ArtSelection.getRange(_editor);
+    if (!range) return null;
+    const node = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+    const cell = node?.closest?.('th,td');
+    if (!cell || !_editor.contains(cell)) return null;
+    const repeatedRow = cell.closest('tr[data-art-table-repeat]');
+    if (!repeatedRow) return cell;
+
+    const parts = _logicalTableParts(cell.closest('table'));
+    const original = _tableHeaderRow(parts[0]);
+    return original?.cells?.[cell.cellIndex] || null;
+  }
+
+  function _logicalTableHasMergedCells(parts) {
+    return parts.some(part => [...part.querySelectorAll('th,td')].some(cell => cell.colSpan > 1 || cell.rowSpan > 1));
+  }
+
+  function _logicalTableCells(table) {
+    if (!table) return [];
+    return _logicalTableParts(table)
+      .flatMap(part => [...part.querySelectorAll('tr:not([data-art-table-repeat]) > th, tr:not([data-art-table-repeat]) > td')]);
+  }
+
+  function _logicalTableParts(table) {
+    const parts = [table];
+    while (parts[0].dataset.artTablePart === 'continued') {
+      const prev = _blockBefore(parts[0]);
+      if (prev?.tagName !== 'TABLE') break;
+      parts.unshift(prev);
+    }
+    for (;;) {
+      const next = _blockAfter(parts[parts.length - 1]);
+      if (next?.tagName !== 'TABLE' || next.dataset.artTablePart !== 'continued') break;
+      parts.push(next);
+    }
+    return parts;
+  }
+
+  function _blockAfter(block) {
+    if (block.nextElementSibling) return block.nextElementSibling;
+    const nextPage = block.closest('.page')?.nextElementSibling;
+    return nextPage ? _getPageContent(nextPage)?.firstElementChild || null : null;
+  }
+
+  function _blockBefore(block) {
+    if (block.previousElementSibling) return block.previousElementSibling;
+    const prevPage = block.closest('.page')?.previousElementSibling;
+    return prevPage ? _getPageContent(prevPage)?.lastElementChild || null : null;
+  }
+
+  function _createEmptyRowLike(row) {
+    const clone = document.createElement('tr');
+    [...row.children].forEach(cell => {
+      const fresh = document.createElement('td');
+      if (cell.colSpan > 1) fresh.colSpan = cell.colSpan;
+      fresh.innerHTML = '<br>';
+      clone.appendChild(fresh);
+    });
+    return clone;
+  }
+
+  function _placeCaretInCell(cell) {
+    if (!cell) return;
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    range.collapse(true);
+    ArtSelection.restore(range);
+    ArtSelection.remember(_editor);
+    _scrollCaretIntoView();
   }
 
   // Chrome після Enter у кінці заповненого аркуша лишає карету на рівні блоків
@@ -492,6 +784,12 @@ const ArtEditor = (() => {
       [...content.childNodes].forEach(node => temp.appendChild(node.cloneNode(true)));
     });
 
+    // У файл іде логічний документ: розрізані сторінками таблиці зшиваємо назад,
+    // повторені заголовки прибираємо.
+    _mergeAdjacentTables(temp);
+    temp.querySelectorAll('tr[data-art-table-repeat]').forEach(row => row.remove());
+    temp.querySelectorAll('table[data-art-table-part]').forEach(table => table.removeAttribute('data-art-table-part'));
+
     temp.querySelectorAll('mark.search-hit').forEach(mark => {
       const parent = mark.parentNode;
       while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
@@ -683,6 +981,11 @@ const ArtEditor = (() => {
         const current = _getPageContent(pages[i]);
         while (_isOverflowing(current)) {
           if (++layoutGuard > 250) { guardHit = true; break; }
+          const oversize = _unsplittableOversizeBlock(current);
+          if (oversize) {
+            _showOversizeBlock(current, oversize);
+            break;
+          }
           const next = _getPageContent(_getOrCreatePage(i + 1));
           if (!_moveOverflowToNext(current, next)) break;
           pages = _getPages();
@@ -700,14 +1003,22 @@ const ArtEditor = (() => {
         }
       }
 
+      _dropEmptyTableContinuations();
       _removeTrailingEmptyPages();
+      _editor.querySelectorAll('[data-art-flow-tail]').forEach(el => el.removeAttribute('data-art-flow-tail'));
       _updatePageNumbers();
       _updateEmptyState();
       _updateStatusBar();
+      _updateTableContext();
 
       return guardHit;
     } finally {
       if (markers) _restoreSelectionMarkers();
+      // Під час розрахунку могла тимчасово з'явитися порожня наступна сторінка,
+      // яку до відновлення каретки утримував службовий marker.
+      _removeTrailingEmptyPages();
+      _updatePageNumbers();
+      _updateEmptyState();
     }
   }
 
@@ -723,22 +1034,137 @@ const ArtEditor = (() => {
     let index = blocks.findIndex(block => block.getBoundingClientRect().bottom > limit + 1);
     if (index === -1) index = blocks.length - 1;
 
+    const first = blocks[index];
+
+    // Блок, вищий за саму сторінку, переносити немає сенсу — на наступній він
+    // так само не вміститься. Такий ділимо на місці.
+    if (_isTallerThanPage(first, current) && _splitBlock(current, first, next)) return true;
+
     if (index === 0) {
-      const first = blocks[0];
-      if (_splitListBlock(current, first, next)) return true;
-      if (_splitTextBlock(current, first, next)) return true;
-      if (blocks.length === 1) return false;
+      if (_splitBlock(current, first, next)) return true;
+      if (blocks.length === 1) {
+        _showOversizeBlock(current, first);
+        return false;
+      }
       index = 1;
+    } else if (index === blocks.length - 1 &&
+               _isTallerThanPage(first, current) &&
+               blocks.slice(0, index).every(block => !_hasMeaningfulContent(block))) {
+      // Неподільний блок вищий за аркуш, а перед ним лише порожні абзаци:
+      // перенесення дало б порожню сторінку й той самий обріз нижче.
+      _showOversizeBlock(current, first);
+      return false;
     }
 
-    for (let i = blocks.length - 1; i >= index; i--) next.prepend(blocks[i]);
+    _moveBlocksToNext(next, blocks, index);
     _cleanupPage(current);
     _cleanupPage(next);
     return true;
   }
 
+  // Частина блока, яку цим же проходом уже перенесли на наступну сторінку,
+  // стоїть на її початку — решта хвоста має лягти ПІСЛЯ неї, а не перед.
+  function _moveBlocksToNext(next, blocks, fromIndex) {
+    let anchor = null;
+    let node = next.firstElementChild;
+    while (node && node.hasAttribute('data-art-flow-tail')) {
+      anchor = node;
+      node = node.nextElementSibling;
+    }
+    for (let i = blocks.length - 1; i >= fromIndex; i--) {
+      if (anchor) anchor.after(blocks[i]);
+      else next.prepend(blocks[i]);
+    }
+  }
+
+  function _splitBlock(current, block, next) {
+    return _splitTableBlock(current, block, next)
+      || _splitListBlock(current, block, next)
+      || _splitTextBlock(current, block, next);
+  }
+
+  function _isTallerThanPage(block, pageContent) {
+    if (!block || !pageContent) return false;
+    return block.getBoundingClientRect().height > pageContent.clientHeight + 1;
+  }
+
+  function _unsplittableOversizeBlock(pageContent) {
+    const blocks = [...(pageContent?.children || [])];
+    const block = blocks.find(item => item.getBoundingClientRect().bottom > pageContent.getBoundingClientRect().bottom + 1);
+    if (!block || !_isTallerThanPage(block, pageContent) || block.tagName !== 'TABLE') return null;
+    if (blocks.slice(0, blocks.indexOf(block)).some(_hasMeaningfulContent)) return null;
+
+    const body = block.tBodies[0] || block;
+    const rows = [...body.rows];
+    const headerRow = _tableHeaderRow(block);
+    const dataRows = rows.length - (headerRow && rows[0] === headerRow ? 1 : 0);
+    const hasRowspan = [...block.querySelectorAll('th,td')].some(cell => cell.rowSpan > 1);
+    return hasRowspan || dataRows < 2 ? block : null;
+  }
+
+  // Таблиця ділиться по рядках; на продовженні повторюється рядок заголовків,
+  // як у Word. Продовження позначаємо, щоб зшити його назад при перекомпонуванні
+  // та при експорті.
+  function _splitTableBlock(current, block, next) {
+    if (!block || block.tagName !== 'TABLE') return false;
+    // Rowspan не можна фізично рознести між двома таблицями без побудови
+    // повної координатної сітки. Лишаємо таку таблицю одним неподільним блоком.
+    if ([...block.querySelectorAll('th,td')].some(cell => cell.rowSpan > 1)) return false;
+
+    const body = block.tBodies[0] || block;
+    const rows = [...body.rows];
+    const headerRow = _tableHeaderRow(block);
+    const firstBodyIndex = headerRow && rows[0] === headerRow ? 1 : 0;
+    if (rows.length - firstBodyIndex < 2) return false;
+
+    const limit = current.getBoundingClientRect().bottom;
+    let splitIndex = rows.findIndex(row => row.getBoundingClientRect().bottom > limit + 1);
+    if (splitIndex === -1) return false;
+    if (splitIndex <= firstBodyIndex) splitIndex = firstBodyIndex + 1;
+    if (splitIndex >= rows.length) return false;
+
+    const clone = block.cloneNode(false);
+    clone.dataset.artTablePart = 'continued';
+    const cloneBody = document.createElement('tbody');
+    clone.appendChild(cloneBody);
+
+    if (headerRow) {
+      const repeat = headerRow.cloneNode(true);
+      repeat.dataset.artTableRepeat = '1';
+      repeat.setAttribute('contenteditable', 'false');
+      repeat.setAttribute('aria-hidden', 'true');
+      cloneBody.appendChild(repeat);
+    }
+    rows.slice(splitIndex).forEach(row => cloneBody.appendChild(row));
+
+    clone.setAttribute('data-art-flow-tail', '1');
+    next.prepend(clone);
+    _cleanupPage(current);
+    _cleanupPage(next);
+    return true;
+  }
+
+  // Продовження, у якому лишився тільки повторений заголовок, — це порожній
+  // хвіст після видалення рядків; він не має тримати за собою сторінку.
+  function _dropEmptyTableContinuations() {
+    _editor.querySelectorAll('table[data-art-table-part]').forEach(table => {
+      if (table.querySelector('tr:not([data-art-table-repeat])')) return;
+      const page = table.closest('.page-content');
+      table.remove();
+      if (page) _cleanupPage(page);
+    });
+  }
+
+  function _tableHeaderRow(table) {
+    const head = table.tHead?.rows?.[0];
+    if (head) return head;
+    const firstRow = (table.tBodies[0] || table).rows?.[0];
+    return firstRow?.querySelector('th') ? firstRow : null;
+  }
+
   function _pullFromNextIfFits(current, next) {
     if (!current || !next) return false;
+    if (current.hasAttribute('data-art-oversize') || next.hasAttribute('data-art-oversize')) return false;
     if (_isPageEmpty(next)) return false;
     const first = next.firstElementChild;
     if (!first) return false;
@@ -760,6 +1186,7 @@ const ArtEditor = (() => {
       clone.prepend(block.lastElementChild);
     }
     if (!clone.children.length) return false;
+    clone.setAttribute('data-art-flow-tail', '1');
     next.prepend(clone);
     _cleanupPage(current);
     _cleanupPage(next);
@@ -809,6 +1236,7 @@ const ArtEditor = (() => {
     const clone = block.cloneNode(false);
     clone.appendChild(fragment);
     if (!_hasMeaningfulContent(block)) block.innerHTML = '<br>';
+    clone.setAttribute('data-art-flow-tail', '1');
     next.prepend(clone);
     _cleanupPage(current);
     _cleanupPage(next);
@@ -863,10 +1291,30 @@ const ArtEditor = (() => {
       if (node.nodeType === Node.TEXT_NODE && !(node.textContent || '').trim()) node.remove();
     });
     _mergeAdjacentLists(pageContent);
+    _mergeAdjacentTables(pageContent);
     if (![...pageContent.children].length) {
       const p = document.createElement('p');
       p.innerHTML = '<br>';
       pageContent.appendChild(p);
+    }
+  }
+
+  // Продовження таблиці з наступної сторінки зшиваємо назад, коли рядки знову
+  // вміщаються разом; повторений рядок заголовків при цьому зникає.
+  function _mergeAdjacentTables(container) {
+    let node = container.firstElementChild;
+    while (node && node.nextElementSibling) {
+      const next = node.nextElementSibling;
+      if (node.tagName === 'TABLE' && next.tagName === 'TABLE' && next.dataset.artTablePart === 'continued') {
+        const body = node.tBodies[0] || node;
+        [...(next.tBodies[0] || next).rows].forEach(row => {
+          if (row.dataset.artTableRepeat) row.remove();
+          else body.appendChild(row);
+        });
+        next.remove();
+      } else {
+        node = next;
+      }
     }
   }
 
@@ -955,7 +1403,23 @@ const ArtEditor = (() => {
     _getPages().forEach(page => {
       const content = _getPageContent(page);
       if (!content) page.appendChild(_createPage().firstElementChild);
+      page.removeAttribute('data-art-oversize');
+      page.removeAttribute('title');
+      content?.removeAttribute('data-art-oversize');
     });
+  }
+
+  // Деякі структури не можна безпечно розрізати (наприклад, один дуже високий
+  // рядок або rowspan через багато рядків). У такому разі збільшуємо віртуальний
+  // аркуш замість того, щоб обрізати вміст через overflow:hidden.
+  function _showOversizeBlock(pageContent, block) {
+    if (!pageContent || !block) return;
+    pageContent.dataset.artOversize = 'true';
+    const page = pageContent.closest('.page');
+    if (page) {
+      page.dataset.artOversize = 'true';
+      page.title = 'Цей блок вищий за один аркуш і показаний повністю';
+    }
   }
 
   function _isOverflowing(pageContent) {
@@ -1121,6 +1585,9 @@ const ArtEditor = (() => {
 
   return {
     init, newDoc, saveAs, setOrientation, setZoom, hasSelectedImage, setSelectedImageLayout,
-    insertTable, openImageDialog, findNext, clearFindHighlights, editFileName
+    insertTable, tableAction, refreshLayout, openImageDialog, findNext, clearFindHighlights, editFileName,
+    // Логічний (не сторінковий) HTML документа — те, що йде у файл.
+    // Відкрито для поведінкових тестів експорту.
+    getExportHTML: _getExportHTML
   };
 })();
