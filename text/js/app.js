@@ -80,6 +80,12 @@ window.TextApp.boot = () => {
     button.addEventListener('click', () => ArtEditor.tableAction(button.dataset.tableAction));
   });
 
+  document.getElementById('tableMenuButton')?.addEventListener('click', event => {
+    event.stopPropagation();
+    ArtSelection.remember(editor);
+    ArtEditor.toggleTableMenu(event.currentTarget, { focusFirst: event.detail === 0 });
+  });
+
   document.querySelectorAll('[data-image-layout]').forEach(button => {
     button.addEventListener('click', () => ArtEditor.setSelectedImageLayout(button.dataset.imageLayout));
   });

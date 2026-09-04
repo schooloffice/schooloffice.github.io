@@ -291,12 +291,46 @@
       await wait(400);
       const tabAddedRow = doc.querySelectorAll('#editor table tr').length === rowsBeforeTab + 1;
 
-      // Дії контекстної панелі.
-      const contextBar = doc.getElementById('tableContextBar');
-      const contextBarVisibleInTable = contextBar && !contextBar.hidden;
+      // Компактна кнопка та спільне контекстне меню не додають окремого рядка.
+      setCaretAtStart(win, tableCells(doc)[0]);
+      editor.dispatchEvent(new win.Event('keyup', { bubbles: true }));
+      await wait(100);
+      const tableMenuButton = doc.getElementById('tableMenuButton');
+      const tableContextMenu = doc.getElementById('tableContextMenu');
+      const compactTableButtonVisible = tableMenuButton
+        && !doc.getElementById('tableToolbarEntry').hidden
+        && !doc.getElementById('tableContextBar');
+
+      tableMenuButton.click();
+      await wait(50);
+      const tableMenuOpensFromButton = !tableContextMenu.hidden
+        && tableMenuButton.getAttribute('aria-expanded') === 'true';
+      win.art.editor.hideTableMenu();
+
+      const contextEventHandled = !tableCells(doc)[0].dispatchEvent(new win.MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, clientX: 180, clientY: 220
+      }));
+      await wait(50);
+      const tableMenuOpensFromRightClick = contextEventHandled && !tableContextMenu.hidden;
+      win.art.editor.hideTableMenu();
+
+      editor.focus();
+      setCaretAtStart(win, tableCells(doc)[0]);
+      editor.dispatchEvent(new win.KeyboardEvent('keydown', {
+        key: 'F10', shiftKey: true, bubbles: true, cancelable: true
+      }));
+      await wait(50);
+      const tableMenuOpensFromKeyboard = !tableContextMenu.hidden
+        && tableContextMenu.contains(doc.activeElement);
+      tableContextMenu.dispatchEvent(new win.KeyboardEvent('keydown', {
+        key: 'Escape', bubbles: true, cancelable: true
+      }));
+      const tableMenuEscapeRestoresEditor = tableContextMenu.hidden && doc.activeElement === editor;
+
       const columnsBeforeAction = doc.querySelector('#editor table tr').children.length;
       setCaretAtStart(win, tableCells(doc)[0]);
-      win.art.editor.tableAction('column-right');
+      tableMenuButton.click();
+      tableContextMenu.querySelector('[data-table-action="column-right"]').click();
       await wait(500);
       const columnAddedEverywhere = Array.from(doc.querySelectorAll('#editor table tr'))
         .every(row => row.children.length === columnsBeforeAction + 1);
@@ -442,7 +476,7 @@
       setCaretAtStart(win, mergedTable.querySelector('td[rowspan]'));
       editor.dispatchEvent(new win.Event('keyup', { bubbles: true }));
       await wait(100);
-      const mergedActionsDisabled = Array.from(doc.querySelectorAll('#tableContextBar [data-table-action]:not([data-table-action="table-delete"])'))
+      const mergedActionsDisabled = Array.from(doc.querySelectorAll('#tableContextMenu [data-table-action]:not([data-table-action="table-delete"])'))
         .every(button => button.disabled)
         && win.art.editor.tableAction('column-right') === false
         && (mergedTable?.rows?.[0]?.cells?.length || 0) === mergedColumnCount;
@@ -645,7 +679,11 @@
         check('Tab moves to the next cell', tabMovedForward),
         check('Shift+Tab moves to the previous cell', shiftTabMovedBack),
         check('Tab in the last cell adds a row', tabAddedRow),
-        check('table context bar appears inside a table', contextBarVisibleInTable),
+        check('table controls use a compact toolbar button without a separate row', compactTableButtonVisible),
+        check('table menu opens from the compact button', tableMenuOpensFromButton),
+        check('table menu opens on right click', tableMenuOpensFromRightClick),
+        check('Shift+F10 opens the table menu', tableMenuOpensFromKeyboard),
+        check('Escape closes the table menu and restores editor focus', tableMenuEscapeRestoresEditor),
         check('column action applies to every row', columnAddedEverywhere),
         check('row action removes a row', rowDeleted),
         check('deleting a table requires confirmation', tableDeletionNeedsConfirmation),

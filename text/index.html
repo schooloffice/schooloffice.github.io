@@ -346,69 +346,61 @@
       </div>
     </div>
 
+    <div class="table-toolbar-entry" id="tableToolbarEntry" hidden>
+      <div class="tb-sep" aria-hidden="true"></div>
+      <button class="tb-btn table-menu-toggle" id="tableMenuButton" type="button"
+        title="Дії з таблицею" aria-label="Дії з таблицею" aria-haspopup="menu"
+        aria-controls="tableContextMenu" aria-expanded="false">
+        <i class="fa-solid fa-table-cells-large" aria-hidden="true"></i>
+        <span>Таблиця</span>
+        <i class="fa-solid fa-chevron-down table-menu-chevron" aria-hidden="true"></i>
+      </button>
+    </div>
+
   </div>
 
-
   <!-- ════════════════════════════════════════
-     КОНТЕКСТНА ПАНЕЛЬ ТАБЛИЦІ
+     КОНТЕКСТНЕ МЕНЮ ТАБЛИЦІ
 ════════════════════════════════════════ -->
-  <div class="table-bar office-contextbar" id="tableContextBar" role="toolbar" aria-label="Таблиця" hidden>
-    <span class="table-bar-title">Таблиця</span>
+  <div class="table-context-menu" id="tableContextMenu" role="menu" aria-label="Дії з таблицею" hidden>
+    <div class="table-context-title" role="presentation">Рядок</div>
+    <button class="menu-item" type="button" data-table-action="row-above" role="menuitem">
+      <span><i class="fa-solid fa-arrow-up fa-fw" aria-hidden="true"></i> Додати вище</span>
+    </button>
+    <button class="menu-item" type="button" data-table-action="row-below" role="menuitem">
+      <span><i class="fa-solid fa-arrow-down fa-fw" aria-hidden="true"></i> Додати нижче</span>
+    </button>
+    <button class="menu-item" type="button" data-table-action="row-delete" role="menuitem">
+      <span><i class="fa-solid fa-trash fa-fw" aria-hidden="true"></i> Видалити рядок</span>
+    </button>
 
-    <div class="tb-group office-context-group">
-      <button class="tb-btn" type="button" data-table-action="row-above" title="Додати рядок вище" aria-label="Додати рядок вище">
-        <i class="fa-solid fa-arrow-up fa-fw" aria-hidden="true"></i>
-        <span class="table-bar-label">Рядок</span>
-      </button>
-      <button class="tb-btn" type="button" data-table-action="row-below" title="Додати рядок нижче" aria-label="Додати рядок нижче">
-        <i class="fa-solid fa-arrow-down fa-fw" aria-hidden="true"></i>
-        <span class="table-bar-label">Рядок</span>
-      </button>
-      <button class="tb-btn" type="button" data-table-action="row-delete" title="Видалити рядок" aria-label="Видалити рядок">
-        <i class="fa-solid fa-trash fa-fw" aria-hidden="true"></i>
-        <span class="table-bar-label">Рядок</span>
-      </button>
-    </div>
+    <div class="menu-sep" role="separator"></div>
+    <div class="table-context-title" role="presentation">Колонка</div>
+    <button class="menu-item" type="button" data-table-action="column-left" role="menuitem">
+      <span><i class="fa-solid fa-arrow-left fa-fw" aria-hidden="true"></i> Додати ліворуч</span>
+    </button>
+    <button class="menu-item" type="button" data-table-action="column-right" role="menuitem">
+      <span><i class="fa-solid fa-arrow-right fa-fw" aria-hidden="true"></i> Додати праворуч</span>
+    </button>
+    <button class="menu-item" type="button" data-table-action="column-delete" role="menuitem">
+      <span><i class="fa-solid fa-trash fa-fw" aria-hidden="true"></i> Видалити колонку</span>
+    </button>
 
-    <div class="tb-sep" aria-hidden="true"></div>
+    <div class="menu-sep" role="separator"></div>
+    <div class="table-context-title" role="presentation">Ширина колонки</div>
+    <button class="menu-item" type="button" data-table-action="column-narrower" role="menuitem">
+      <span><i class="fa-solid fa-left-right fa-fw icon-flip" aria-hidden="true"></i> Зробити вужчою</span>
+    </button>
+    <button class="menu-item" type="button" data-table-action="column-wider" role="menuitem">
+      <span><i class="fa-solid fa-left-right fa-fw" aria-hidden="true"></i> Зробити ширшою</span>
+    </button>
+    <button class="menu-item" type="button" data-table-action="column-auto" role="menuitem">
+      <span><i class="fa-solid fa-arrows-to-circle fa-fw" aria-hidden="true"></i> Автоматична ширина</span>
+    </button>
 
-    <div class="tb-group office-context-group">
-      <button class="tb-btn" type="button" data-table-action="column-left" title="Додати колонку ліворуч" aria-label="Додати колонку ліворуч">
-        <i class="fa-solid fa-arrow-left fa-fw" aria-hidden="true"></i>
-        <span class="table-bar-label">Колонка</span>
-      </button>
-      <button class="tb-btn" type="button" data-table-action="column-right" title="Додати колонку праворуч" aria-label="Додати колонку праворуч">
-        <i class="fa-solid fa-arrow-right fa-fw" aria-hidden="true"></i>
-        <span class="table-bar-label">Колонка</span>
-      </button>
-      <button class="tb-btn" type="button" data-table-action="column-delete" title="Видалити колонку" aria-label="Видалити колонку">
-        <i class="fa-solid fa-trash fa-fw" aria-hidden="true"></i>
-        <span class="table-bar-label">Колонка</span>
-      </button>
-    </div>
-
-    <div class="tb-sep" aria-hidden="true"></div>
-
-    <div class="tb-group office-context-group">
-      <button class="tb-btn" type="button" data-table-action="column-narrower" title="Вужча колонка" aria-label="Вужча колонка">
-        <i class="fa-solid fa-left-right fa-fw icon-flip" aria-hidden="true"></i>
-        <span class="table-bar-label">Вужче</span>
-      </button>
-      <button class="tb-btn" type="button" data-table-action="column-wider" title="Ширша колонка" aria-label="Ширша колонка">
-        <i class="fa-solid fa-left-right fa-fw" aria-hidden="true"></i>
-        <span class="table-bar-label">Ширше</span>
-      </button>
-      <button class="tb-btn" type="button" data-table-action="column-auto" title="Автоматична ширина" aria-label="Автоматична ширина">
-        <i class="fa-solid fa-arrows-to-circle fa-fw" aria-hidden="true"></i>
-        <span class="table-bar-label">Авто</span>
-      </button>
-    </div>
-
-    <div class="tb-sep" aria-hidden="true"></div>
-
-    <button class="tb-btn" type="button" data-table-action="table-delete" title="Видалити таблицю" aria-label="Видалити таблицю">
-      <i class="fa-solid fa-table-cells-large fa-fw" aria-hidden="true"></i>
-      <span class="table-bar-label">Видалити таблицю</span>
+    <div class="menu-sep" role="separator"></div>
+    <button class="menu-item danger" type="button" data-table-action="table-delete" role="menuitem">
+      <span><i class="fa-solid fa-table-cells-large fa-fw" aria-hidden="true"></i> Видалити таблицю…</span>
     </button>
   </div>
 
