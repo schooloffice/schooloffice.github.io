@@ -595,6 +595,19 @@
       // ===== core.validateDiagram (pure logic) =====
       const core = win.FlowchartCore;
       addCheck(checks, 'core exposes validateDiagram', typeof core?.validateDiagram === 'function');
+      const labelClearancePoint = core?.resolveConnectionLabelOverlap?.(
+        { x: 100, y: 100 },
+        'yes',
+        [],
+        [{ left: 70, top: 82, width: 60, height: 36 }],
+        { width: 42, height: 28 }
+      );
+      const labelStillOnShape = labelClearancePoint
+        && labelClearancePoint.x + 21 > 70
+        && labelClearancePoint.x - 21 < 130
+        && labelClearancePoint.y + 14 > 82
+        && labelClearancePoint.y - 14 < 118;
+      addCheck(checks, 'connection labels move clear of shape bounds', !!labelClearancePoint && !labelStillOnShape);
       if (core?.validateDiagram) {
         const goodDiagram = {
           shapes: [
@@ -664,6 +677,63 @@
       addCheck(checks, 'templates data present', Array.isArray(templatesData) && templatesData.length >= 6);
       let allTemplatesValid = true;
       let allTemplatesClean = true;
+      let allTemplateShapesSeparated = true;
+      let allTemplateRoutesClear = true;
+      let allTemplateRoutesUseful = true;
+
+      const getTemplateShapeBox = (shape) => {
+        const sizes = {
+          'start-end': { width: 170, height: 78 },
+          process: { width: 150, height: 84 },
+          decision: { width: 140, height: 140 },
+          'input-output': { width: 170, height: 84 },
+          subroutine: { width: 190, height: 84 },
+          connector: { width: 60, height: 60 },
+        };
+        const size = sizes[shape.type] || sizes.process;
+        return { ...shape, width: size.width, height: size.height };
+      };
+      const getTemplateVisualRect = (shape) => {
+        if (shape.type === 'decision') {
+          const extent = (shape.width + shape.height) / Math.SQRT2;
+          return {
+            left: shape.left + (shape.width - extent) / 2,
+            top: shape.top + (shape.height - extent) / 2,
+            width: extent,
+            height: extent,
+          };
+        }
+        if (shape.type === 'input-output') {
+          const overhang = Math.tan(20 * Math.PI / 180) * shape.height / 2;
+          return {
+            left: shape.left - overhang,
+            top: shape.top,
+            width: shape.width + overhang * 2,
+            height: shape.height,
+          };
+        }
+        return { left: shape.left, top: shape.top, width: shape.width, height: shape.height };
+      };
+      const rectsOverlap = (a, b, gap = 12) => !(
+        a.left + a.width + gap <= b.left
+        || b.left + b.width + gap <= a.left
+        || a.top + a.height + gap <= b.top
+        || b.top + b.height + gap <= a.top
+      );
+      const segmentHitsRect = (a, b, rect, clearance = 6) => {
+        const left = rect.left - clearance;
+        const right = rect.left + rect.width + clearance;
+        const top = rect.top - clearance;
+        const bottom = rect.top + rect.height + clearance;
+        if (Math.abs(a.y - b.y) < 0.5) {
+          return a.y > top && a.y < bottom && Math.max(a.x, b.x) > left && Math.min(a.x, b.x) < right;
+        }
+        if (Math.abs(a.x - b.x) < 0.5) {
+          return a.x > left && a.x < right && Math.max(a.y, b.y) > top && Math.min(a.y, b.y) < bottom;
+        }
+        return true;
+      };
+
       (templatesData || []).forEach(template => {
         try {
           const built = template.build();
@@ -671,12 +741,52 @@
           if (parsed.shapes.length !== built.shapes.length || parsed.connections.length !== built.connections.length) allTemplatesValid = false;
           const issues = core.validateDiagram(parsed).filter(issue => issue.level !== 'info');
           if (issues.length > 0) allTemplatesClean = false;
+
+          const shapeBoxes = parsed.shapes.map(getTemplateShapeBox);
+          const shapeById = new Map(shapeBoxes.map(shape => [shape.id, shape]));
+          for (let i = 0; i < shapeBoxes.length; i++) {
+            for (let j = i + 1; j < shapeBoxes.length; j++) {
+              if (rectsOverlap(getTemplateVisualRect(shapeBoxes[i]), getTemplateVisualRect(shapeBoxes[j]))) {
+                allTemplateShapesSeparated = false;
+              }
+            }
+          }
+
+          parsed.connections.forEach((connection) => {
+            const fromShape = shapeById.get(connection.from);
+            const toShape = shapeById.get(connection.to);
+            if (!fromShape || !toShape) {
+              allTemplateRoutesClear = false;
+              return;
+            }
+            const route = fromShape.type === 'decision' && (connection.type === 'yes' || connection.type === 'no')
+              ? core.getDecisionBranchRoute(fromShape, toShape, connection.type === 'yes' ? 'left' : 'right', 2)
+              : core.routeOrthogonal(fromShape, toShape, connection.routeMode || 'auto');
+            const points = route?.pts || [];
+            let length = 0;
+            for (let i = 1; i < points.length; i++) {
+              length += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+              shapeBoxes.forEach((shape) => {
+                if (shape.id === connection.from || shape.id === connection.to) return;
+                if (segmentHitsRect(points[i - 1], points[i], getTemplateVisualRect(shape))) {
+                  allTemplateRoutesClear = false;
+                }
+              });
+            }
+            if (length < 40) allTemplateRoutesUseful = false;
+          });
         } catch (error) {
           allTemplatesValid = false;
+          allTemplateShapesSeparated = false;
+          allTemplateRoutesClear = false;
+          allTemplateRoutesUseful = false;
         }
       });
       addCheck(checks, 'templates parse without data loss', allTemplatesValid);
       addCheck(checks, 'templates pass their own validation', allTemplatesClean);
+      addCheck(checks, 'template blocks keep visual clearance', allTemplateShapesSeparated);
+      addCheck(checks, 'template routes avoid unrelated blocks', allTemplateRoutesClear);
+      addCheck(checks, 'template routes have useful length', allTemplateRoutesUseful);
 
       const templatesGrid = doc.createElement('div');
       const templatesModal = doc.createElement('div');

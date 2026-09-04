@@ -66,6 +66,14 @@
       const path = document.getElementById(connId);
       if (!labelGroup || !conn || !path) return;
 
+      const txt = labelGroup.querySelector('text');
+      const bg = labelGroup.querySelector('rect');
+      const labelText = getConnectionLabelText(conn);
+      if (!labelText) {
+        labelGroup.remove();
+        return;
+      }
+
       let pts = ptsOverride;
       if (!pts) {
         const fromEl = document.getElementById(conn.from);
@@ -90,15 +98,40 @@
             return { x, y };
           })
           .filter(Boolean);
-        labelPoint = core.resolveConnectionLabelOverlap(labelPoint, conn.type, occupied);
-      }
+        const blockedRects = (state.shapes || [])
+          .map((shape) => {
+            const el = document.getElementById(shape.id);
+            if (!el) return null;
+            const width = el.offsetWidth;
+            const height = el.offsetHeight;
+            let left = el.offsetLeft;
+            let top = el.offsetTop;
+            let visualWidth = width;
+            let visualHeight = height;
 
-      const txt = labelGroup.querySelector('text');
-      const bg = labelGroup.querySelector('rect');
-      const labelText = getConnectionLabelText(conn);
-      if (!labelText) {
-        labelGroup.remove();
-        return;
+            if (shape.type === 'decision') {
+              const extent = (width + height) / Math.SQRT2;
+              left += (width - extent) / 2;
+              top += (height - extent) / 2;
+              visualWidth = extent;
+              visualHeight = extent;
+            } else if (shape.type === 'input-output') {
+              const skewOverhang = Math.tan(20 * Math.PI / 180) * height / 2;
+              left -= skewOverhang;
+              visualWidth += skewOverhang * 2;
+            }
+
+            return { left, top, width: visualWidth, height: visualHeight };
+          })
+          .filter(Boolean);
+        const estimatedWidth = Math.max(34, labelText.length * 8 + 14);
+        labelPoint = core.resolveConnectionLabelOverlap(
+          labelPoint,
+          conn.type,
+          occupied,
+          blockedRects,
+          { width: estimatedWidth, height: 28 }
+        );
       }
 
       txt.textContent = labelText;

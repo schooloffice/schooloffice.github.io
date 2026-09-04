@@ -391,32 +391,49 @@
     return pointAlongPolyline(points, 0.5);
   }
 
-  function resolveConnectionLabelOverlap(basePoint, connType, occupiedPoints) {
+  function resolveConnectionLabelOverlap(basePoint, connType, occupiedPoints, blockedRects, labelSize) {
     const base = basePoint || { x: 0, y: 0 };
     const occupied = Array.isArray(occupiedPoints) ? occupiedPoints : [];
+    const blocked = Array.isArray(blockedRects) ? blockedRects : [];
+    const labelWidth = Math.max(34, Number(labelSize?.width) || 0);
+    const labelHeight = Math.max(26, Number(labelSize?.height) || 0);
+    const halfWidth = labelWidth / 2;
+    const halfHeight = labelHeight / 2;
     const thresholdX = connType === 'yes' || connType === 'no' ? 38 : 44;
     const thresholdY = connType === 'yes' || connType === 'no' ? 28 : 24;
     const step = connType === 'yes' || connType === 'no' ? 24 : 18;
     const candidates = [{ x: base.x, y: base.y }];
 
     for (let i = 1; i <= 4; i++) {
-      if (connType === 'yes' || connType === 'no') {
-        candidates.push({ x: base.x, y: base.y - step * i });
-        candidates.push({ x: base.x, y: base.y + step * i });
-      } else {
-        candidates.push({ x: base.x, y: base.y - step * i });
-        candidates.push({ x: base.x, y: base.y + step * i });
-        candidates.push({ x: base.x - step * i, y: base.y });
-        candidates.push({ x: base.x + step * i, y: base.y });
-      }
+      candidates.push({ x: base.x, y: base.y - step * i });
+      candidates.push({ x: base.x, y: base.y + step * i });
+      candidates.push({ x: base.x - step * i, y: base.y });
+      candidates.push({ x: base.x + step * i, y: base.y });
+      candidates.push({ x: base.x - step * i, y: base.y - step * i });
+      candidates.push({ x: base.x + step * i, y: base.y - step * i });
+      candidates.push({ x: base.x - step * i, y: base.y + step * i });
+      candidates.push({ x: base.x + step * i, y: base.y + step * i });
     }
 
-    const overlaps = (candidate) => occupied.some((point) => {
+    const overlapsLabel = (candidate) => occupied.some((point) => {
       return Math.abs(point.x - candidate.x) < thresholdX && Math.abs(point.y - candidate.y) < thresholdY;
+    });
+    const overlapsShape = (candidate) => blocked.some((rect) => {
+      if (!rect) return false;
+      const left = Number(rect.left);
+      const top = Number(rect.top);
+      const width = Number(rect.width);
+      const height = Number(rect.height);
+      if (![left, top, width, height].every(Number.isFinite)) return false;
+      const clearance = 6;
+      return candidate.x + halfWidth > left - clearance
+        && candidate.x - halfWidth < left + width + clearance
+        && candidate.y + halfHeight > top - clearance
+        && candidate.y - halfHeight < top + height + clearance;
     });
 
     for (const candidate of candidates) {
-      if (!overlaps(candidate)) return candidate;
+      if (!overlapsLabel(candidate) && !overlapsShape(candidate)) return candidate;
     }
     return candidates[candidates.length - 1];
   }

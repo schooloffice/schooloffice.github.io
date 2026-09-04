@@ -29,7 +29,7 @@ let insertRowBtn = null;
 let hoverInsertColAt = null; // 0..COL_COUNT
 let hoverInsertRowAt = null; // 1..ROWS+1
 
-let metrics = { rowHeaderW: 50, headerH: 38, rowH: 40 };
+let metrics = { rowHeaderW: 50, headerH: 32, rowH: 30 };
 let headerMenuState = null;
 
 // Cache for fast access

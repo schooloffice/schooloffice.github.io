@@ -42,6 +42,10 @@
       const rows = doc.querySelectorAll('#bodyRows tr');
       const cells = doc.querySelectorAll('#bodyRows td[data-id]');
       const activeCell = doc.getElementById('activeCellRef')?.textContent?.trim();
+      win.TablesViewOptions.setZoom(100);
+      const defaultCellHeight = Math.round(doc.querySelector('#bodyRows td[data-id]')?.getBoundingClientRect().height || 0);
+      const defaultHeaderHeight = Math.round(doc.querySelector('#headRow th')?.getBoundingClientRect().height || 0);
+      const defaultCellFont = win.getComputedStyle(doc.querySelector('.cell-input')).fontSize;
       const workspaceStyle = win.getComputedStyle(doc.querySelector('.workspace'));
       const sheetShellStyle = win.getComputedStyle(doc.querySelector('.sheet-shell'));
       const menuLayer = Number.parseInt(win.getComputedStyle(doc.querySelector('.menubar')).zIndex, 10);
@@ -54,6 +58,9 @@
         ['default rows rendered', rows.length >= 60],
         ['default cells rendered', cells.length >= 1800],
         ['active cell visible', activeCell === 'A1'],
+        ['default grid uses compact 30px rows', defaultCellHeight === 30],
+        ['default grid uses compact 32px headers', defaultHeaderHeight === 32],
+        ['compact grid keeps readable 15px cell text', defaultCellFont === '15px'],
         ['workspace has no decorative inset', workspaceStyle.padding === '0px'],
         ['sheet fills workspace without card styling', sheetShellStyle.margin === '0px' && sheetShellStyle.borderRadius === '0px' && sheetShellStyle.boxShadow === 'none'],
         ['main menu layer stays above grid headers', menuLayer > gridHeaderLayer],

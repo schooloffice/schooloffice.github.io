@@ -2,9 +2,17 @@
 function setZoom(zoom) {
   currentZoom = [90, 100, 115, 130].includes(Number(zoom)) ? Number(zoom) : 100;
   const factor = currentZoom / 100;
-  document.documentElement.style.setProperty('--cell-font', `${Math.round(16 * factor)}px`);
-  document.documentElement.style.setProperty('--cell-h', `${Math.round(44 * factor)}px`);
-  document.documentElement.style.setProperty('--head-h', `${Math.round(42 * factor)}px`);
+  const cellFont = Math.round(15 * factor);
+  const cellHeight = Math.round(30 * factor);
+  const headerHeight = Math.round(32 * factor);
+  document.documentElement.style.setProperty('--cell-font', `${cellFont}px`);
+  document.documentElement.style.setProperty('--cell-h', `${cellHeight}px`);
+  document.documentElement.style.setProperty('--head-h', `${headerHeight}px`);
+  // Геометрія кнопок швидкого вставлення має відповідати видимій сітці
+  // навіть тоді, коли масштаб відновлено вже після першого renderGrid().
+  metrics.rowH = cellHeight;
+  metrics.headerH = headerHeight;
+  TablesStructure?.hideInsertButtons?.();
   const label = document.getElementById('zoomLabel');
   if (label) label.textContent = `${currentZoom}%`;
   document.querySelectorAll('.menu-item[data-action^="zoom-"]').forEach(btn => btn.classList.remove('checked'));

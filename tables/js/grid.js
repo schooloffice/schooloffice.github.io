@@ -229,11 +229,11 @@ function rebuildGrid() {
   try {
     const cornerRect = thCorner.getBoundingClientRect();
     metrics.rowHeaderW = Math.round(cornerRect.width) || 50;
-    metrics.headerH = Math.round(cornerRect.height) || 40;
+    metrics.headerH = Math.round(cornerRect.height) || 32;
     const td0 = cellTd[1]?.[0];
     if (td0) {
       const tdRect = td0.getBoundingClientRect();
-      metrics.rowH = Math.round(tdRect.height) || 45;
+      metrics.rowH = Math.round(tdRect.height) || 30;
     }
   } catch (_) { }
 
