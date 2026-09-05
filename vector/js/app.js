@@ -78,7 +78,7 @@ window.VectorApp = window.VectorApp || {};
 
   // Останній обраний підінструмент кожної групи: кнопка групи в rail повертає
   // саме його, а не завжди перший у списку.
-  const lastGroupTool = { line: 'line', shape: 'rect' };
+  const lastGroupTool = { draw: 'pen', line: 'line', shape: 'rect' };
 
   function setTool(toolName) {
     if (!Object.prototype.hasOwnProperty.call(constants.TOOLS, toolName)) return;
@@ -98,16 +98,64 @@ window.VectorApp = window.VectorApp || {};
     return editor.getObjectById(state.selectedObjectId);
   }
 
-  function selectObject(id) {
-    state.selectedObjectId = id;
+  function getSelectedObjects() {
+    return (state.selectedObjectIds || [])
+      .map((id) => editor.getObjectById(id))
+      .filter(Boolean);
+  }
+
+  // Групу виділяємо цілком: клік по будь-якій її фігурі бере всі, інакше
+  // «згруповано» нічого б не означало на практиці.
+  function expandToGroup(id) {
+    const obj = editor.getObjectById(id);
+    if (!obj) return [];
+    if (!obj.groupId) return [id];
+    return state.objects.filter((item) => item.groupId === obj.groupId).map((item) => item.id);
+  }
+
+  function setSelection(ids) {
+    const unique = [...new Set(ids.filter((id) => !!editor.getObjectById(id)))];
+    state.selectedObjectIds = unique;
+    state.selectedObjectId = unique[0] || null;
     editor.renderAll();
-    ui.updateSelectionStatus(getSelectedObject());
+    ui.updateSelectionStatus(getSelectedObject(), unique.length);
+  }
+
+  // additive — Shift-клік: додає або знімає фігуру (разом із її групою).
+  function selectObject(id, options = {}) {
+    const target = expandToGroup(id);
+    if (!options.additive) return setSelection(target);
+
+    const current = new Set(state.selectedObjectIds || []);
+    const alreadyIn = target.every((item) => current.has(item));
+    target.forEach((item) => { if (alreadyIn) current.delete(item); else current.add(item); });
+    setSelection([...current]);
   }
 
   function clearSelection() {
-    state.selectedObjectId = null;
-    editor.renderAll();
-    ui.updateSelectionStatus(null);
+    setSelection([]);
+  }
+
+  function groupSelected() {
+    const selected = getSelectedObjects();
+    if (selected.length < 2) {
+      ui.showInfoModal?.('Групування', 'Виділи дві або більше фігур: утримуй Shift і клікай по них.');
+      return;
+    }
+    pushUndo();
+    const groupId = utils.uid('group');
+    selected.forEach((obj) => { obj.groupId = groupId; });
+    setSelection(selected.map((obj) => obj.id));
+    markDirty();
+  }
+
+  function ungroupSelected() {
+    const selected = getSelectedObjects().filter((obj) => obj.groupId);
+    if (!selected.length) return;
+    pushUndo();
+    selected.forEach((obj) => { delete obj.groupId; });
+    setSelection(selected.map((obj) => obj.id));
+    markDirty();
   }
 
   function applySnap(value) {
@@ -280,6 +328,7 @@ window.VectorApp = window.VectorApp || {};
     state.fileName = constants.DEFAULT_FILE_NAME;
     state.objects = [];
     state.selectedObjectId = null;
+      state.selectedObjectIds = [];
     state.draftObject = null;
     state.undoStack.length = 0;
     state.redoStack.length = 0;
@@ -391,35 +440,49 @@ window.VectorApp = window.VectorApp || {};
   }
 
   function deleteSelected() {
-    const selected = getSelectedObject();
-    if (!selected) return;
+    const selected = getSelectedObjects();
+    if (!selected.length) return;
     pushUndo();
-    editor.deleteObject(selected.id);
-    ui.updateSelectionStatus(null);
+    selected.forEach((obj) => editor.deleteObject(obj.id));
+    setSelection([]);
     markDirty();
   }
 
   function duplicateSelected() {
-    const selected = getSelectedObject();
-    if (!selected) return;
+    const selected = getSelectedObjects();
+    if (!selected.length) return;
     pushUndo();
-    editor.duplicateObject(selected.id);
-    ui.updateSelectionStatus(getSelectedObject());
+    // Копії групи лишаються групою, але вже своєю власною.
+    const groupRemap = new Map();
+    const copies = selected.map((obj) => {
+      const copy = editor.duplicateObject(obj.id);
+      if (copy && obj.groupId) {
+        if (!groupRemap.has(obj.groupId)) groupRemap.set(obj.groupId, utils.uid('group'));
+        copy.groupId = groupRemap.get(obj.groupId);
+      }
+      return copy;
+    }).filter(Boolean);
+    if (copies.length) setSelection(copies.map((obj) => obj.id));
     markDirty();
   }
 
   function bringFront() {
-    const selected = getSelectedObject();
-    if (!selected) return;
+    const selected = getSelectedObjects();
+    if (!selected.length) return;
     pushUndo();
-    if (editor.bringToFront(selected.id)) markDirty();
+    // Порядок зберігаємо: піднімаємо знизу вгору, інакше група перевернеться.
+    let changed = false;
+    selected.forEach((obj) => { if (editor.bringToFront(obj.id)) changed = true; });
+    if (changed) markDirty();
   }
 
   function sendBack() {
-    const selected = getSelectedObject();
-    if (!selected) return;
+    const selected = getSelectedObjects();
+    if (!selected.length) return;
     pushUndo();
-    if (editor.sendToBack(selected.id)) markDirty();
+    let changed = false;
+    [...selected].reverse().forEach((obj) => { if (editor.sendToBack(obj.id)) changed = true; });
+    if (changed) markDirty();
   }
 
   async function editSelectedText() {
@@ -448,7 +511,7 @@ window.VectorApp = window.VectorApp || {};
       copy.x += 20; copy.y += 20;
     } else if (constants.LINE_TYPES.includes(copy.type)) {
       copy.x1 += 20; copy.x2 += 20; copy.y1 += 20; copy.y2 += 20;
-    } else if (copy.type === 'pen') {
+    } else if (constants.POINT_TYPES.includes(copy.type)) {
       copy.points = copy.points.map((point) => ({ x: point.x + 20, y: point.y + 20 }));
     }
     editor.addObject(copy);
@@ -461,12 +524,14 @@ window.VectorApp = window.VectorApp || {};
     // Олівець малює від руки: прив'язка до сітки перетворювала б будь-яку
     // діагональ на сходинки з кроком GRID_SIZE, тож точки контуру лишаються
     // такими, як їх веде рука. Прив'язка діє на примітиви з опорними точками.
-    if (tool === 'pen') {
+    if (constants.POINT_TYPES.includes(tool)) {
       return {
-        id: utils.uid('pen'),
-        type: 'pen',
+        id: utils.uid(tool),
+        type: tool,
         points: [{ x: point.x, y: point.y }],
         stroke: state.currentStroke,
+        // Крива може бути замкненою фігурою, тож заливка їй доречна.
+        fill: tool === 'curve' ? state.currentFill : 'none',
         strokeWidth: state.currentStrokeWidth,
         opacity: state.currentOpacity
       };
@@ -533,9 +598,12 @@ window.VectorApp = window.VectorApp || {};
 
     // Олівець веде лінію по фактичних координатах курсора — див. коментар
     // у createObjectFromTool.
-    if (tool === 'pen') {
+    if (constants.POINT_TYPES.includes(tool)) {
+      // Для кривої беремо точки рідше: щільний слід від руки дав би сплайн,
+      // у якому кожне тремтіння стає окремим вигином.
+      const minStep = tool === 'curve' ? 14 : 2;
       const last = draft.points[draft.points.length - 1];
-      if (!last || utils.distance(last, point) >= 2) {
+      if (!last || utils.distance(last, point) >= minStep) {
         draft.points.push({ x: point.x, y: point.y });
       }
       editor.renderAll();
@@ -561,7 +629,7 @@ window.VectorApp = window.VectorApp || {};
 
   function draftIsVisible(draft) {
     if (!draft) return false;
-    if (draft.type === 'pen') return (draft.points || []).length > 1;
+    if (constants.POINT_TYPES.includes(draft.type)) return (draft.points || []).length > 1;
     if (constants.LINE_TYPES.includes(draft.type)) return Math.abs(draft.x2 - draft.x1) > 2 || Math.abs(draft.y2 - draft.y1) > 2;
     if (constants.RECT_LIKE_TYPES.includes(draft.type)) return draft.w >= constants.MIN_SHAPE_SIZE && draft.h >= constants.MIN_SHAPE_SIZE;
     return true;
@@ -583,12 +651,17 @@ window.VectorApp = window.VectorApp || {};
     const obj = editor.getObjectById(objectId);
     if (!obj) return;
     pushUndo();
-    selectObject(objectId);
+    // Якщо фігура вже у виділенні, тягнемо все виділення; інакше клік спершу
+    // перевиділяє — так само, як у будь-якому графічному редакторі.
+    if (!(state.selectedObjectIds || []).includes(objectId)) selectObject(objectId);
+
     state.interaction = {
       mode: 'move',
       objectId,
       start: point,
-      original: utils.deepClone(obj)
+      // Знімок кожної рухомої фігури: рахувати зсув від початкових координат
+      // надійніше, ніж накопичувати різницю між кадрами.
+      originals: getSelectedObjects().map((item) => ({ id: item.id, snapshot: utils.deepClone(item) }))
     };
   }
 
@@ -606,32 +679,36 @@ window.VectorApp = window.VectorApp || {};
   }
 
   function moveObject(interaction, point) {
-    const obj = editor.getObjectById(interaction.objectId);
-    if (!obj) return;
     const dx = point.x - interaction.start.x;
     const dy = point.y - interaction.start.y;
-    const snapDx = state.snapToGrid ? applySnap(interaction.original.type === 'pen' ? dx : dx) : dx;
-    const snapDy = state.snapToGrid ? applySnap(interaction.original.type === 'pen' ? dy : dy) : dy;
+    const snapDx = state.snapToGrid ? applySnap(dx) : dx;
+    const snapDy = state.snapToGrid ? applySnap(dy) : dy;
 
-    if (constants.RECT_LIKE_TYPES.includes(obj.type)) {
-      obj.x = utils.clamp(interaction.original.x + snapDx, 0, state.canvasWidth - (obj.w || 0));
-      obj.y = utils.clamp(interaction.original.y + snapDy, 0, state.canvasHeight - (obj.h || 0));
-    } else if (obj.type === 'text') {
-      obj.x = utils.clamp(interaction.original.x + snapDx, 0, state.canvasWidth);
-      obj.y = utils.clamp(interaction.original.y + snapDy, 0, state.canvasHeight);
-    } else if (constants.LINE_TYPES.includes(obj.type)) {
-      obj.x1 = utils.clamp(interaction.original.x1 + snapDx, 0, state.canvasWidth);
-      obj.y1 = utils.clamp(interaction.original.y1 + snapDy, 0, state.canvasHeight);
-      obj.x2 = utils.clamp(interaction.original.x2 + snapDx, 0, state.canvasWidth);
-      obj.y2 = utils.clamp(interaction.original.y2 + snapDy, 0, state.canvasHeight);
-    } else if (obj.type === 'pen') {
-      obj.points = interaction.original.points.map((item) => ({
-        x: utils.clamp(item.x + snapDx, 0, state.canvasWidth),
-        y: utils.clamp(item.y + snapDy, 0, state.canvasHeight)
-      }));
-    }
+    (interaction.originals || []).forEach(({ id, snapshot }) => {
+      const obj = editor.getObjectById(id);
+      if (!obj) return;
+
+      if (constants.RECT_LIKE_TYPES.includes(obj.type)) {
+        obj.x = utils.clamp(snapshot.x + snapDx, 0, state.canvasWidth - (obj.w || 0));
+        obj.y = utils.clamp(snapshot.y + snapDy, 0, state.canvasHeight - (obj.h || 0));
+      } else if (obj.type === 'text') {
+        obj.x = utils.clamp(snapshot.x + snapDx, 0, state.canvasWidth);
+        obj.y = utils.clamp(snapshot.y + snapDy, 0, state.canvasHeight);
+      } else if (constants.LINE_TYPES.includes(obj.type)) {
+        obj.x1 = utils.clamp(snapshot.x1 + snapDx, 0, state.canvasWidth);
+        obj.y1 = utils.clamp(snapshot.y1 + snapDy, 0, state.canvasHeight);
+        obj.x2 = utils.clamp(snapshot.x2 + snapDx, 0, state.canvasWidth);
+        obj.y2 = utils.clamp(snapshot.y2 + snapDy, 0, state.canvasHeight);
+      } else if (obj.type === 'pen' || obj.type === 'curve') {
+        obj.points = snapshot.points.map((item) => ({
+          x: utils.clamp(item.x + snapDx, 0, state.canvasWidth),
+          y: utils.clamp(item.y + snapDy, 0, state.canvasHeight)
+        }));
+      }
+    });
+
     editor.renderAll();
-    ui.updateSelectionStatus(obj);
+    ui.updateSelectionStatus(getSelectedObject(), (state.selectedObjectIds || []).length);
   }
 
   function resizeRectLike(interaction, point) {
@@ -714,7 +791,7 @@ window.VectorApp = window.VectorApp || {};
       if (!obj) return;
       if (constants.RECT_LIKE_TYPES.includes(obj.type)) resizeRectLike(state.interaction, point);
       else if (constants.LINE_TYPES.includes(obj.type)) resizeLine(state.interaction, point);
-      else if (obj.type === 'pen') resizePen(state.interaction, point);
+      else if (constants.POINT_TYPES.includes(obj.type)) resizePen(state.interaction, point);
     }
   }
 
@@ -767,6 +844,8 @@ window.VectorApp = window.VectorApp || {};
       case 'undo': runOfficeCommand('undo') || undo(); break;
       case 'redo': runOfficeCommand('redo') || redo(); break;
       case 'duplicate': duplicateSelected(); break;
+      case 'group-objects': groupSelected(); break;
+      case 'ungroup-objects': ungroupSelected(); break;
       case 'delete-selected': deleteSelected(); break;
       case 'bring-front': bringFront(); break;
       case 'send-back': sendBack(); break;
@@ -898,13 +977,22 @@ window.VectorApp = window.VectorApp || {};
       const objectNode = hitObjectNode(event.target);
       if (objectNode && state.currentTool === 'select') {
         event.preventDefault();
+        // Shift-клік лише змінює склад виділення: тягнути одночасно з ним
+        // означало б випадково зрушити щойно додану фігуру.
+        if (event.shiftKey) {
+          selectObject(objectNode.dataset.id, { additive: true });
+          return;
+        }
         startMove(point, objectNode.dataset.id);
         return;
       }
 
       if (objectNode) {
-        selectObject(objectNode.dataset.id);
-        if (getSelectedObject()?.type === 'text' && event.detail >= 2) {
+        // Shift працює однаково незалежно від активного інструмента: інакше
+        // «додати до виділення» мовчки замінювало б виділення, щойно в rail
+        // лишився обраним, скажімо, прямокутник.
+        selectObject(objectNode.dataset.id, { additive: event.shiftKey });
+        if (!event.shiftKey && getSelectedObject()?.type === 'text' && event.detail >= 2) {
           await editSelectedText();
         }
         return;
@@ -937,7 +1025,7 @@ window.VectorApp = window.VectorApp || {};
       const typing = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
       if (typing) return;
 
-      if ((event.key === 'Delete' || event.key === 'Backspace') && getSelectedObject()) {
+      if ((event.key === 'Delete' || event.key === 'Backspace') && getSelectedObjects().length) {
         event.preventDefault();
         deleteSelected();
         return;
@@ -986,6 +1074,19 @@ window.VectorApp = window.VectorApp || {};
       if (event.ctrlKey && event.key.toLowerCase() === 'd') {
         event.preventDefault();
         duplicateSelected();
+        return;
+      }
+      if (event.ctrlKey && event.key.toLowerCase() === 'g') {
+        event.preventDefault();
+        if (event.shiftKey) ungroupSelected();
+        else groupSelected();
+        return;
+      }
+      // Ctrl+A виділяє всі фігури — без нього згрупувати цілий малюнок
+      // означало б клікати по кожній фігурі окремо.
+      if (event.ctrlKey && event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        setSelection(state.objects.map((obj) => obj.id));
         return;
       }
       if (event.ctrlKey && event.key.toLowerCase() === 'c') {

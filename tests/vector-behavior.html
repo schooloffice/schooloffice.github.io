@@ -385,7 +385,140 @@
         && scrollerNode.scrollHeight <= scrollerNode.clientHeight + 1;
       const fitWorks = Math.abs(state.zoom - expectedFit) < 0.01 && state.zoom < 2 && fitRemovesScrollbars;
 
+      // ---- Множинне виділення і групи ----
+      // Попередні перевірки лишають активним інструмент малювання; виділення
+      // перевіряємо в тому ж режимі, у якому ним користується учень.
+      doc.querySelector('[data-tool="select"]')?.click();
+      editor.setObjects([
+        { id: 'g1', type: 'rect', x: 40, y: 40, w: 80, h: 60, stroke: '#1f2937', fill: 'none', strokeWidth: 3, opacity: 100 },
+        { id: 'g2', type: 'rect', x: 200, y: 40, w: 80, h: 60, stroke: '#1f2937', fill: 'none', strokeWidth: 3, opacity: 100 },
+        { id: 'g3', type: 'ellipse', x: 40, y: 200, w: 80, h: 60, stroke: '#1f2937', fill: 'none', strokeWidth: 3, opacity: 100 }
+      ]);
+      await wait(150);
+
+      const shapeNodeOf = id => Array.from(doc.querySelectorAll('[data-id]'))
+        .find(node => node.dataset.id === id)?.firstElementChild;
+      const clickShape = (id, shiftKey = false) => {
+        const target = shapeNodeOf(id);
+        const box = target.getBoundingClientRect();
+        target.dispatchEvent(new win.PointerEvent('pointerdown', {
+          bubbles: true, cancelable: true, button: 0, shiftKey,
+          clientX: box.left + box.width / 2, clientY: box.top + box.height / 2
+        }));
+        doc.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true }));
+      };
+      const menuClick = action => doc.querySelector(`[data-action="${action}"]`)?.click();
+
+      clickShape('g1');
+      const singleClickSelectsOne = JSON.stringify(state.selectedObjectIds) === JSON.stringify(['g1']);
+
+      clickShape('g2', true);
+      const shiftClickAdds = state.selectedObjectIds.length === 2
+        && state.selectedObjectIds.includes('g1') && state.selectedObjectIds.includes('g2');
+
+      clickShape('g2', true);
+      const shiftClickRemoves = JSON.stringify(state.selectedObjectIds) === JSON.stringify(['g1']);
+
+      clickShape('g2', true);
+      menuClick('group-objects');
+      await wait(150);
+      const groupAssignsSharedId = !!editor.getObjectById('g1').groupId
+        && editor.getObjectById('g1').groupId === editor.getObjectById('g2').groupId
+        && !editor.getObjectById('g3').groupId;
+
+      // Клік по одній фігурі групи має брати всю групу.
+      clickShape('g3');
+      clickShape('g1');
+      const clickSelectsWholeGroup = state.selectedObjectIds.length === 2
+        && state.selectedObjectIds.includes('g2');
+
+      // Група рухається цілком, а стороння фігура лишається на місці.
+      const beforeMove = { g1: editor.getObjectById('g1').x, g3: editor.getObjectById('g3').x };
+      const dragTarget = shapeNodeOf('g1');
+      const dragBox = dragTarget.getBoundingClientRect();
+      const svg = dragTarget.ownerSVGElement;
+      dragTarget.dispatchEvent(new win.PointerEvent('pointerdown', {
+        bubbles: true, cancelable: true, button: 0,
+        clientX: dragBox.left + dragBox.width / 2, clientY: dragBox.top + dragBox.height / 2
+      }));
+      svg.dispatchEvent(new win.PointerEvent('pointermove', {
+        bubbles: true,
+        clientX: dragBox.left + dragBox.width / 2 + 80, clientY: dragBox.top + dragBox.height / 2
+      }));
+      doc.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true }));
+      await wait(150);
+      const groupMovesTogether =
+        editor.getObjectById('g1').x > beforeMove.g1
+        && editor.getObjectById('g2').x > 200
+        && editor.getObjectById('g3').x === beforeMove.g3;
+
+      // Спільна рамка без маркерів: змінювати розмір групи ми не вміємо.
+      const multiBox = doc.querySelector('.selection-box.multi');
+      const multiSelectionShowsPlainBox = !!multiBox
+        && doc.querySelectorAll('.selection-handle').length === 0;
+
+      menuClick('ungroup-objects');
+      await wait(150);
+      const ungroupClearsId = !editor.getObjectById('g1').groupId && !editor.getObjectById('g2').groupId;
+
+      // groupId має пережити збереження у файл і повернутися після перевірки схеми.
+      editor.getObjectById('g1').groupId = 'group_test1';
+      editor.getObjectById('g2').groupId = 'group_test1';
+      const groupPayload = projectIo.normalizeProject(JSON.parse(JSON.stringify(editor.buildProjectPayload())));
+      const groupSurvivesSave = groupPayload?.objects?.filter(o => o.groupId === 'group_test1').length === 2;
+
+      // Чужий groupId — це лише мітка: довільний рядок не має потрапляти у стан.
+      // Літерал склеюємо: рядок із закривальним тегом обірвав би сам цей
+      // <script> ще на етапі розбору HTML.
+      const hostileGroupId = '"><' + 'script>alert(1)</' + 'script>';
+      const hostileGroup = projectIo.normalizeProject({
+        objects: [{ type: 'rect', x: 0, y: 0, w: 10, h: 10, groupId: hostileGroupId }]
+      });
+      const groupIdIsValidated = hostileGroup?.objects?.[0]?.groupId === undefined;
+
+      // ---- Криві ----
+      const curvePoints = [{ x: 50, y: 200 }, { x: 120, y: 120 }, { x: 200, y: 220 }, { x: 280, y: 110 }];
+      editor.setObjects([
+        { id: 'pen1', type: 'pen', points: curvePoints, stroke: '#1f2937', fill: 'none', strokeWidth: 3, opacity: 100 },
+        { id: 'cur1', type: 'curve', points: curvePoints, stroke: '#2563eb', fill: 'none', strokeWidth: 3, opacity: 100 }
+      ]);
+      await wait(150);
+      const penPath = shapeNodeOf('pen1')?.getAttribute('d') || '';
+      const curvePath = shapeNodeOf('cur1')?.getAttribute('d') || '';
+      const penStaysPolyline = penPath.includes('L') && !penPath.includes('C');
+      const curveIsSmooth = curvePath.includes('C') && !curvePath.includes('L');
+      // Сплайн має проходити ЧЕРЕЗ задані точки, а не повз них.
+      const curvePassesThroughPoints = curvePath.startsWith('M 50 200')
+        && curvePath.includes('120 120') && curvePath.includes('280 110');
+      const curveToolExists = !!constants.TOOLS.curve
+        && constants.TOOL_GROUPS.draw?.includes('curve')
+        && !!doc.querySelector('.prop-chip[data-tool="curve"]');
+
+      const curveSaved = projectIo.normalizeProject(JSON.parse(JSON.stringify(editor.buildProjectPayload())));
+      const curveSurvivesSave = curveSaved?.objects?.some(o => o.type === 'curve' && o.points.length === 4);
+      // Крива з однієї точки нічого не малює — такий об'єкт має відкидатися.
+      const lonelyCurve = projectIo.normalizeProject({
+        objects: [{ type: 'curve', points: [{ x: 1, y: 1 }] }]
+      });
+      const lonelyCurveDropped = lonelyCurve?.objects?.length === 0;
+
       const checks = [
+        check('single click selects one shape', singleClickSelectsOne),
+        check('shift-click adds a shape to the selection', shiftClickAdds),
+        check('shift-click removes a shape from the selection', shiftClickRemoves),
+        check('grouping assigns one shared id', groupAssignsSharedId),
+        check('clicking a member selects the whole group', clickSelectsWholeGroup),
+        check('a group moves as one and leaves others alone', groupMovesTogether),
+        check('multi-selection shows a box without resize handles', multiSelectionShowsPlainBox),
+        check('ungrouping clears the shared id', ungroupClearsId),
+        check('groupId survives save and schema check', groupSurvivesSave),
+        check('a hostile groupId is rejected', groupIdIsValidated),
+        check('pen stays a polyline', penStaysPolyline),
+        check('curve renders as a smooth spline', curveIsSmooth),
+        check('curve passes through its points', curvePassesThroughPoints),
+        check('curve tool is offered in the draw group', curveToolExists),
+        check('curve survives save and schema check', curveSurvivesSave),
+        check('a one-point curve is dropped', lonelyCurveDropped),
         check('VectorApp boot exported', typeof win.VectorApp?.boot === 'function'),
         check('tools live in a left rail, not a top toolbar', layoutOk),
         check('editor boots once (one click = one action)', oneClickOneStep),

@@ -125,7 +125,11 @@ function Invoke-SmokePage {
   param(
     [string]$Url,
     [string]$PassPattern,
-    [string]$Name
+    [string]$Name,
+    # Бюджет віртуального часу сторінки. Важкі сценарії (Text: пагінація,
+    # таблиці, пошук/заміна, інтервал, номери сторінок) не вкладаються в
+    # типовий, тож піднімається точково, а не для всіх сторінок одразу.
+    [int]$VirtualTimeBudgetMs = 35000
   )
 
   # Окремий профіль і кеш на КОЖНУ сторінку: спільний --user-data-dir між
@@ -143,7 +147,7 @@ function Invoke-SmokePage {
       '--no-first-run',
       "--user-data-dir=$pageProfile",
       "--disk-cache-dir=$pageCache",
-      '--virtual-time-budget=35000',
+      "--virtual-time-budget=$VirtualTimeBudgetMs",
       # Console сторінки йде в stderr — так ловимо необроблені винятки, які
       # не валять сам тест (див. Assert-NoUncaughtPageErrors).
       '--enable-logging=stderr',
@@ -192,13 +196,14 @@ try {
   Wait-ForServer -PortNumber $Port
 
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/browser-smoke.html" 'data-smoke="passed"' 'Browser smoke'
-  Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-behavior.html" 'data-text-behavior="passed"' 'Text behavior smoke'
+  Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-behavior.html" 'data-text-behavior="passed"' 'Text behavior smoke' -VirtualTimeBudgetMs 90000
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/flowcharts-behavior.html" 'data-flowcharts="passed"' 'Flowcharts behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/slides-behavior.html" 'data-slides-behavior="passed"' 'Slides behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/slides-domain-behavior.html" 'data-slides-domain="passed"' 'Slides domain smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/paint-behavior.html" 'data-paint-behavior="passed"' 'Paint behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-render-behavior.html" 'data-tables-render="passed"' 'Tables render smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-formula-behavior.html" 'data-tables-formula="passed"' 'Tables formula smoke'
+  Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-xlsx-behavior.html" 'data-tables-xlsx="passed"' 'Tables XLSX smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/vector-behavior.html" 'data-vector-behavior="passed"' 'Vector behavior smoke'
 } finally {
   if ($server -and -not $server.HasExited) {

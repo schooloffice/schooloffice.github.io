@@ -22,6 +22,7 @@ window.ArtVector.constants = {
   TOOLS: {
     select: { label: 'Вибір', icon: 'fa-solid fa-arrow-pointer' },
     pen: { label: 'Олівець', icon: 'fa-solid fa-pencil' },
+    curve: { label: 'Крива', icon: 'fa-solid fa-bezier-curve' },
     line: { label: 'Лінія', icon: 'fa-solid fa-minus' },
     arrow: { label: 'Стрілка', icon: 'fa-solid fa-arrow-right' },
     rect: { label: 'Прямокутник', icon: 'fa-regular fa-square' },
@@ -34,9 +35,13 @@ window.ArtVector.constants = {
   // Групи інструментів для лівої rail: кнопка групи вмикає останній обраний
   // підінструмент, а конкретний вибір робиться чипами в панелі параметрів.
   TOOL_GROUPS: {
+    draw: ['pen', 'curve'],
     line: ['line', 'arrow'],
     shape: ['rect', 'ellipse', 'triangle', 'diamond', 'star']
   },
+  // Типи, що описуються списком точок: олівець дає ламану, крива — згладжений
+  // сплайн через ті самі точки. Уся геометрія (рух, розмір, копія) спільна.
+  POINT_TYPES: ['pen', 'curve'],
   getToolGroup(tool) {
     const groups = window.ArtVector.constants.TOOL_GROUPS;
     return Object.keys(groups).find((name) => groups[name].includes(tool)) || null;

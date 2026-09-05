@@ -256,6 +256,25 @@ function initTablesEditor() {
     });
   }
 
+  // XLSX import
+  const xlsxInput = document.getElementById('xlsxFileInput');
+  if (xlsxInput) {
+    xlsxInput.addEventListener('change', () => {
+      const file = xlsxInput.files?.[0];
+      if (!file) return;
+      xlsxInput.value = '';
+
+      if (file.size > 10 * 1024 * 1024) {
+        showInfoModal('❌ Файл .xlsx завеликий (максимум 10 МБ).');
+        return;
+      }
+
+      askConfirm(`Відкрити «${file.name}» і перезаписати поточну книгу?`, () => {
+        window.TablesXlsxImport?.importXlsxFile(file);
+      }, 'Відкрити');
+    });
+  }
+
   // Confirm modal YES
   const yesBtn = document.getElementById('confirmBtnYes');
   if (yesBtn) {

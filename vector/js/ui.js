@@ -63,12 +63,16 @@ window.ArtVector = window.ArtVector || {};
 
         canvasScroller: utils.$('canvasScroller'),
 
+        railDrawBtn: utils.$('railDrawBtn'),
+        railDrawIcon: utils.$('railDrawIcon'),
         railLineBtn: utils.$('railLineBtn'),
         railLineIcon: utils.$('railLineIcon'),
         railShapeBtn: utils.$('railShapeBtn'),
         railShapeIcon: utils.$('railShapeIcon'),
         panelToggleBtn: utils.$('panelToggleBtn'),
         panelToggleIcon: utils.$('panelToggleIcon'),
+        propDraw: utils.$('propDraw'),
+        drawToolName: utils.$('drawToolName'),
         propLine: utils.$('propLine'),
         propShape: utils.$('propShape'),
         lineToolName: utils.$('lineToolName'),
@@ -212,10 +216,12 @@ window.ArtVector = window.ArtVector || {};
         chip.classList.toggle('active', chip.dataset.tool === state.currentTool);
       });
 
+      this.updateGroupDisplay('draw', this.elements.railDrawIcon, this.elements.drawToolName);
       this.updateGroupDisplay('line', this.elements.railLineIcon, this.elements.lineToolName);
       this.updateGroupDisplay('shape', this.elements.railShapeIcon, this.elements.shapeToolName);
 
       // Секція параметрів показується лише для активної групи.
+      this.elements.propDraw?.classList.toggle('hidden', activeGroup !== 'draw');
       this.elements.propLine?.classList.toggle('hidden', activeGroup !== 'line');
       this.elements.propShape?.classList.toggle('hidden', activeGroup !== 'shape');
       this.elements.propText?.classList.toggle('hidden', state.currentTool !== 'text');
@@ -308,7 +314,7 @@ window.ArtVector = window.ArtVector || {};
       this.elements.statusCoords.textContent = `X: ${Math.round(x)}, Y: ${Math.round(y)}`;
     },
 
-    updateSelectionStatus(selectedObject = null) {
+    updateSelectionStatus(selectedObject = null, selectedCount = selectedObject ? 1 : 0) {
       // Дії над об'єктом мають сенс лише при виділенні — інакше секція просто
       // витісняє «Підкладку» за нижній край панелі на ноутбуці.
       this.elements.propObject?.classList.toggle('hidden', !selectedObject);
@@ -318,7 +324,16 @@ window.ArtVector = window.ArtVector || {};
         return;
       }
       const label = constants.TOOLS[selectedObject.type]?.label
-        || ({ rect: 'Прямокутник', ellipse: 'Еліпс', triangle: 'Трикутник', diamond: 'Ромб', star: 'Зірка', line: 'Лінія', arrow: 'Стрілка', pen: 'Олівець', text: 'Текст' }[selectedObject.type] || selectedObject.type);
+        || ({ rect: 'Прямокутник', ellipse: 'Еліпс', triangle: 'Трикутник', diamond: 'Ромб', star: 'Зірка', line: 'Лінія', arrow: 'Стрілка', pen: 'Олівець', curve: 'Крива', text: 'Текст' }[selectedObject.type] || selectedObject.type);
+
+      if (selectedCount > 1) {
+        const grouped = !!selectedObject.groupId;
+        const text = `Вибрано: ${selectedCount} ${grouped ? '(група)' : 'фігур'}`;
+        this.elements.statusSelection.textContent = text;
+        if (this.elements.selectionState) this.elements.selectionState.textContent = text;
+        return;
+      }
+
       this.elements.statusSelection.textContent = `Вибрано: ${label}`;
       // Тип вибраного об'єкта живе в заголовку секції — окрема рамка з тим самим
       // текстом лише дублювала рядок стану й забирала висоту панелі.

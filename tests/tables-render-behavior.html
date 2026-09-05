@@ -240,6 +240,107 @@
         sheets: [{ name: 'Аркуш1', condRules: [{ op: 'gt', v1: 1, fill: '#fee2e2' }] }]
       })]);
 
+      // ---- Діаграми ----
+      // Джерело читається з моделі, тож форматовані значення («85,00%») мають
+      // давати справжнє число, а не результат parseFloat по видимому тексту.
+      // Виділяємо реальними подіями миші — так само, як це робить учень.
+      const Charts = win.TablesCharts;
+      const selectRange = (fromId, toId) => {
+        fire(doc.querySelector(`td[data-id="${fromId}"]`), 'mousedown');
+        fire(doc.querySelector(`td[data-id="${toId}"]`), 'mouseenter');
+        fire(doc, 'mouseup');
+      };
+      const clearCells = ids => ids.forEach(id => setCell(id, ''));
+
+      // Спершу звільняємо клітинки, які використали попередні перевірки.
+      clearCells(['A1', 'A2', 'A3', 'A4', 'A5', 'B1', 'B2', 'B3', 'B4', 'F1', 'G1']);
+
+      // Підписи + один ряд зі значеннями і шапкою.
+      setCell('A1', 'Учень'); setCell('B1', 'Бал');
+      setCell('A2', 'Іваненко'); setCell('B2', '8');
+      setCell('A3', 'Петренко'); setCell('B3', '11');
+      setCell('A4', 'Коваленко'); setCell('B4', '6');
+      win.TablesCalculation.recalculateAll();
+      selectRange('A1', 'B4');
+      const catSource = Charts.extractChartSource();
+      checks.push(['chart: шапку розпізнано', catSource.seriesLabels.join(',') === 'Бал']);
+      checks.push(['chart: підписи з першого стовпця',
+        catSource.rows.map(r => r.label).join(',') === 'Іваненко,Петренко,Коваленко']);
+      checks.push(['chart: значення з моделі',
+        catSource.rows.map(r => r.values[0]).join(',') === '8,11,6']);
+      checks.push(['chart: текстовий перший стовпець не є числовим X',
+        catSource.hasNumericFirstColumn === false]);
+      checks.push(['chart: точкова відхиляє підписи замість X',
+        Charts.scatterBlockReason(catSource).includes('перший стовпець')]);
+
+      // Форматоване значення: 0.85 з форматом «Відсотки» показується як «85,00%».
+      // Стара реалізація читала цей текст із поля і діставала 85 замість 0.85.
+      setCell('B2', '0.85');
+      selectRange('B2', 'B2');
+      win.TablesCellFormatUi.applyNumberFormat('style-num-percent');
+      win.TablesCalculation.recalculateAll();
+      const shownPercent = doc.getElementById('inp_B2').value;
+      selectRange('A1', 'B4');
+      const pctSource = Charts.extractChartSource();
+      checks.push(['chart: клітинку справді відформатовано як відсоток',
+        shownPercent.includes('%')]);
+      checks.push(['chart: відсоток дає 0.85, а не 85', pctSource.rows[0].values[0] === 0.85]);
+      selectRange('B2', 'B2');
+      win.TablesCellFormatUi.applyNumberFormat('');
+
+      // Два числові стовпці — придатні для точкової.
+      clearCells(['A1', 'B1', 'A2', 'B2', 'A3', 'B3', 'A4', 'B4']);
+      setCell('A1', 'Час'); setCell('B1', 'Шлях');
+      setCell('A2', '1'); setCell('B2', '4.9');
+      setCell('A3', '2'); setCell('B3', '19.6');
+      setCell('A4', '3'); setCell('B4', '44.1');
+      win.TablesCalculation.recalculateAll();
+      selectRange('A1', 'B4');
+      const xySource = Charts.extractChartSource();
+      checks.push(['chart: два числові стовпці дають числовий X', xySource.hasNumericFirstColumn === true]);
+      checks.push(['chart: точкова дозволена', Charts.scatterBlockReason(xySource) === '']);
+
+      win.TablesCharts.setChartType('scatter');
+      const scatterConfig = Charts.buildScatterConfig(xySource);
+      const points = scatterConfig.data.datasets[0].data;
+      checks.push(['scatter: один ряд Y', scatterConfig.data.datasets.length === 1]);
+      checks.push(['scatter: пари (x,y) збережено',
+        JSON.stringify(points) === JSON.stringify([{ x: 1, y: 4.9 }, { x: 2, y: 19.6 }, { x: 3, y: 44.1 }])]);
+      checks.push(['scatter: вісь X числова',
+        scatterConfig.options.scales.x.type === 'linear']);
+      checks.push(['scatter: підпис осі X із шапки',
+        scatterConfig.options.scales.x.title.text === 'Час']);
+      checks.push(['scatter: вісь Y не притиснута до нуля',
+        scatterConfig.options.scales.y.beginAtZero === undefined]);
+
+      // Неповна пара не має ставати точкою.
+      setCell('B3', '');
+      win.TablesCalculation.recalculateAll();
+      selectRange('A1', 'B4');
+      const gapPoints = Charts.buildScatterConfig(Charts.extractChartSource()).data.datasets[0].data;
+      checks.push(['scatter: рядок без Y пропущено',
+        JSON.stringify(gapPoints) === JSON.stringify([{ x: 1, y: 4.9 }, { x: 3, y: 44.1 }])]);
+      setCell('B3', '19.6');
+      win.TablesCalculation.recalculateAll();
+
+      // Один числовий стовпець для точкової не годиться: пару (x, y) нема з чого скласти.
+      selectRange('B1', 'B4');
+      const singleColumnReason = Charts.scatterBlockReason(Charts.extractChartSource());
+      checks.push(['scatter: один стовпець відхилено', singleColumnReason !== '']);
+      checks.push(['scatter: пояснення згадує два стовпці',
+        singleColumnReason.includes('два стовпці')]);
+
+      // Активна кнопка типу має бути позначена — інакше не видно, що обрано.
+      win.TablesCharts.setChartType('bar');
+      const barBtn = doc.querySelector('[data-chart-type="bar"]');
+      const scatterBtn = doc.querySelector('[data-chart-type="scatter"]');
+      checks.push(['chart: активний тип позначено',
+        barBtn.classList.contains('active') && barBtn.getAttribute('aria-pressed') === 'true']);
+      checks.push(['chart: неактивний тип не позначено',
+        !scatterBtn.classList.contains('active') && scatterBtn.getAttribute('aria-pressed') === 'false']);
+
+      clearCells(['A1', 'B1', 'A2', 'B2', 'A3', 'B3', 'A4', 'B4']);
+
       const failures = checks.filter(([, ok]) => !ok).map(([name]) => name);
       result.className = failures.length ? 'fail' : 'pass';
       result.textContent = checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} ${name}`).join('\n') +

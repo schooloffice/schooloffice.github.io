@@ -36,6 +36,9 @@
         <button class="menu-item" data-action="open-workbook"><span><i class="fa-solid fa-folder-open fa-fw"></i> Відкрити .arttab</span></button>
         <button class="menu-item" data-action="save-workbook"><span><i class="fa-solid fa-floppy-disk fa-fw"></i> Зберегти .arttab</span><span class="shortcut">Ctrl+S</span></button>
         <div class="menu-sep"></div>
+        <button class="menu-item" data-action="import-xlsx"><span><i class="fa-solid fa-file-excel fa-fw"></i> Відкрити .xlsx</span></button>
+        <button class="menu-item" data-action="export-xlsx"><span><i class="fa-solid fa-file-excel fa-fw"></i> Зберегти як .xlsx</span></button>
+        <div class="menu-sep"></div>
         <button class="menu-item" data-action="import-csv"><span><i class="fa-solid fa-file-import fa-fw"></i> Імпорт CSV</span></button>
         <button class="menu-item" data-action="export-csv"><span><i class="fa-solid fa-file-csv fa-fw"></i> Експорт CSV</span></button>
         <div class="menu-sep"></div>
@@ -253,6 +256,8 @@
 
   <input id="csvFileInput" type="file" accept=".csv,text/csv" class="hidden">
   <input id="workbookFileInput" type="file" accept=".arttab,.json,application/json" class="hidden">
+  <input id="xlsxFileInput" type="file"
+    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden">
 
   <div id="msgModal" class="modal-overlay">
     <div class="modal-content">
@@ -277,13 +282,15 @@
   <div id="chartModal" class="modal-overlay">
     <div class="choffice-modal-content">
       <div class="choffice-toolbar">
-        <div class="chart-type-group">
-          <button data-chart-type="bar" class="chart-type-btn">Стовпчики</button>
-          <button data-chart-type="line" class="chart-type-btn">Лінія</button>
-          <button data-chart-type="pie" class="chart-type-btn">Кругова</button>
+        <div class="chart-type-group" role="group" aria-label="Тип діаграми">
+          <button data-chart-type="bar" class="chart-type-btn" aria-pressed="false">Стовпчики</button>
+          <button data-chart-type="line" class="chart-type-btn" aria-pressed="false">Лінія</button>
+          <button data-chart-type="pie" class="chart-type-btn" aria-pressed="false">Кругова</button>
+          <button data-chart-type="scatter" class="chart-type-btn" aria-pressed="false">Точкова</button>
         </div>
         <button data-close-modal="chartModal" class="chart-close-btn"><i class="fa-solid fa-xmark"></i></button>
       </div>
+      <p id="chartNote" class="chart-note" role="status" hidden></p>
       <div class="chart-canvas-wrap"><canvas id="theChart"></canvas></div>
     </div>
   </div>
@@ -384,6 +391,10 @@
   <script src="js/sorting.js"></script>
   <script src="js/filter.js"></script>
   <script src="js/workbook-file.js"></script>
+  <script src="js/xlsx-zip.js"></script>
+  <script src="js/xlsx-format.js"></script>
+  <script src="js/xlsx-export.js"></script>
+  <script src="js/xlsx-import.js"></script>
   <script src="js/view-options.js"></script>
   <script src="js/cell-format-ui.js"></script>
   <script src="js/conditional-formatting.js"></script>

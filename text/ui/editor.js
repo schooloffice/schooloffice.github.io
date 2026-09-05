@@ -354,15 +354,6 @@ const ArtEditor = (() => {
 
     const parts = _logicalTableParts(cell.closest('table'));
     const row = cell.closest('tr');
-    const columnIndex = cell.cellIndex;
-
-    if (_logicalTableHasMergedCells(parts) && action !== 'table-delete') {
-      ArtModals.info(
-        'Об’єднані клітинки',
-        'Зміна рядків, колонок або їхньої ширини для таблиць з об’єднаними клітинками поки недоступна. Вміст таблиці залишено без змін.'
-      );
-      return false;
-    }
 
     if (action === 'table-delete') {
       ArtModals.confirm('Видалити всю таблицю?', () => {
@@ -372,12 +363,31 @@ const ArtEditor = (() => {
       return true;
     }
 
+    // Об'єднання зшиває частини розрізаної таблиці, тож далі працюємо з тим,
+    // що лишилось, а не зі старим списком частин.
+    if (action === 'cell-merge') {
+      if (!_mergeSelectedCells(cell)) return false;
+      _finishTableAction();
+      return true;
+    }
+    if (action === 'cell-split') {
+      if (!_splitSelectedCell(cell)) return false;
+      _finishTableAction();
+      return true;
+    }
+
+    // Колонку визначаємо через сітку: cellIndex рахує клітинки в DOM і збиває
+    // координати, щойно в таблиці з'являється хоч одне об'єднання.
+    const model = _tableGrid(parts);
+    const position = _cellPosition(model, cell);
+    const columnIndex = position ? position.col : cell.cellIndex;
+
     switch (action) {
-      case 'row-above': _insertRow(row, 'beforebegin'); break;
-      case 'row-below': _insertRow(row, 'afterend'); break;
+      case 'row-above': _insertRow(row, 'beforebegin', parts); break;
+      case 'row-below': _insertRow(row, 'afterend', parts); break;
       case 'row-delete': _deleteRow(parts, row); break;
       case 'column-left': _insertColumn(parts, columnIndex); break;
-      case 'column-right': _insertColumn(parts, columnIndex + 1); break;
+      case 'column-right': _insertColumn(parts, columnIndex + (position ? position.colSpan : 1)); break;
       case 'column-delete': _deleteColumn(parts, columnIndex); break;
       case 'column-wider': _resizeColumn(parts, columnIndex, COLUMN_WIDTH_STEP); break;
       case 'column-narrower': _resizeColumn(parts, columnIndex, -COLUMN_WIDTH_STEP); break;
@@ -398,67 +408,167 @@ const ArtEditor = (() => {
     });
   }
 
-  function _insertRow(row, position) {
-    const fresh = _createEmptyRowLike(row);
+  // Новий рядок будуємо за сіткою: там, де крізь місце вставки проходить
+  // клітинка з rowspan, вона просто стає на рядок вищою, а нової клітинки
+  // в цій колонці не з'являється.
+  function _insertRowByGrid(parts, row, position) {
+    const model = _tableGrid(parts);
+    const rowIndex = model.rows.indexOf(row);
+    if (rowIndex < 0) return null;
+
+    // Куди дивитись, щоб зрозуміти, що перетинає лінію вставки.
+    const probeRow = position === 'beforebegin' ? rowIndex : rowIndex + 1;
+    const fresh = document.createElement('tr');
+    const stretched = new Set();
+
+    for (let c = 0; c < model.columnCount; c++) {
+      const above = _gridAt(model, probeRow - 1, c);
+      const below = probeRow < model.grid.length ? _gridAt(model, probeRow, c) : null;
+      const crossing = above && below && above.cell === below.cell;
+
+      if (crossing) {
+        if (!stretched.has(above.cell)) { above.cell.rowSpan = above.rowSpan + 1; stretched.add(above.cell); }
+        continue;
+      }
+
+      // Новий рядок завжди рядок даних, тож td — навіть під шапкою з th.
+      const sample = (below || above);
+      const cell = document.createElement('td');
+      if (sample && sample.colSpan > 1 && sample.anchorCol === c) {
+        cell.colSpan = sample.colSpan;
+        c += sample.colSpan - 1;
+      }
+      cell.innerHTML = '<br>';
+      fresh.appendChild(cell);
+    }
+
     row.insertAdjacentElement(position, fresh);
+    return fresh;
+  }
+
+  function _insertRow(row, position, parts) {
+    const fresh = _insertRowByGrid(parts || _logicalTableParts(row.closest('table')), row, position)
+      || _createEmptyRowLike(row);
+    if (!fresh.parentElement) row.insertAdjacentElement(position, fresh);
     _placeCaretInCell(fresh.firstElementChild);
     _announce(position === 'beforebegin' ? 'Рядок додано вище' : 'Рядок додано нижче');
   }
 
+  // Видалення рядка з об'єднаннями: клітинку, що тягнеться згори, вкорочуємо;
+  // клітинку, яка починається саме тут і йде нижче, переносимо в наступний
+  // рядок — інакше зник би і той її вміст, що належить іншим рядкам.
   function _deleteRow(parts, row) {
-    const dataRows = _logicalRows(parts);
-    if (dataRows.length <= 1) return _deleteTable(parts);
+    const model = _tableGrid(parts);
+    if (model.rows.length <= 1) return _deleteTable(parts);
 
-    const index = dataRows.indexOf(row);
-    const fallback = dataRows[index + 1] || dataRows[index - 1];
+    const index = model.rows.indexOf(row);
+    if (index < 0) return;
+    const nextRow = model.rows[index + 1] || null;
+    const handled = new Set();
+
+    for (let c = 0; c < model.columnCount; c++) {
+      const slot = _gridAt(model, index, c);
+      if (!slot || handled.has(slot.cell)) continue;
+      handled.add(slot.cell);
+      if (slot.rowSpan <= 1) continue;
+
+      slot.cell.rowSpan = slot.rowSpan - 1;
+      if (slot.anchorRow === index && nextRow) {
+        // Клітинка мусить «переїхати» на рядок нижче, зберігши свою колонку.
+        nextRow.insertBefore(slot.cell, _domReferenceForColumn(model, nextRow, c, slot.cell));
+      }
+    }
+
+    const fallback = nextRow || model.rows[index - 1];
     row.remove();
     _placeCaretInCell(fallback?.firstElementChild);
     _announce('Рядок видалено');
   }
 
+  // Вставка колонки з урахуванням об'єднань: якщо позицію займає клітинка,
+  // розтягнута по горизонталі, її треба розширити, а не додавати сусідню —
+  // інакше об'єднана шапка «поїде» відносно даних під нею.
   function _insertColumn(parts, index) {
-    _allRows(parts).forEach(row => {
-      const reference = row.children[index] || null;
-      const source = row.children[Math.min(index, row.children.length - 1)];
-      const fresh = document.createElement(source?.tagName === 'TH' ? 'th' : 'td');
+    const model = _tableGrid(parts);
+    const widened = new Set();
+
+    model.rows.forEach((row, r) => {
+      const slot = _gridAt(model, r, index);
+      const spansAcross = slot && slot.anchorCol < index && slot.anchorCol + slot.colSpan > index;
+
+      if (spansAcross) {
+        if (!widened.has(slot.cell)) { slot.cell.colSpan = slot.colSpan + 1; widened.add(slot.cell); }
+        return;
+      }
+
+      const sample = slot ? slot.cell : row.lastElementChild;
+      const fresh = document.createElement(sample?.tagName === 'TH' ? 'th' : 'td');
       fresh.innerHTML = '<br>';
-      row.insertBefore(fresh, reference);
+
+      // Клітинку з rowspan, що тягнеться згори, не дублюємо в кожному рядку.
+      if (slot && slot.anchorRow < r) {
+        const reference = _domReferenceForColumn(model, row, index - 1, null);
+        row.insertBefore(fresh, reference);
+        return;
+      }
+      row.insertBefore(fresh, slot && slot.cell.parentElement === row ? slot.cell : null);
     });
+
     _announce('Колонку додано');
   }
 
+  // Видалення колонки: клітинку, розтягнуту на кілька колонок, звужуємо, а не
+  // видаляємо — інакше зникла б і та її частина, що лежить в інших колонках.
   function _deleteColumn(parts, index) {
-    const columns = _allRows(parts)[0]?.children.length || 0;
-    if (columns <= 1) return _deleteTable(parts);
+    const model = _tableGrid(parts);
+    if (model.columnCount <= 1) return _deleteTable(parts);
 
+    const handled = new Set();
     let neighbour = null;
-    _allRows(parts).forEach(row => {
-      const target = row.children[index];
-      if (!target) return;
-      neighbour = neighbour || row.children[index + 1] || row.children[index - 1];
-      target.remove();
-    });
+
+    for (let r = 0; r < model.grid.length; r++) {
+      const slot = _gridAt(model, r, index);
+      if (!slot || handled.has(slot.cell)) continue;
+      handled.add(slot.cell);
+
+      const sideSlot = _gridAt(model, r, index + 1) || _gridAt(model, r, index - 1);
+      if (sideSlot && sideSlot.cell !== slot.cell) neighbour = neighbour || sideSlot.cell;
+
+      if (slot.colSpan > 1) slot.cell.colSpan = slot.colSpan - 1;
+      else slot.cell.remove();
+    }
+
+    _pruneUncoveredRows(parts);
     _placeCaretInCell(neighbour);
     _announce('Колонку видалено');
   }
 
+  // Ширину задаємо лише клітинкам, які займають рівно цю одну колонку:
+  // об'єднана по горизонталі клітинка описує кілька колонок одразу, тож її
+  // ширина нічого не каже про конкретну.
   function _resizeColumn(parts, index, delta) {
-    const rows = _allRows(parts);
+    const model = _tableGrid(parts);
+    const targets = [];
+    const seen = new Set();
+
+    for (let r = 0; r < model.grid.length; r++) {
+      const slot = _gridAt(model, r, index);
+      if (!slot || seen.has(slot.cell) || slot.colSpan > 1) continue;
+      seen.add(slot.cell);
+      targets.push(slot.cell);
+    }
+    if (!targets.length) return;
+
     if (delta === null) {
-      rows.forEach(row => row.children[index]?.style.removeProperty('width'));
+      targets.forEach(cell => cell.style.removeProperty('width'));
       _announce('Ширину колонки скинуто');
       return;
     }
 
     // Ширину міряємо один раз до змін: інакше кожна наступна клітинка читала б
     // уже перелаштовану колонку й отримувала свій розмір.
-    const reference = rows.find(row => row.children[index])?.children[index];
-    if (!reference) return;
-    const width = Math.max(MIN_COLUMN_WIDTH, Math.round(reference.getBoundingClientRect().width + delta));
-    rows.forEach(row => {
-      const target = row.children[index];
-      if (target) target.style.width = width + 'px';
-    });
+    const width = Math.max(MIN_COLUMN_WIDTH, Math.round(targets[0].getBoundingClientRect().width + delta));
+    targets.forEach(cell => { cell.style.width = width + 'px'; });
     _announce('Ширину колонки змінено');
   }
 
@@ -478,12 +588,240 @@ const ArtEditor = (() => {
     _announce('Таблицю видалено');
   }
 
-  function _allRows(parts) {
-    return parts.flatMap(part => [...part.querySelectorAll('tr:not([data-art-table-repeat])')]);
-  }
 
   function _logicalRows(parts) {
     return parts.flatMap(part => [...part.querySelectorAll('tr:not([data-art-table-repeat])')]);
+  }
+
+  // ---- Координатна сітка таблиці ----
+  // Без неї (рядок, колонка) не визначає клітинку однозначно: colspan і rowspan
+  // зсувають усе, що йде далі. Сітка розкладає таблицю на клітинки так, що
+  // grid[r][c] завжди вказує на ту клітинку, яка займає цю позицію, а anchor
+  // каже, чи саме тут вона починається.
+  function _tableGrid(parts) {
+    const rows = _logicalRows(parts);
+    const grid = rows.map(() => []);
+
+    rows.forEach((row, r) => {
+      let c = 0;
+      [...row.children].forEach(cell => {
+        while (grid[r][c]) c++; // позиція вже зайнята spans із попередніх рядків
+        const colSpan = Math.max(1, cell.colSpan || 1);
+        const rowSpan = Math.max(1, cell.rowSpan || 1);
+        for (let dr = 0; dr < rowSpan && r + dr < rows.length; dr++) {
+          for (let dc = 0; dc < colSpan; dc++) {
+            grid[r + dr][c + dc] = { cell, anchorRow: r, anchorCol: c, rowSpan, colSpan };
+          }
+        }
+        c += colSpan;
+      });
+    });
+
+    const columnCount = grid.reduce((max, line) => Math.max(max, line.length), 0);
+    return { parts, rows, grid, columnCount };
+  }
+
+  function _gridAt(model, r, c) {
+    return model.grid[r] ? model.grid[r][c] || null : null;
+  }
+
+  // Позиція клітинки в сітці (за її якорем).
+  function _cellPosition(model, cell) {
+    for (let r = 0; r < model.grid.length; r++) {
+      for (let c = 0; c < model.columnCount; c++) {
+        const slot = _gridAt(model, r, c);
+        if (slot && slot.cell === cell && slot.anchorRow === r && slot.anchorCol === c) {
+          return { row: r, col: c, rowSpan: slot.rowSpan, colSpan: slot.colSpan };
+        }
+      }
+    }
+    return null;
+  }
+
+  // Прямокутник клітинок, яких торкається виділення. Розширюємо його, доки
+  // всередину не потраплять цілі об'єднані клітинки: не можна злити «половину»
+  // вже об'єднаної клітинки.
+  function _cellOf(node) {
+    const element = node && node.nodeType === 1 ? node : node?.parentElement;
+    const cell = element?.closest?.('th,td');
+    return cell && _editor.contains(cell) ? cell : null;
+  }
+
+  function _selectedCellRect(model) {
+    const range = ArtSelection.getRange(_editor);
+
+    // Прямокутник будуємо за ДВОМА кутами виділення, а не за всім, що Range
+    // перетинає: лінійний DOM-Range від B1 до B3 проходить і через C1, і через
+    // A3, тож «перетнуті» клітинки дали б усю таблицю замість одного стовпця.
+    const corners = [];
+    if (range) {
+      const start = _cellOf(range.startContainer);
+      const end = _cellOf(range.endContainer);
+      if (start) corners.push(start);
+      if (end && end !== start) corners.push(end);
+    }
+    if (!corners.length) {
+      const caret = _caretCell();
+      if (caret) corners.push(caret);
+    }
+    if (!corners.length) return null;
+
+    let r1 = Infinity, c1 = Infinity, r2 = -1, c2 = -1;
+    corners.forEach(cell => {
+      const pos = _cellPosition(model, cell);
+      if (!pos) return;
+      r1 = Math.min(r1, pos.row);
+      c1 = Math.min(c1, pos.col);
+      r2 = Math.max(r2, pos.row + pos.rowSpan - 1);
+      c2 = Math.max(c2, pos.col + pos.colSpan - 1);
+    });
+    if (r2 < 0) return null;
+
+    // Розширюємо, доки прямокутник не стане замкненим щодо наявних об'єднань.
+    for (let guard = 0; guard < 40; guard++) {
+      let grew = false;
+      for (let r = r1; r <= r2; r++) {
+        for (let c = c1; c <= c2; c++) {
+          const slot = _gridAt(model, r, c);
+          if (!slot) continue;
+          if (slot.anchorRow < r1) { r1 = slot.anchorRow; grew = true; }
+          if (slot.anchorCol < c1) { c1 = slot.anchorCol; grew = true; }
+          if (slot.anchorRow + slot.rowSpan - 1 > r2) { r2 = slot.anchorRow + slot.rowSpan - 1; grew = true; }
+          if (slot.anchorCol + slot.colSpan - 1 > c2) { c2 = slot.anchorCol + slot.colSpan - 1; grew = true; }
+        }
+      }
+      if (!grew) break;
+    }
+
+    return { r1, c1, r2, c2 };
+  }
+
+  // Об'єднання не може перетнути межу частин розрізаної таблиці: клітинка
+  // не буває одночасно у двох <table>. Тому спершу зшиваємо частини назад —
+  // пагінація розріже їх заново там, де це можливо.
+  function _joinTableParts(parts) {
+    if (parts.length < 2) return parts;
+    const first = parts[0];
+    const body = first.tBodies[0] || first;
+    parts.slice(1).forEach(part => {
+      [...(part.tBodies[0] || part).rows].forEach(row => {
+        if (row.dataset.artTableRepeat) row.remove();
+        else body.appendChild(row);
+      });
+      const page = part.closest('.page-content');
+      part.remove();
+      if (page) _cleanupPage(page);
+    });
+    first.removeAttribute('data-art-flow-tail');
+    return [first];
+  }
+
+  function _mergeSelectedCells(cell) {
+    let parts = _logicalTableParts(cell.closest('table'));
+    if (parts.length > 1) parts = _joinTableParts(parts);
+
+    const model = _tableGrid(parts);
+    const rect = _selectedCellRect(model);
+    if (!rect) return false;
+
+    if (rect.r1 === rect.r2 && rect.c1 === rect.c2) {
+      ArtModals.info('Об’єднання клітинок', 'Виділи дві або більше сусідні клітинки, які треба об’єднати.');
+      return false;
+    }
+
+    const anchorSlot = _gridAt(model, rect.r1, rect.c1);
+    if (!anchorSlot) return false;
+    const anchor = anchorSlot.cell;
+
+    // Збираємо вміст у порядку читання; порожні клітинки не додають порожніх абзаців.
+    const seen = new Set();
+    const pieces = [];
+    for (let r = rect.r1; r <= rect.r2; r++) {
+      for (let c = rect.c1; c <= rect.c2; c++) {
+        const slot = _gridAt(model, r, c);
+        if (!slot || seen.has(slot.cell)) continue;
+        seen.add(slot.cell);
+        const html = slot.cell.innerHTML.trim();
+        if (html && html !== '<br>') pieces.push(html);
+      }
+    }
+
+    seen.forEach(target => { if (target !== anchor) target.remove(); });
+
+    anchor.colSpan = rect.c2 - rect.c1 + 1;
+    anchor.rowSpan = rect.r2 - rect.r1 + 1;
+    anchor.innerHTML = pieces.length ? pieces.join('<br>') : '<br>';
+
+    _pruneUncoveredRows(parts);
+    _placeCaretInCell(anchor);
+    _announce(`Об’єднано клітинок: ${seen.size}`);
+    return true;
+  }
+
+  // Рядок без власних клітинок допустимий, поки його накриває чийсь rowspan.
+  // Якщо не накриває — це порожній залишок після об'єднання, і він має зникнути.
+  function _pruneUncoveredRows(parts) {
+    const model = _tableGrid(parts);
+    model.rows.forEach((row, r) => {
+      if (row.children.length) return;
+      const covered = model.grid[r]?.some(slot => slot && slot.cell.isConnected);
+      if (!covered) row.remove();
+    });
+  }
+
+  function _splitSelectedCell(cell) {
+    const parts = _logicalTableParts(cell.closest('table'));
+    const model = _tableGrid(parts);
+    const pos = _cellPosition(model, cell);
+    if (!pos) return false;
+
+    if (pos.rowSpan <= 1 && pos.colSpan <= 1) {
+      ArtModals.info('Розділення клітинки', 'Ця клітинка не об’єднана — розділяти нічого.');
+      return false;
+    }
+
+    const { row, col, rowSpan, colSpan } = pos;
+    cell.colSpan = 1;
+    cell.rowSpan = 1;
+
+    // Тег беремо з того рядка, куди клітинка повертається: об'єднана шапка,
+    // що звисала в рядки даних, не повинна перетворити їх на заголовкові.
+    const tagFor = tr => {
+      const sibling = tr.querySelector('th,td');
+      if (sibling && sibling !== cell) return sibling.tagName === 'TH' ? 'th' : 'td';
+      return cell.tagName === 'TH' ? 'th' : 'td';
+    };
+
+    // Повертаємо на місце клітинки, які об'єднання поглинуло. Ідемо з кінця,
+    // щоб вставка не зсувала позиції, які ще не обробили.
+    for (let r = row + rowSpan - 1; r >= row; r--) {
+      const tr = model.rows[r];
+      if (!tr) continue;
+      for (let c = col + colSpan - 1; c >= col; c--) {
+        if (r === row && c === col) continue;
+        const fresh = document.createElement(tagFor(tr));
+        fresh.innerHTML = '<br>';
+        const reference = _domReferenceForColumn(model, tr, c, cell);
+        tr.insertBefore(fresh, reference);
+      }
+    }
+
+    _placeCaretInCell(cell);
+    _announce('Клітинку розділено');
+    return true;
+  }
+
+  // Куди в DOM-рядку вставити клітинку, щоб вона опинилась у колонці col.
+  // Орієнтуємось на першу клітинку рядка, чия колонка більша за потрібну.
+  function _domReferenceForColumn(model, tr, col, ignore) {
+    const rowIndex = model.rows.indexOf(tr);
+    if (rowIndex < 0) return null;
+    for (let c = col + 1; c < model.columnCount; c++) {
+      const slot = _gridAt(model, rowIndex, c);
+      if (!slot || slot.cell === ignore) continue;
+      if (slot.cell.parentElement === tr) return slot.cell;
+    }
+    return null;
   }
 
   function _updateTableContext() {
@@ -493,14 +831,17 @@ const ArtEditor = (() => {
     const cell = _caretCell();
     entry.hidden = !cell;
     if (!cell) hideTableMenu();
-    const merged = cell ? _logicalTableHasMergedCells(_logicalTableParts(cell.closest('table'))) : false;
+    // Операції рядків і колонок працюють з об'єднаннями через координатну
+    // сітку, тож блокувати їх більше не треба. Лишається одне обмеження:
+    // «Розділити» має сенс лише для вже об'єднаної клітинки.
+    const splittable = !!cell && (cell.colSpan > 1 || cell.rowSpan > 1);
     menu.querySelectorAll('[data-table-action]').forEach(button => {
       if (!button.dataset.defaultTitle) button.dataset.defaultTitle = button.title || '';
-      const unavailable = merged && button.dataset.tableAction !== 'table-delete';
+      const unavailable = button.dataset.tableAction === 'cell-split' && !splittable;
       button.disabled = unavailable;
       button.setAttribute('aria-disabled', String(unavailable));
       button.title = unavailable
-        ? 'Недоступно для таблиці з об’єднаними клітинками'
+        ? 'Ця клітинка не об’єднана'
         : button.dataset.defaultTitle;
     });
   }
@@ -603,9 +944,6 @@ const ArtEditor = (() => {
     return original?.cells?.[cell.cellIndex] || null;
   }
 
-  function _logicalTableHasMergedCells(parts) {
-    return parts.some(part => [...part.querySelectorAll('th,td')].some(cell => cell.colSpan > 1 || cell.rowSpan > 1));
-  }
 
   function _logicalTableCells(table) {
     if (!table) return [];
@@ -1546,7 +1884,40 @@ const ArtEditor = (() => {
   }
 
   function _updatePageNumbers() {
-    _getPages().forEach((page, index) => page.dataset.pageNumber = `${index + 1}`);
+    const settings = ArtState.normalizePageNumbers(ArtState.get('pageNumbers'));
+    const pages = _getPages();
+
+    pages.forEach((page, index) => {
+      page.dataset.pageNumber = `${index + 1}`;
+      // data-page-label — те, що реально малює CSS. Порожній рядок означає
+      // «без номера», тож вимкнена нумерація нічого не друкує.
+      const hidden = !settings.enabled || (settings.skipFirst && index === 0);
+      page.dataset.pageLabel = hidden ? '' : `${index + 1}`;
+    });
+
+    const wrap = document.querySelector('.pages-wrap');
+    if (wrap) wrap.dataset.pageNumberPosition = settings.position;
+
+    _updatePageStatus(pages.length);
+  }
+
+  // Номер сторінки в рядку стану — навігаційна підказка, яка не залежить
+  // від того, чи нумерує учень сторінки в самому документі.
+  function _updatePageStatus(total) {
+    const el = document.getElementById('statusPage');
+    if (!el) return;
+    const pages = _getPages();
+    const count = total ?? pages.length;
+    const active = _getActivePage();
+    const index = active ? pages.indexOf(active) : -1;
+    el.textContent = `${index >= 0 ? index + 1 : 1} з ${count || 1}`;
+  }
+
+  function _getActivePage() {
+    const selection = window.getSelection();
+    const node = selection && selection.rangeCount ? selection.getRangeAt(0).startContainer : null;
+    const element = node && node.nodeType === 1 ? node : node?.parentElement;
+    return element?.closest?.('.page') || _getPages()[0] || null;
   }
 
   function _updateEmptyState() {
@@ -1565,19 +1936,30 @@ const ArtEditor = (() => {
     _updateEmptyState();
   }
 
-  function findNext(query) {
-    query = String(query || '').trim();
-    if (!query) return;
+  function _setFindStatus(text) {
+    const status = document.getElementById('findStatus');
+    if (status) status.textContent = text || '';
+  }
+
+  // Готує підсвітку під запит. Повертає кількість збігів.
+  function _ensureMatches(query) {
     if (_findState.query !== query) {
-      _findState = { query, index: -1, matches: [] };
       clearFindHighlights();
+      _findState = { query, index: -1, matches: [] };
       _findState.matches = _collectMatches(query);
       _paintMatches();
     }
-    if (!_findState.matches.length) {
-      ArtModals.info('Пошук', 'Нічого не знайдено.');
+    return _findState.matches.length;
+  }
+
+  function findNext(query) {
+    query = String(query || '').trim();
+    if (!query) return;
+    if (!_ensureMatches(query)) {
+      _setFindStatus('Нічого не знайдено.');
       return;
     }
+    _setFindStatus(`Знайдено збігів: ${_findState.matches.length}.`);
     _findState.index = (_findState.index + 1) % _findState.matches.length;
     const target = _editor.querySelectorAll('mark.search-hit')[_findState.index];
     if (!target) return;
@@ -1630,8 +2012,73 @@ const ArtEditor = (() => {
       const parent = mark.parentNode;
       while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
       parent.removeChild(mark);
+      parent.normalize();
     });
     _findState = { query: '', index: -1, matches: [] };
+  }
+
+  // Підміняє один <mark> текстом заміни. Порожня заміна = видалення знайденого.
+  function _replaceMark(mark, replacement) {
+    const parent = mark.parentNode;
+    if (!parent) return;
+    if (replacement) parent.insertBefore(document.createTextNode(replacement), mark);
+    parent.removeChild(mark);
+    parent.normalize();
+  }
+
+  // Після заміни довжина тексту змінилась, тож стару розкладку й старі
+  // позиції збігів тримати не можна: перебудовуємо і те, і те.
+  function _afterReplace(query, message) {
+    const restore = query ? String(query) : '';
+    _findState = { query: '', index: -1, matches: [] };
+    _editor.dispatchEvent(new Event('input', { bubbles: true }));
+    _syncView();
+    ArtHistory.pushNow?.();
+    if (restore) _ensureMatches(restore);
+    _setFindStatus(message);
+  }
+
+  function replaceCurrent(query, replacement) {
+    query = String(query || '').trim();
+    if (!query) return;
+    replacement = String(replacement ?? '');
+
+    if (!_ensureMatches(query)) {
+      _setFindStatus('Нічого не знайдено.');
+      return;
+    }
+
+    const marks = [..._editor.querySelectorAll('mark.search-hit')];
+    // Замінюємо поточний виділений збіг, а без нього — перший.
+    const index = marks.findIndex(mark => mark.classList.contains('current'));
+    const target = marks[index >= 0 ? index : 0];
+    if (!target) return;
+
+    _replaceMark(target, replacement);
+    const left = Math.max(0, marks.length - 1);
+    _afterReplace(left ? query : '', '');
+
+    // Переходимо до наступного збігу, як у Word, і лише після цього пишемо
+    // підсумок — інакше findNext затер би повідомлення про заміну.
+    if (left) findNext(query);
+    _setFindStatus(left
+      ? `Замінено 1. Залишилось збігів: ${left}.`
+      : 'Замінено 1. Більше збігів немає.');
+  }
+
+  function replaceAll(query, replacement) {
+    query = String(query || '').trim();
+    if (!query) return;
+    replacement = String(replacement ?? '');
+
+    if (!_ensureMatches(query)) {
+      _setFindStatus('Нічого не знайдено.');
+      return;
+    }
+
+    const marks = [..._editor.querySelectorAll('mark.search-hit')];
+    marks.forEach(mark => _replaceMark(mark, replacement));
+    _afterReplace('', `Замінено збігів: ${marks.length}.`);
   }
 
   function editFileName() {
@@ -1697,7 +2144,8 @@ const ArtEditor = (() => {
 
   return {
     init, newDoc, saveAs, setOrientation, setZoom, hasSelectedImage, setSelectedImageLayout,
-    insertTable, tableAction, toggleTableMenu, hideTableMenu, refreshLayout, openImageDialog, findNext, clearFindHighlights, editFileName,
+    insertTable, tableAction, toggleTableMenu, hideTableMenu, refreshLayout, openImageDialog,
+    findNext, replaceCurrent, replaceAll, clearFindHighlights, editFileName,
     // Логічний (не сторінковий) HTML документа — те, що йде у файл.
     // Відкрито для поведінкових тестів експорту.
     getExportHTML: _getExportHTML

@@ -36,7 +36,7 @@ window.ArtVector = window.ArtVector || {};
     MAX_FONT_SIZE: 400
   };
 
-  const OBJECT_TYPES = ['rect', 'ellipse', 'triangle', 'diamond', 'star', 'line', 'arrow', 'pen', 'text'];
+  const OBJECT_TYPES = ['rect', 'ellipse', 'triangle', 'diamond', 'star', 'line', 'arrow', 'pen', 'curve', 'text'];
   const GUIDE_MODES = ['none', 'grid', 'lines'];
   const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
   const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -113,8 +113,18 @@ window.ArtVector = window.ArtVector || {};
     return candidate;
   }
 
+  // Ідентифікатор групи з чужого файла — просто мітка, за якою фігури
+  // виділяються разом. Обмежуємо довжину й набір символів, щоб він не став
+  // носієм довільного рядка зі стороннього JSON.
+  function sanitizeGroupId(value) {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.length > 64) return null;
+    return /^[A-Za-z0-9_-]+$/.test(trimmed) ? trimmed : null;
+  }
+
   function normalizeCommon(raw, type, seenIds) {
-    return {
+    const common = {
       id: sanitizeId(raw.id, type, seenIds),
       type,
       stroke: sanitizeColor(raw.stroke, DEFAULT_STROKE),
@@ -122,6 +132,9 @@ window.ArtVector = window.ArtVector || {};
       strokeWidth: clampNumber(raw.strokeWidth, LIMITS.MIN_STROKE_WIDTH, LIMITS.MAX_STROKE_WIDTH, 3),
       opacity: clampNumber(raw.opacity, 0, 100, 100)
     };
+    const groupId = sanitizeGroupId(raw.groupId);
+    if (groupId) common.groupId = groupId;
+    return common;
   }
 
   function normalizePoints(raw) {
@@ -161,7 +174,7 @@ window.ArtVector = window.ArtVector || {};
       return object;
     }
 
-    if (type === 'pen') {
+    if (constants.POINT_TYPES.includes(type)) {
       object.points = normalizePoints(raw.points);
       // Один вузол не малює нічого — такий об'єкт лише засмічує сцену.
       return object.points.length >= 2 ? object : null;
@@ -192,7 +205,7 @@ window.ArtVector = window.ArtVector || {};
     for (const item of rawObjects) {
       const normalized = normalizeObject(item, seenIds);
       if (!normalized) continue;
-      if (normalized.type === 'pen') {
+      if (constants.POINT_TYPES.includes(normalized.type)) {
         totalPenPoints += normalized.points.length;
         if (totalPenPoints > LIMITS.MAX_TOTAL_PEN_POINTS) return null;
       }

@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v44';
+const CACHE_VERSION = 'office-plus-v47';
 const PRECACHE_NAME = `${CACHE_VERSION}-precache`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const MAX_RUNTIME_ENTRIES = 80;
@@ -121,6 +121,10 @@ const CORE_ASSETS = [
   './tables/js/view-options.js',
   './tables/js/workbook.js',
   './tables/js/workbook-file.js',
+  './tables/js/xlsx-zip.js',
+  './tables/js/xlsx-format.js',
+  './tables/js/xlsx-export.js',
+  './tables/js/xlsx-import.js',
   './tables/style.css',
   './text/core/history.js',
   './text/core/sanitize.js',

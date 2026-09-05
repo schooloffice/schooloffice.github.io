@@ -89,6 +89,11 @@
         <button class="menu-item" data-action="delete-selected"><span><i class="fa-solid fa-trash fa-fw"></i> Видалити
             вибране</span><span class="shortcut">Delete</span></button>
         <div class="menu-sep"></div>
+        <button class="menu-item" data-action="group-objects"><span><i class="fa-solid fa-object-group fa-fw"></i>
+            Згрупувати</span><span class="shortcut">Ctrl+G</span></button>
+        <button class="menu-item" data-action="ungroup-objects"><span><i class="fa-solid fa-object-ungroup fa-fw"></i>
+            Розгрупувати</span><span class="shortcut">Ctrl+Shift+G</span></button>
+        <div class="menu-sep"></div>
         <button class="menu-item" data-action="bring-front"><span><i class="fa-solid fa-layer-group fa-fw"></i> На
             передній план</span></button>
         <button class="menu-item" data-action="send-back"><span><i class="fa-solid fa-layer-group fa-fw"></i> На задній
@@ -173,7 +178,7 @@
 
       <div class="rail-group rail-tools">
         <button class="rail-btn rail-tool active" type="button" data-tool="select" title="Вибір (V)"><i class="fa-solid fa-arrow-pointer"></i><span>Вибір</span></button>
-        <button class="rail-btn rail-tool" type="button" data-tool="pen" title="Олівець (P)"><i class="fa-solid fa-pencil"></i><span>Олівець</span></button>
+        <button id="railDrawBtn" class="rail-btn rail-tool" type="button" data-tool-group="draw" title="Олівець і крива (P)"><i id="railDrawIcon" class="fa-solid fa-pencil"></i><span>Олівець</span></button>
         <button id="railLineBtn" class="rail-btn rail-tool" type="button" data-tool-group="line" title="Лінія та стрілка (L)"><i id="railLineIcon" class="fa-solid fa-minus"></i><span>Лінія</span></button>
         <button id="railShapeBtn" class="rail-btn rail-tool" type="button" data-tool-group="shape" title="Фігури (R)"><i id="railShapeIcon" class="fa-regular fa-square"></i><span>Фігури</span></button>
         <button class="rail-btn rail-tool" type="button" data-tool="text" title="Текст (T)"><i class="fa-solid fa-font"></i><span>Текст</span></button>
@@ -190,6 +195,14 @@
       <div class="panel-tool-area">
       <!-- Іконки геометричних примітивів самі є підписом; назву активного вибору
            показує заголовок секції, тож підпис лишається видимим завжди. -->
+      <div id="propDraw" class="prop-section" data-tool-section="draw">
+        <div class="prop-title">Малювання <span id="drawToolName" class="prop-title-value">Олівець</span></div>
+        <div class="chip-grid chip-grid-icons">
+          <button class="prop-chip" type="button" data-tool="pen" title="Олівець" aria-label="Олівець"><i class="fa-solid fa-pencil"></i></button>
+          <button class="prop-chip" type="button" data-tool="curve" title="Крива" aria-label="Крива"><i class="fa-solid fa-bezier-curve"></i></button>
+        </div>
+      </div>
+
       <div id="propLine" class="prop-section" data-tool-section="line">
         <div class="prop-title">Лінія <span id="lineToolName" class="prop-title-value">Лінія</span></div>
         <div class="chip-grid chip-grid-icons">
@@ -220,6 +233,8 @@
           <button class="panel-action" type="button" data-action="bring-front" title="На передній план"><i class="fa-solid fa-arrow-up-wide-short"></i><span>Вперед</span></button>
           <button class="panel-action" type="button" data-action="send-back" title="На задній план"><i class="fa-solid fa-arrow-down-short-wide"></i><span>Назад</span></button>
           <button class="panel-action" type="button" data-action="duplicate" title="Дублювати (Ctrl+D)"><i class="fa-regular fa-clone"></i><span>Дублювати</span></button>
+          <button class="panel-action" type="button" data-action="group-objects" title="Згрупувати (Ctrl+G)"><i class="fa-solid fa-object-group"></i><span>Групувати</span></button>
+          <button class="panel-action" type="button" data-action="ungroup-objects" title="Розгрупувати (Ctrl+Shift+G)"><i class="fa-solid fa-object-ungroup"></i><span>Розгрупувати</span></button>
           <button class="panel-action" type="button" data-action="edit-text" title="Змінити текст"><i class="fa-solid fa-pen-to-square"></i><span>Текст…</span></button>
           <button class="panel-action danger" type="button" data-action="delete-selected" title="Видалити вибране (Delete)"><i class="fa-solid fa-trash"></i><span>Видалити</span></button>
         </div>

@@ -7,6 +7,7 @@
 // Вузли AST:
 //   { type:'num', value }
 //   { type:'str', value }
+//   { type:'bool', value }                     // літерали TRUE / FALSE
 //   { type:'ref', col, row, colAbs, rowAbs }   // col — індекс із 0
 //   { type:'range', start:refNode, end:refNode }
 //   { type:'unary', op:'-'|'+'|'%post', operand }
@@ -27,7 +28,7 @@ function tokenizeFormula(src) {
   const CROSS_SHEET_RE = /^([A-Za-z_Ѐ-ӿ][A-Za-z0-9_Ѐ-ӿ]*)!(\$?)([A-Za-z]+)(\$?)(\d+)/;
   const QUOTED_SHEET_RE = /^'([^']+)'!(\$?)([A-Za-z]+)(\$?)(\d+)/;
   const PLAIN_REF_RE = /^(\$?)([A-Za-z]+)(\$?)(\d+)/;
-  const ERR_RE = /^#(DIV\/0!|REF!|NAME\?|VALUE!|NUM!|CIRC!)/;
+  const ERR_RE = /^#(DIV\/0!|REF!|NAME\?|VALUE!|NUM!|N\/A|CIRC!)/;
 
   while (i < n) {
     const ch = s[i];
@@ -213,6 +214,10 @@ function parseFormula(src) {
         expectOp(')');
         return { type: 'call', name: t.value, args };
       }
+      // Логічні літерали: VLOOKUP(x;діапазон;2;FALSE) — канонічна форма
+      // з підручника й з будь-якої імпортованої книги Excel.
+      if (t.value === 'TRUE') return { type: 'bool', value: true };
+      if (t.value === 'FALSE') return { type: 'bool', value: false };
       // Гола назва без "(" — невідомий ідентифікатор
       throw formulaError(FORMULA_ERRORS.NAME);
     }

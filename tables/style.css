@@ -893,6 +893,20 @@ th.col-header {
   position: relative;
 }
 
+/* Пояснення, чому обраний тип діаграми не підходить до виділення. */
+.chart-note {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--muted, #64748b);
+  font-size: .9rem;
+  line-height: 1.5;
+}
+
 /* Saved style classes */
 .style-border-all { box-shadow: inset 0 0 0 2px #334155 !important; }
 .style-text-bold .cell-input { font-weight: 900; }

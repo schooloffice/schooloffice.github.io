@@ -12,6 +12,7 @@ const ArtToolbar = (() => {
     _editor = editorEl;
     _buildFontSelect();
     _buildSizeSelect();
+    _buildLineHeightSelect();
     _buildPalettes();
     _bindEvents();
   }
@@ -47,6 +48,27 @@ const ArtToolbar = (() => {
       ArtSelection.applyInlineStyle(_editor, { fontSize: `${sel.value}pt` });
       ArtState.set('fontSize', Number(sel.value));
     }));
+  }
+
+  function _buildLineHeightSelect() {
+    const sel = document.getElementById('tbLineHeight');
+    if (!sel) return;
+    sel.addEventListener('change', () => {
+      const value = sel.value;
+      if (!value) { _syncLineHeightSelect(); return; }
+      run(() => {
+        ArtSelection.setLineHeight(_editor, value);
+        // Інтервал змінює висоту рядків, тож сторінки треба перерахувати.
+        ArtEditor.refreshLayout?.();
+      });
+    });
+  }
+
+  function _syncLineHeightSelect() {
+    const sel = document.getElementById('tbLineHeight');
+    if (!sel) return;
+    const current = ArtSelection.getLineHeight?.(_editor) || '';
+    sel.value = [...sel.options].some(option => option.value === current) ? current : '';
   }
 
   function _buildPalettes() {
@@ -218,6 +240,7 @@ const ArtToolbar = (() => {
         btn.setAttribute('aria-pressed', String(active));
       }
     });
+    _syncLineHeightSelect();
     const undo = document.getElementById('tbUndo');
     const redo = document.getElementById('tbRedo');
     if (undo) undo.disabled = !ArtHistory.canUndo();

@@ -158,6 +158,8 @@ const FORMULA_FUNCTIONS = {
     if (cond) return a.length > 1 ? ctx.evalScalar(a[1]) : 1;
     return a.length > 2 ? ctx.evalScalar(a[2]) : 0;
   },
+  TRUE: () => 1,
+  FALSE: () => 0,
   AND: (a, ctx) => a.every(n => ctx.isTruthy(ctx.evalScalar(n))) ? 1 : 0,
   OR: (a, ctx) => a.some(n => ctx.isTruthy(ctx.evalScalar(n))) ? 1 : 0,
   NOT: (a, ctx) => ctx.isTruthy(ctx.evalScalar(a[0])) ? 0 : 1,
@@ -189,10 +191,179 @@ const FORMULA_FUNCTIONS = {
     return ctx.num(a[0]) % b;
   },
 
+  ROUNDUP: (a, ctx) => roundAwayOrToward(a, ctx, Math.ceil, Math.floor),
+  ROUNDDOWN: (a, ctx) => roundAwayOrToward(a, ctx, Math.floor, Math.ceil),
+
   // Дати (повертають серійний номер; формат «Дата» показує DD.MM.YYYY)
   TODAY: () => todaySerial(),
   NOW: () => nowSerial(),
-  DATE: (a, ctx) => ymdToSerial(ctx.num(a[0]), ctx.num(a[1]), ctx.num(a[2]))
+  DATE: (a, ctx) => ymdToSerial(ctx.num(a[0]), ctx.num(a[1]), ctx.num(a[2])),
+
+  // ---- Обробка помилок ----
+  // IFERROR обчислює перший аргумент ліниво: у цьому й сенс — підмінити
+  // помилку запасним значенням, як в Excel.
+  // Циклічне посилання свідомо НЕ ловимо: це структурна помилка учня, і
+  // сховати її під запасним значенням означало б зробити її невидимою.
+  IFERROR: (a, ctx) => {
+    if (a.length < 2) throw formulaError(FORMULA_ERRORS.VALUE);
+    try {
+      return ctx.evalScalar(a[0]);
+    } catch (e) {
+      if (e && e.message === FORMULA_ERRORS.CIRC) throw e;
+      return ctx.evalScalar(a[1]);
+    }
+  },
+
+  // ---- Пошук і підстановка ----
+  // VLOOKUP(шукане; таблиця; номер_стовпця; [наближено])
+  // Останній аргумент за замовчуванням TRUE — так само, як в Excel, щоб
+  // імпортовані книги рахувалися однаково.
+  VLOOKUP: (a, ctx) => {
+    if (a.length < 3) throw formulaError(FORMULA_ERRORS.VALUE);
+    const needle = ctx.evalScalar(a[0]);
+    const grid = ctx.collectMatrix(a[1]);
+    const colIndex = Math.trunc(ctx.num(a[2]));
+    const approximate = a.length > 3 ? ctx.isTruthy(ctx.evalScalar(a[3])) : true;
+
+    if (colIndex < 1) throw formulaError(FORMULA_ERRORS.VALUE);
+    if (colIndex > grid.cols) throw formulaError(FORMULA_ERRORS.REF);
+
+    const rowIndex = findLookupRow(needle, r => grid.get(r, 0), grid.rows, approximate ? 1 : 0);
+    if (rowIndex < 0) throw formulaError(FORMULA_ERRORS.NA);
+    return grid.get(rowIndex, colIndex - 1);
+  },
+
+  // MATCH(шукане; діапазон; [тип]) → позиція від 1.
+  // Тип: 1 (за зростанням, за замовчуванням), 0 (точний), -1 (за спаданням).
+  MATCH: (a, ctx) => {
+    if (a.length < 2) throw formulaError(FORMULA_ERRORS.VALUE);
+    const needle = ctx.evalScalar(a[0]);
+    const grid = ctx.collectMatrix(a[1]);
+    const matchType = a.length > 2 ? Math.trunc(ctx.num(a[2])) : 1;
+
+    // Діапазон для MATCH одновимірний: або рядок, або стовпець.
+    if (grid.rows > 1 && grid.cols > 1) throw formulaError(FORMULA_ERRORS.NA);
+    const length = grid.rows > 1 ? grid.rows : grid.cols;
+    const at = i => (grid.rows > 1 ? grid.get(i, 0) : grid.get(0, i));
+
+    const index = findLookupRow(needle, at, length, matchType);
+    if (index < 0) throw formulaError(FORMULA_ERRORS.NA);
+    return index + 1;
+  },
+
+  // INDEX(діапазон; номер_рядка; [номер_стовпця]) — нумерація від 1.
+  // Для одновимірного діапазону досить одного номера.
+  INDEX: (a, ctx) => {
+    if (a.length < 2) throw formulaError(FORMULA_ERRORS.VALUE);
+    const grid = ctx.collectMatrix(a[0]);
+    const first = Math.trunc(ctx.num(a[1]));
+    const second = a.length > 2 ? Math.trunc(ctx.num(a[2])) : null;
+
+    let row;
+    let col;
+    if (second === null && (grid.rows === 1 || grid.cols === 1)) {
+      // Один номер уздовж єдиного виміру.
+      row = grid.rows === 1 ? 1 : first;
+      col = grid.rows === 1 ? first : 1;
+    } else {
+      row = first;
+      col = second === null ? 1 : second;
+    }
+
+    if (row < 1 || col < 1 || row > grid.rows || col > grid.cols) {
+      throw formulaError(FORMULA_ERRORS.REF);
+    }
+    return grid.get(row - 1, col - 1);
+  },
+
+  // RANK(число; діапазон; [порядок]) — 0 або пропущено: за спаданням.
+  // Однакові значення отримують однаковий ранг, як в Excel.
+  RANK: (a, ctx) => {
+    if (a.length < 2) throw formulaError(FORMULA_ERRORS.VALUE);
+    const target = ctx.num(a[0]);
+    const values = numericValues([a[1]], ctx);
+    const ascending = a.length > 2 && ctx.num(a[2]) !== 0;
+
+    if (!values.includes(target)) throw formulaError(FORMULA_ERRORS.NA);
+    const better = values.filter(v => (ascending ? v < target : v > target)).length;
+    return better + 1;
+  },
+
+  // ---- Текстові ----
+  LEN: (a, ctx) => ctx.text(a[0]).length,
+  LEFT: (a, ctx) => {
+    const count = a.length > 1 ? Math.trunc(ctx.num(a[1])) : 1;
+    if (count < 0) throw formulaError(FORMULA_ERRORS.VALUE);
+    return ctx.text(a[0]).slice(0, count);
+  },
+  RIGHT: (a, ctx) => {
+    const count = a.length > 1 ? Math.trunc(ctx.num(a[1])) : 1;
+    if (count < 0) throw formulaError(FORMULA_ERRORS.VALUE);
+    const text = ctx.text(a[0]);
+    return count === 0 ? '' : text.slice(Math.max(0, text.length - count));
+  },
+  MID: (a, ctx) => {
+    if (a.length < 3) throw formulaError(FORMULA_ERRORS.VALUE);
+    const start = Math.trunc(ctx.num(a[1]));
+    const count = Math.trunc(ctx.num(a[2]));
+    if (start < 1 || count < 0) throw formulaError(FORMULA_ERRORS.VALUE);
+    return ctx.text(a[0]).slice(start - 1, start - 1 + count);
+  },
+  // CONCAT приймає й діапазони (як у сучасному Excel); CONCATENATE лишаємо
+  // аліасом, бо саме ця назва досі в підручниках.
+  CONCAT: (a, ctx) => ctx.collectValues(a).map(v => (v === null ? '' : String(v))).join(''),
+  CONCATENATE: (a, ctx) => FORMULA_FUNCTIONS.CONCAT(a, ctx)
 };
+
+// ROUNDUP округлює від нуля, ROUNDDOWN — до нуля; для від'ємних чисел
+// напрямок дзеркальний, тому обидві дії приходять параметрами.
+function roundAwayOrToward(argNodes, ctx, positiveRound, negativeRound) {
+  const value = ctx.num(argNodes[0]);
+  const digits = argNodes.length > 1 ? Math.trunc(ctx.num(argNodes[1])) : 0;
+  const factor = Math.pow(10, digits);
+  const scaled = value * factor;
+  const rounded = scaled >= 0 ? positiveRound(scaled) : negativeRound(scaled);
+  return rounded / factor;
+}
+
+// Спільний пошук для VLOOKUP і MATCH.
+// matchType 0 — точний збіг; 1 — найбільше значення ≤ шуканого (дані за
+// зростанням); -1 — найменше значення ≥ шуканого (дані за спаданням).
+// Повертає індекс від 0 або -1.
+function findLookupRow(needle, valueAt, length, matchType) {
+  if (matchType === 0) {
+    for (let i = 0; i < length; i++) {
+      if (looseEquals(valueAt(i), needle)) return i;
+    }
+    return -1;
+  }
+
+  let best = -1;
+  for (let i = 0; i < length; i++) {
+    const current = valueAt(i);
+    if (current === null) continue;
+    const cmp = compareLookupValues(current, needle);
+    if (cmp === null) continue;
+    if (matchType > 0 ? cmp <= 0 : cmp >= 0) best = i;
+    else break; // дані відсортовані, далі шукати немає сенсу
+  }
+  return best;
+}
+
+// Порівняння як в Excel: числа з числами, інакше текст без урахування регістру.
+function compareLookupValues(a, b) {
+  const an = valueToNumberOrNull(a);
+  const bn = valueToNumberOrNull(b);
+  if (an !== null && bn !== null) return an === bn ? 0 : (an < bn ? -1 : 1);
+  if (an !== null || bn !== null) return null; // різні типи — не порівнюємо
+  const as = String(a ?? '').toLowerCase();
+  const bs = String(b ?? '').toLowerCase();
+  return as === bs ? 0 : (as < bs ? -1 : 1);
+}
+
+function looseEquals(a, b) {
+  const cmp = compareLookupValues(a, b);
+  return cmp === 0;
+}
 
 window.TablesFormulaFunctions = { FORMULA_FUNCTIONS, isFormulaNumber };

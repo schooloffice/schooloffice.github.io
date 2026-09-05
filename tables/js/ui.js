@@ -235,6 +235,8 @@ function dispatchUiAction(action) {
     case 'save-workbook': runOfficeCommand('save') || exportWorkbook(); break;
     case 'import-csv': triggerCSVImport(); break;
     case 'export-csv': exportCSV(); break;
+    case 'import-xlsx': window.TablesXlsxImport?.triggerXlsxImport(); break;
+    case 'export-xlsx': window.TablesXlsxExport?.exportXlsx(); break;
     case 'print': window.print(); break;
     case 'undo': runOfficeCommand('undo') || undo(); break;
     case 'redo': runOfficeCommand('redo') || redo(); break;

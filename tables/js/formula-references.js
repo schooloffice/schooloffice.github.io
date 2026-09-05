@@ -49,4 +49,30 @@ function rangeToValues(startCol, startRow, endCol, endRow) {
   return out;
 }
 
-window.TablesFormulaReferences = { getCellValueByIndex, rangeToValues };
+// Розгортає діапазон із збереженням форми: VLOOKUP, INDEX і MATCH працюють
+// з рядками й стовпцями, а не з плоским списком.
+// Повертає { rows, cols, get(r, c) } з нумерацією від 0 у межах діапазону.
+function rangeToGrid(startCol, startRow, endCol, endRow) {
+  const cMin = Math.min(startCol, endCol);
+  const cMax = Math.max(startCol, endCol);
+  const rMin = Math.min(startRow, endRow);
+  const rMax = Math.max(startRow, endRow);
+
+  const cells = [];
+  for (let r = rMin; r <= rMax; r++) {
+    const row = [];
+    for (let c = cMin; c <= cMax; c++) row.push(getCellValueByIndex(c, r));
+    cells.push(row);
+  }
+
+  return {
+    rows: rMax - rMin + 1,
+    cols: cMax - cMin + 1,
+    get(r, c) {
+      const row = cells[r];
+      return row ? (row[c] ?? null) : null;
+    }
+  };
+}
+
+window.TablesFormulaReferences = { getCellValueByIndex, rangeToValues, rangeToGrid };

@@ -37,6 +37,7 @@ const ArtPage = (() => {
     ArtState.on('change:pageSize', () => apply());
     ArtState.on('change:orientation', () => apply());
     ArtState.on('change:margins', () => apply());
+    ArtState.on('change:pageNumbers', () => ArtEditor.refreshLayout?.());
     ArtState.on('change:zoom', () => scheduleRulerUpdate());
 
     document.querySelector('.editor-scroll')?.addEventListener('scroll', scheduleRulerUpdate, { passive: true });
@@ -259,7 +260,26 @@ const ArtPage = (() => {
       if (input) input.value = m[side].toFixed(1);
     });
 
+    const numbers = ArtState.normalizePageNumbers(ArtState.get('pageNumbers'));
+    const enabled = document.getElementById('pageNumbersEnabled');
+    const position = document.getElementById('pageNumbersPosition');
+    const skipFirst = document.getElementById('pageNumbersSkipFirst');
+    if (enabled) enabled.checked = numbers.enabled;
+    if (position) position.value = numbers.position;
+    if (skipFirst) skipFirst.checked = numbers.skipFirst;
+    _syncPageNumberFields();
+
     ArtModals.open('modalPageSetup');
+  }
+
+  // Розташування й «пропустити першу» мають сенс лише при увімкненій нумерації.
+  function _syncPageNumberFields() {
+    const enabled = document.getElementById('pageNumbersEnabled');
+    const on = !!enabled?.checked;
+    ['pageNumbersPosition', 'pageNumbersSkipFirst'].forEach(id => {
+      const field = document.getElementById(id);
+      if (field) field.disabled = !on;
+    });
   }
 
   function applySetupForm() {
@@ -278,7 +298,13 @@ const ArtPage = (() => {
 
     ArtState.set('pageSize', pageSize);
     ArtState.set('orientation', orientation);
+    ArtState.set('pageNumbers', ArtState.normalizePageNumbers({
+      enabled: document.getElementById('pageNumbersEnabled')?.checked,
+      position: document.getElementById('pageNumbersPosition')?.value,
+      skipFirst: document.getElementById('pageNumbersSkipFirst')?.checked
+    }));
     setMargins(next);
+    ArtEditor.refreshLayout?.();
     ArtModals.close('modalPageSetup');
     ArtHistory.pushNow?.();
   }
@@ -298,6 +324,7 @@ const ArtPage = (() => {
         if (input) input.value = DEFAULT_MARGINS[side].toFixed(1);
       });
     });
+    document.getElementById('pageNumbersEnabled')?.addEventListener('change', _syncPageNumberFields);
   }
 
   function _clamp(value, max) {

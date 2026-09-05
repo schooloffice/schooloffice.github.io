@@ -22,6 +22,10 @@ window.ArtVector = window.ArtVector || {};
     currentFontSize: 32,
 
     objects: [],
+    // Виділення — список: без нього неможливо згрупувати кілька фігур.
+    // selectedObjectId лишається як «головна» фігура (панель властивостей,
+    // редагування тексту, маркери зміни розміру) і завжди дорівнює першому id.
+    selectedObjectIds: [],
     selectedObjectId: null,
     draftObject: null,
     interaction: null,

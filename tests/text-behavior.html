@@ -64,6 +64,39 @@
       return { label, ok: !!ok };
     }
 
+    // Дістає одну частину з .docx (це ZIP) без сторонніх бібліотек — потрібно,
+    // щоб перевіряти сам XML, а не лише факт, що файл створився.
+    async function readDocxPart(blob, wanted) {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const u16 = at => bytes[at] | (bytes[at + 1] << 8);
+      const u32 = at => (bytes[at] | (bytes[at + 1] << 8) | (bytes[at + 2] << 16) | (bytes[at + 3] << 24)) >>> 0;
+
+      let eocd = -1;
+      for (let i = bytes.length - 22; i >= 0; i--) if (u32(i) === 0x06054B50) { eocd = i; break; }
+      if (eocd < 0) return '';
+
+      const count = u16(eocd + 10);
+      let at = u32(eocd + 16);
+      for (let i = 0; i < count; i++) {
+        const method = u16(at + 10);
+        const compressed = u32(at + 20);
+        const nameLen = u16(at + 28);
+        const extraLen = u16(at + 30);
+        const commentLen = u16(at + 32);
+        const offset = u32(at + 42);
+        const name = new TextDecoder().decode(bytes.subarray(at + 46, at + 46 + nameLen));
+        if (name === wanted) {
+          const start = offset + 30 + u16(offset + 26) + u16(offset + 28);
+          const raw = bytes.subarray(start, start + compressed);
+          if (method === 0) return new TextDecoder().decode(raw);
+          const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+          return new TextDecoder().decode(new Uint8Array(await new Response(stream).arrayBuffer()));
+        }
+        at += 46 + nameLen + extraLen + commentLen;
+      }
+      return '';
+    }
+
     function pageContents(doc) {
       return Array.from(doc.querySelectorAll('#editor .page-content'));
     }
@@ -139,16 +172,18 @@
     }
 
     async function run() {
-      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+      // Чекаємо опитуванням, а не на подію 'load': якщо іфрейм завантажився
+      // раніше, ніж повісили слухач, подія вже не спрацює й тест зависне
+      // назавжди. Заразом це гарантує, що contentDocument — уже документ
+      // редактора, а не початковий about:blank.
+      await waitFor(() => (
+        typeof frame.contentWindow?.TextApp?.boot === 'function' &&
+        !!frame.contentWindow?.art?.editor &&
+        !!frame.contentDocument?.querySelector('#editor .page-content')
+      ), 'Text boot', 20000);
 
       const win = frame.contentWindow;
       const doc = frame.contentDocument;
-
-      await waitFor(() => (
-        typeof win.TextApp?.boot === 'function' &&
-        !!win.art?.editor &&
-        !!doc.querySelector('#editor .page-content')
-      ), 'Text boot');
 
       const editor = doc.getElementById('editor');
       const initialPages = pageContents(doc);
@@ -476,11 +511,19 @@
       setCaretAtStart(win, mergedTable.querySelector('td[rowspan]'));
       editor.dispatchEvent(new win.Event('keyup', { bubbles: true }));
       await wait(100);
-      const mergedActionsDisabled = Array.from(doc.querySelectorAll('#tableContextMenu [data-table-action]:not([data-table-action="table-delete"])'))
-        .every(button => button.disabled)
-        && win.art.editor.tableAction('column-right') === false
-        && (mergedTable?.rows?.[0]?.cells?.length || 0) === mergedColumnCount;
-      win.art.modals.close('modalInfo');
+      // Раніше будь-яка дія над таблицею з об'єднаннями була заблокована.
+      // Тепер координатна сітка дозволяє їх виконувати коректно: колонка
+      // додається всім рядкам, а висока об'єднана клітинка не втрачає rowspan
+      // і не «розмножується» у кожен рядок.
+      const rowsWithTwoCellsBefore =
+        Array.from(mergedTable.rows).filter(row => row.cells.length === 2).length;
+      const columnAddedToMergedTable = win.art.editor.tableAction('column-right') !== false;
+      await wait(300);
+      const mergedActionsWorkOnGrid = columnAddedToMergedTable
+        && (mergedTable?.rows?.[0]?.cells?.length || 0) === mergedColumnCount + 1
+        && mergedTable.querySelector('td[rowspan]')?.rowSpan === 40
+        && mergedTable.querySelector('td[rowspan]')?.colSpan === 1
+        && Array.from(mergedTable.rows).filter(row => row.cells.length === 3).length === rowsWithTwoCellsBefore;
 
       // Один рядок може бути вищим за аркуш. Вміст не повинен ховатися.
       await resetDocument(win, doc);
@@ -647,19 +690,22 @@
         settledMarginPages = now;
         return stable;
       }, 'margin pagination to settle', 20000);
-      const pagesWithNormalMargins = pageContents(doc).length;
+      // Міряємо місткість першої сторінки, а не загальну кількість сторінок:
+      // на короткому документі обидві геометрії можуть дати однакову кількість
+      // сторінок, хоча місткість змінилася. Місткість — це те, що ми перевіряємо.
+      const firstPageParagraphs = () => pageContents(doc)[0].querySelectorAll('p').length;
+      const paragraphsWithNormalMargins = firstPageParagraphs();
 
       win.art.page.setMargins({ top: 5, bottom: 5, left: 3, right: 1.5 });
-      await waitFor(() => pageContents(doc).length !== pagesWithNormalMargins, 'wide margin pagination', 20000);
-      let settledWidePages = pageContents(doc).length;
+      await waitFor(() => firstPageParagraphs() !== paragraphsWithNormalMargins, 'wide margin pagination', 20000);
+      let settledWideParagraphs = firstPageParagraphs();
       await waitFor(() => {
-        const now = pageContents(doc).length;
-        const stable = now === settledWidePages;
-        settledWidePages = now;
+        const now = firstPageParagraphs();
+        const stable = now === settledWideParagraphs;
+        settledWideParagraphs = now;
         return stable;
       }, 'wide margin pagination to settle', 20000);
-      const pagesWithWideMargins = pageContents(doc).length;
-      const marginsChangePageCapacity = pagesWithWideMargins > pagesWithNormalMargins;
+      const marginsChangePageCapacity = firstPageParagraphs() < paragraphsWithNormalMargins;
       win.art.page.setMargins({ top: 2, right: 1.5, bottom: 2, left: 3 });
       await wait(600);
 
@@ -672,6 +718,252 @@
         && win.art.state.get('orientation') === 'portrait'
         && JSON.stringify(win.art.page.margins()) === JSON.stringify({ top: 2, right: 1.5, bottom: 2, left: 3 })
         && !win.art.state.isDirty();
+
+      // ---- Об'єднання клітинок ----
+      // Форму таблиці описуємо рядком: тег + colspan/rowspan + текст.
+      const tableShape = () => Array.from(editor.querySelectorAll('tr')).map(tr =>
+        Array.from(tr.children).map(c =>
+          `${c.tagName}${c.colSpan > 1 ? 'c' + c.colSpan : ''}${c.rowSpan > 1 ? 'r' + c.rowSpan : ''}`
+        ).join('|')).join(' / ');
+
+      const resetTable = async () => {
+        pageContents(doc)[0].innerHTML =
+          '<table><tbody>' +
+          '<tr><th>A1</th><th>B1</th><th>C1</th></tr>' +
+          '<tr><td>A2</td><td>B2</td><td>C2</td></tr>' +
+          '<tr><td>A3</td><td>B3</td><td>C3</td></tr>' +
+          '</tbody></table><p>після</p>';
+        editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+        await wait(350);
+      };
+      const cellByText = text =>
+        Array.from(editor.querySelectorAll('th,td')).find(c => (c.textContent || '').trim() === text);
+      const selectCells = (from, to) => {
+        const a = cellByText(from);
+        const b = cellByText(to);
+        const range = doc.createRange();
+        range.setStart(a.firstChild, 0);
+        range.setEnd(b.firstChild, b.firstChild.length);
+        const sel = win.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      };
+      const caretInCell = cell => {
+        const range = doc.createRange();
+        range.selectNodeContents(cell);
+        range.collapse(true);
+        const sel = win.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      };
+      const tableDo = async action => { win.art.editor.tableAction(action); await wait(350); };
+
+      // Виділення від B1 до B3 — це один стовпець, а не все, що лежить між
+      // ними в DOM: прямокутник рахується за двома кутами.
+      await resetTable();
+      selectCells('B1', 'B3');
+      await tableDo('cell-merge');
+      const verticalMerge = tableShape() === 'TH|THr3|TH / TD|TD / TD|TD'
+        && (cellByText('B1B2B3')?.rowSpan === 3);
+
+      await resetTable();
+      selectCells('A2', 'B2');
+      await tableDo('cell-merge');
+      const horizontalMerge = tableShape() === 'TH|TH|TH / TDc2|TD / TD|TD|TD';
+
+      await resetTable();
+      selectCells('A1', 'B2');
+      await tableDo('cell-merge');
+      const blockMerge = tableShape() === 'THc2r2|TH / TD / TD|TD|TD';
+      const mergeKeepsContent = (cellByText('A1B1A2B2') || {}).textContent !== undefined;
+
+      // Розділення повертає клітинки, причому в рядках даних — саме td.
+      caretInCell(cellByText('A1B1A2B2'));
+      await tableDo('cell-split');
+      const splitRestoresGrid = tableShape() === 'TH|TH|TH / TD|TD|TD / TD|TD|TD';
+
+      // Рядки й колонки мають працювати і на таблиці з об'єднаннями.
+      await resetTable();
+      selectCells('A1', 'B1');
+      await tableDo('cell-merge');
+      caretInCell(cellByText('C1'));
+      await tableDo('column-left');
+      const columnInsertRespectsSpan = tableShape() === 'THc2|TH|TH / TD|TD|TD|TD / TD|TD|TD|TD';
+
+      await resetTable();
+      selectCells('B1', 'B3');
+      await tableDo('cell-merge');
+      caretInCell(cellByText('A2'));
+      await tableDo('row-delete');
+      const rowDeleteShrinksSpan = tableShape() === 'TH|THr2|TH / TD|TD'
+        && cellByText('B1B2B3')?.rowSpan === 2;
+
+      await resetTable();
+      selectCells('A1', 'B1');
+      await tableDo('cell-merge');
+      caretInCell(cellByText('A2'));
+      await tableDo('column-delete');
+      const columnDeleteNarrowsSpan = tableShape() === 'TH|TH / TD|TD / TD|TD';
+
+      // «Розділити» не має пропонуватись для звичайної клітинки.
+      await resetTable();
+      caretInCell(cellByText('A1'));
+      win.art.editor.refreshLayout();
+      await wait(250);
+      const splitDisabledForPlainCell =
+        doc.querySelector('[data-table-action="cell-split"]')?.disabled === true;
+
+      // Об'єднання має пережити експорт у .docx як gridSpan / vMerge.
+      pageContents(doc)[0].innerHTML =
+        '<table><tbody><tr><th colspan="2">Шапка</th><th>C1</th></tr>' +
+        '<tr><td rowspan="2">Висока</td><td>B2</td><td>C2</td></tr>' +
+        '<tr><td>B3</td><td>C3</td></tr></tbody></table>';
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await wait(350);
+      const mergedDocx = await win.art.formats.docx.exportDocx(
+        pageContents(doc)[0].innerHTML, win.art.state.documentSnapshot());
+      const mergedDocumentXml = await readDocxPart(mergedDocx, 'word/document.xml');
+      // colspan → gridSpan, rowspan → vMerge restart/continue.
+      const mergedTableExports =
+        mergedDocumentXml.includes('<w:gridSpan w:val="2"/>')
+        && mergedDocumentXml.includes('<w:vMerge w:val="restart"/>')
+        && mergedDocumentXml.includes('<w:vMerge w:val="continue"/>');
+
+      await resetTable();
+
+      // ---- Знайти та замінити ----
+      const setBody = html => {
+        pageContents(doc)[0].innerHTML = html;
+        editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      };
+      const bodyText = () => editor.textContent.replace(/\s+/g, ' ').trim();
+
+      setBody('<p>Київ — столиця. Київ старий. У Києві музеї. Місто Київ.</p>');
+      await wait(400);
+
+      win.art.editor.findNext('Київ');
+      await wait(200);
+      // «Києві» — інша словоформа й не має рахуватися збігом «Київ».
+      const findFoundExactForms = doc.querySelectorAll('mark.search-hit').length === 3;
+
+      win.art.editor.replaceCurrent('Київ', 'Львів');
+      await wait(400);
+      const replaceOneReplacedSingle = bodyText() === 'Львів — столиця. Київ старий. У Києві музеї. Місто Київ.';
+
+      win.art.editor.replaceAll('Київ', 'Львів');
+      await wait(400);
+      const replaceAllReplacedRest = bodyText() === 'Львів — столиця. Львів старий. У Києві музеї. Місто Львів.';
+      const replaceLeavesNoHighlights = doc.querySelectorAll('mark.search-hit').length === 0;
+
+      win.art.history.undo();
+      await wait(500);
+      const replaceIsUndoable = bodyText() === 'Львів — столиця. Київ старий. У Києві музеї. Місто Київ.';
+
+      // Заміна на порожній рядок = видалення знайденого.
+      setBody('<p>раз два раз три</p>');
+      await wait(400);
+      win.art.editor.replaceAll('раз ', '');
+      await wait(400);
+      const replaceWithEmptyDeletes = bodyText() === 'два три';
+
+      // Нічого не знайдено — повідомлення, а не мовчання й не виняток.
+      win.art.editor.replaceAll('такого немає', 'x');
+      await wait(200);
+      const missingQueryReported = (doc.getElementById('findStatus')?.textContent || '').includes('Нічого не знайдено');
+
+      // ---- Міжрядковий інтервал ----
+      setBody('<p id="lh1">Перший абзац.</p><p id="lh2">Другий абзац.</p><p id="lh3">Третій абзац.</p>');
+      await wait(400);
+
+      const lhRange = doc.createRange();
+      lhRange.setStart(doc.getElementById('lh1').firstChild, 0);
+      lhRange.setEnd(doc.getElementById('lh2').firstChild, 5);
+      const lhSel = win.getSelection();
+      lhSel.removeAllRanges();
+      lhSel.addRange(lhRange);
+
+      win.art.selection.setLineHeight(editor, '1.5');
+      await wait(300);
+      // Інтервал має лягти на ВСІ виділені абзаци, а не лише на перший.
+      const lineHeightAppliesToSelection =
+        doc.getElementById('lh1').style.lineHeight === '1.5'
+        && doc.getElementById('lh2').style.lineHeight === '1.5'
+        && doc.getElementById('lh3').style.lineHeight === '';
+      const lineHeightReported = win.art.selection.getLineHeight(editor) === '1.5';
+
+      win.art.selection.setLineHeight(editor, '');
+      await wait(200);
+      const lineHeightClears = doc.getElementById('lh1').style.lineHeight === '';
+
+      // Інтервал має змінювати місткість сторінки, а не лише вигляд абзацу.
+      // Порівнюємо кількість абзаців, що вміщаються на першій сторінці: це
+      // прямо доводить, що пагінатор перемірив висоти після зміни інтервалу.
+      setBody(Array.from({ length: 40 }, (_, i) => `<p>Абзац ${i + 1} для перевірки місткості сторінки.</p>`).join(''));
+      await wait(900);
+      win.art.editor.refreshLayout();
+      await wait(700);
+      const paragraphsOnFirstPageBefore = pageContents(doc)[0].querySelectorAll('p').length;
+
+      const allRange = doc.createRange();
+      allRange.selectNodeContents(pageContents(doc)[0]);
+      const allSel = win.getSelection();
+      allSel.removeAllRanges();
+      allSel.addRange(allRange);
+      win.art.selection.setLineHeight(editor, '2');
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      win.art.editor.refreshLayout();
+      await wait(1200);
+      const paragraphsOnFirstPageAfter = pageContents(doc)[0].querySelectorAll('p').length;
+      const lineHeightChangesPageCapacity = paragraphsOnFirstPageAfter < paragraphsOnFirstPageBefore;
+
+      // Типовий інтервал сторінки має збігатися з тим, що пропонує панель:
+      // інакше вибір «1,5» ЗМЕНШУВАВ би відстань замість збільшити.
+      setBody('<p id="lhDefault">Абзац без явного інтервалу.</p>');
+      await wait(300);
+      const defaultLine = parseFloat(win.getComputedStyle(doc.getElementById('lhDefault')).lineHeight);
+      const defaultFont = parseFloat(win.getComputedStyle(doc.getElementById('lhDefault')).fontSize);
+      const defaultSpacingIsOnTheScale = Math.abs(defaultLine / defaultFont - 1.5) < 0.05;
+
+      // ---- Номери сторінок ----
+      setBody(Array.from({ length: 60 }, (_, i) => `<p>Абзац ${i + 1} у роботі.</p>`).join(''));
+      await wait(900);
+      win.art.editor.refreshLayout();
+      await wait(700);
+
+      const pageLabels = () => [...doc.querySelectorAll('.page')].map(p => p.dataset.pageLabel);
+
+      win.art.state.set('pageNumbers', { enabled: false, position: 'right', skipFirst: false });
+      await wait(500);
+      const numbersOffShowNothing = pageLabels().every(label => label === '');
+
+      win.art.state.set('pageNumbers', { enabled: true, position: 'right', skipFirst: false });
+      await wait(500);
+      const labelsOn = pageLabels();
+      const numbersOnAreSequential = labelsOn.length > 1
+        && labelsOn.every((label, index) => label === String(index + 1));
+
+      win.art.state.set('pageNumbers', { enabled: true, position: 'center', skipFirst: true });
+      await wait(500);
+      const labelsSkip = pageLabels();
+      const skipFirstLeavesTitleBlank = labelsSkip[0] === '' && labelsSkip[1] === '2';
+      const positionReachesLayout =
+        doc.querySelector('.pages-wrap')?.dataset.pageNumberPosition === 'center';
+
+      // Номер сторінки — властивість документа, тож має входити в Undo/Redo.
+      const pageNumbersInDocumentSnapshot =
+        JSON.stringify(win.art.state.documentSnapshot().pageNumbers) ===
+        JSON.stringify({ enabled: true, position: 'center', skipFirst: true });
+
+      // Некоректні значення не повинні потрапляти у стан документа.
+      const normalized = win.art.state.normalizePageNumbers({ enabled: 1, position: 'згори', skipFirst: 'так' });
+      const pageNumbersNormalized = normalized.position === 'right'
+        && normalized.enabled === true && normalized.skipFirst === true;
+
+      // Рядок стану показує сторінку незалежно від нумерації документа.
+      const statusShowsPageCount = /\d+ з \d+/.test(doc.getElementById('statusPage')?.textContent || '');
+
+      win.art.state.set('pageNumbers', { enabled: false, position: 'right', skipFirst: false });
+      await wait(300);
 
       const checks = [
         ...baseChecks,
@@ -695,6 +987,35 @@
         check('table menu opens on right click', tableMenuOpensFromRightClick),
         check('Shift+F10 opens the table menu', tableMenuOpensFromKeyboard),
         check('Escape closes the table menu and restores editor focus', tableMenuEscapeRestoresEditor),
+        check('vertical merge spans one column only', verticalMerge),
+        check('horizontal merge spans one row only', horizontalMerge),
+        check('block merge spans a rectangle', blockMerge),
+        check('merge keeps the content of every cell', mergeKeepsContent),
+        check('split restores the original grid with data-row tags', splitRestoresGrid),
+        check('inserting a column respects a spanning header', columnInsertRespectsSpan),
+        check('deleting a row shrinks a rowspan instead of losing it', rowDeleteShrinksSpan),
+        check('deleting a column narrows a colspan instead of losing it', columnDeleteNarrowsSpan),
+        check('split stays disabled for a plain cell', splitDisabledForPlainCell),
+        check('merged cells survive .docx export as gridSpan/vMerge', mergedTableExports),
+        check('find matches only the exact word form', findFoundExactForms),
+        check('replace one changes a single match', replaceOneReplacedSingle),
+        check('replace all changes the rest', replaceAllReplacedRest),
+        check('replace leaves no search highlights behind', replaceLeavesNoHighlights),
+        check('replace is undoable as one step', replaceIsUndoable),
+        check('replacing with an empty string deletes the match', replaceWithEmptyDeletes),
+        check('a query with no matches is reported', missingQueryReported),
+        check('line spacing applies to every selected paragraph', lineHeightAppliesToSelection),
+        check('line spacing is reported back for the selection', lineHeightReported),
+        check('line spacing can be cleared', lineHeightClears),
+        check('line spacing changes how much fits on a page', lineHeightChangesPageCapacity),
+        check('default line spacing matches the toolbar scale', defaultSpacingIsOnTheScale),
+        check('page numbers off show nothing', numbersOffShowNothing),
+        check('page numbers on are sequential', numbersOnAreSequential),
+        check('skipping the first page leaves the title blank', skipFirstLeavesTitleBlank),
+        check('page number position reaches the layout', positionReachesLayout),
+        check('page numbers belong to the document snapshot', pageNumbersInDocumentSnapshot),
+        check('invalid page number settings are normalized', pageNumbersNormalized),
+        check('status bar shows the page count', statusShowsPageCount),
         check('column action applies to every row', columnAddedEverywhere),
         check('row action removes a row', rowDeleted),
         check('deleting a table requires confirmation', tableDeletionNeedsConfirmation),
@@ -710,7 +1031,7 @@
         check('docx round-trip keeps table structure and line breaks', docxTableRoundTripWorks),
         check('docx export keeps page size, orientation and margins', docxKeepsPageGeometry),
         check('rowspan table stays structurally whole and visible', rowspanTableStaysWhole),
-        check('unsafe actions are disabled for merged cells', mergedActionsDisabled),
+        check('row and column actions work on a table with merged cells', mergedActionsWorkOnGrid),
         check('a single tall table row remains visible', tallRowVisible),
         check('page starts with A4 geometry and school margins', defaultGeometryOk),
         check('ruler aligns with the page', rulerAligned),
@@ -754,7 +1075,7 @@
         `applied geometry: ${JSON.stringify(appliedGeometry)}`,
         `page setup controls outside the modal: ${setupOverflow.length}`,
         `comma margin accepted: ${commaMarginAccepted}`,
-        `pages with normal/wide margins: ${pagesWithNormalMargins}/${pagesWithWideMargins}`,
+        `paragraphs on first page with normal/wide margins: ${paragraphsWithNormalMargins}/${settledWideParagraphs}`,
         `ruler: ${JSON.stringify(rulerDiagnostics)}`
       ];
 

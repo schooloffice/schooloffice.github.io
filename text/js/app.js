@@ -116,11 +116,22 @@ window.TextApp.boot = () => {
   });
 
   const findInput = document.querySelector('[data-find-input]');
-  const findNext = () => ArtEditor.findNext(document.getElementById('findInput')?.value || '');
+  const replaceInput = document.querySelector('[data-replace-input]');
+  const findQuery = () => document.getElementById('findInput')?.value || '';
+  const replacement = () => document.getElementById('replaceInput')?.value || '';
+  const findNext = () => ArtEditor.findNext(findQuery());
   findInput?.addEventListener('keydown', event => {
     if (event.key === 'Enter') findNext();
   });
+  // Enter у полі заміни замінює поточний збіг — так само, як у Word.
+  replaceInput?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') ArtEditor.replaceCurrent(findQuery(), replacement());
+  });
   document.querySelector('[data-find-next]')?.addEventListener('click', findNext);
+  document.querySelector('[data-replace-one]')?.addEventListener('click',
+    () => ArtEditor.replaceCurrent(findQuery(), replacement()));
+  document.querySelector('[data-replace-all]')?.addEventListener('click',
+    () => ArtEditor.replaceAll(findQuery(), replacement()));
 
   document.querySelectorAll('[data-set-zoom]').forEach(button => {
     button.addEventListener('click', () => {
@@ -157,6 +168,10 @@ window.TextApp.boot = () => {
       o: () => runOfficeCommand('open'),
       p: () => window.print(),
       f: () => ArtModals.open('modalFind'),
+      h: () => {
+        ArtModals.open('modalFind');
+        document.getElementById('replaceInput')?.focus();
+      },
       a: () => ArtSelection.selectAll(editor),
       c: () => ArtSelection.copy(editor),
       x: async () => {
@@ -181,6 +196,7 @@ window.TextApp.boot = () => {
     menu: ArtMenu, editor: ArtEditor, toolbar: ArtToolbar, modals: ArtModals, history: ArtHistory,
     page: ArtPage,
     state: ArtState,
+    selection: ArtSelection,
     formats: { docx: ArtDocx, rtf: ArtRtf, txt: ArtTxt }
   };
 };

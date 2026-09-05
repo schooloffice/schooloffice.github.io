@@ -122,7 +122,7 @@
         </button>
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="find" role="menuitem">
-          <span><i class="fa-solid fa-magnifying-glass fa-fw"></i> Знайти…</span>
+          <span><i class="fa-solid fa-magnifying-glass fa-fw"></i> Знайти та замінити…</span>
           <span class="shortcut">Ctrl+F</span>
         </button>
       </div>
@@ -310,6 +310,14 @@
       <button class="tb-btn" data-cmd="indent" title="Збільшити відступ" aria-label="Збільшити відступ">
         <i class="fa-solid fa-indent" aria-hidden="true"></i>
       </button>
+      <select class="tb-select" id="tbLineHeight" title="Міжрядковий інтервал"
+        aria-label="Міжрядковий інтервал">
+        <option value="">Інтервал</option>
+        <option value="1">1,0</option>
+        <option value="1.15">1,15</option>
+        <option value="1.5">1,5</option>
+        <option value="2">2,0</option>
+      </select>
     </div>
 
     <div class="tb-sep" aria-hidden="true"></div>
@@ -387,6 +395,15 @@
     </button>
 
     <div class="menu-sep" role="separator"></div>
+    <div class="table-context-title" role="presentation">Клітинки</div>
+    <button class="menu-item" type="button" data-table-action="cell-merge" role="menuitem">
+      <span><i class="fa-solid fa-object-group fa-fw" aria-hidden="true"></i> Об’єднати клітинки</span>
+    </button>
+    <button class="menu-item" type="button" data-table-action="cell-split" role="menuitem">
+      <span><i class="fa-solid fa-table-cells fa-fw" aria-hidden="true"></i> Розділити клітинку</span>
+    </button>
+
+    <div class="menu-sep" role="separator"></div>
     <div class="table-context-title" role="presentation">Ширина колонки</div>
     <button class="menu-item" type="button" data-table-action="column-narrower" role="menuitem">
       <span><i class="fa-solid fa-left-right fa-fw icon-flip" aria-hidden="true"></i> Зробити вужчою</span>
@@ -442,6 +459,9 @@
     </span>
     <span class="status-item" data-office-status-slot="secondary">
       Символів:&nbsp;<strong id="statusChars">0</strong>
+    </span>
+    <span class="status-item">
+      Сторінка:&nbsp;<strong id="statusPage">1 з 1</strong>
     </span>
     <span id="zoomBadge" data-open-modal="modalZoom" title="Змінити масштаб" role="button" tabindex="0"
       aria-label="Масштаб" data-office-status-slot="meta">
@@ -513,20 +533,31 @@
     </div>
   </div>
 
-  <!-- Пошук -->
+  <!-- Пошук і заміна -->
   <div id="modalFind" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalFindTitle">
     <div class="modal-box">
       <div class="modal-title" id="modalFindTitle">
         <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-        Знайти
+        Знайти та замінити
       </div>
       <div class="find-row">
-        <input type="search" id="findInput" placeholder="Введи слово для пошуку…" data-autofocus aria-label="Пошук"
+        <input type="search" id="findInput" placeholder="Знайти…" data-autofocus aria-label="Що знайти"
           data-find-input>
         <button class="btn-primary" data-find-next>
           Знайти
         </button>
       </div>
+      <div class="find-row">
+        <input type="search" id="replaceInput" placeholder="Замінити на…" aria-label="Чим замінити"
+          data-replace-input>
+        <button class="btn-secondary" data-replace-one>
+          Замінити
+        </button>
+        <button class="btn-secondary" data-replace-all>
+          Замінити все
+        </button>
+      </div>
+      <p class="find-status" id="findStatus" role="status" aria-live="polite"></p>
       <div class="modal-actions">
         <button class="btn-secondary" data-close-modal="modalFind">Закрити</button>
       </div>
@@ -584,6 +615,26 @@
         <button class="page-setup-reset" type="button" data-page-setup-reset>
           Повернути стандартні поля
         </button>
+
+        <fieldset class="page-setup-group">
+          <legend>Номери сторінок</legend>
+          <label class="page-setup-check">
+            <input type="checkbox" id="pageNumbersEnabled">
+            <span>Нумерувати сторінки</span>
+          </label>
+          <label class="page-setup-field">
+            Розташування
+            <select id="pageNumbersPosition" class="tb-select" aria-label="Розташування номера сторінки">
+              <option value="left">Ліворуч</option>
+              <option value="center">По центру</option>
+              <option value="right">Праворуч</option>
+            </select>
+          </label>
+          <label class="page-setup-check">
+            <input type="checkbox" id="pageNumbersSkipFirst">
+            <span>Не нумерувати першу сторінку</span>
+          </label>
+        </fieldset>
       </form>
 
       <div class="modal-actions modal-actions-spaced">
@@ -626,7 +677,8 @@
         <kbd>Ctrl+S</kbd><span>Зберегти як .docx</span>
         <kbd>Ctrl+O</kbd><span>Відкрити файл</span>
         <kbd>Ctrl+P</kbd><span>Друк</span>
-        <kbd>Ctrl+F</kbd><span>Пошук</span>
+        <kbd>Ctrl+F</kbd><span>Знайти</span>
+        <kbd>Ctrl+H</kbd><span>Знайти та замінити</span>
         <kbd>Ctrl+A</kbd><span>Виділити все</span>
         <kbd>Ctrl+X</kbd><span>Вирізати</span>
         <kbd>Ctrl+C</kbd><span>Копіювати</span>

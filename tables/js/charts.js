@@ -1,176 +1,221 @@
 // ---- Charts ----
+// Дані діаграми читаємо з МОДЕЛІ (getCellValueByIndex), а не з полів сітки:
+// у полі стоїть відформатований текст («85,00%», «125,50 ₴», «8,50»), який
+// parseFloat розбирає неправильно. Модель дає справжнє число.
+//
+// Витягнуте джерело зберігаємо окремо від самої діаграми, щоб зміна типу
+// перемальовувала з даних. Для точкової потрібні пари (x, y), тож рядки
+// читаємо цілими — інакше пропуск в одному стовпці зсунув би відповідність.
+
+const CHART_PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6366f1', '#14b8a6'];
+
+// { rows: [{ label, values: [number|null, ...] }], seriesLabels: [...], hasNumericFirstColumn }
+let chartSource = null;
+
+function chartCellValue(col, row) {
+  try {
+    return getCellValueByIndex(col, row);
+  } catch (e) {
+    return null; // клітинка з помилкою формули не має ламати побудову
+  }
+}
+
+function isChartNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isChartText(value) {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+// Розбирає виділення на шапку, стовпець підписів і числові ряди.
+function extractChartSource() {
+  const b = getBounds();
+  const colCount = b.cMax - b.cMin + 1;
+
+  const grid = [];
+  for (let r = b.rMin; r <= b.rMax; r++) {
+    const row = [];
+    for (let c = b.cMin; c <= b.cMax; c++) row.push(chartCellValue(c, r));
+    grid.push(row);
+  }
+
+  // Рядок шапки: у першому рядку немає жодного числа, а нижче числа є.
+  const hasHeader = grid.length > 1 &&
+    !grid[0].some(isChartNumber) &&
+    grid[0].some(isChartText) &&
+    grid.slice(1).some(row => row.some(isChartNumber));
+  const bodyStart = hasHeader ? 1 : 0;
+  const body = grid.slice(bodyStart);
+
+  // Стовпець підписів: перший стовпець без чисел, але з текстом.
+  const firstColumn = body.map(row => row[0]);
+  const labelColumnUsed = colCount > 1 &&
+    !firstColumn.some(isChartNumber) &&
+    firstColumn.some(isChartText);
+
+  const valueColumns = [];
+  for (let i = labelColumnUsed ? 1 : 0; i < colCount; i++) valueColumns.push(i);
+
+  const seriesLabels = valueColumns.map(i => {
+    const header = hasHeader ? grid[0][i] : null;
+    return isChartText(header) ? String(header).trim() : COLS[b.cMin + i];
+  });
+
+  const rows = body.map((row, index) => ({
+    label: labelColumnUsed && isChartText(row[0])
+      ? String(row[0]).trim()
+      : `Рядок ${b.rMin + bodyStart + index}`,
+    values: valueColumns.map(i => (isChartNumber(row[i]) ? row[i] : null))
+  })).filter(row => row.values.some(v => v !== null));
+
+  return {
+    rows,
+    seriesLabels,
+    // Точкова діаграма потребує числового X — це перший з числових стовпців.
+    hasNumericFirstColumn: !labelColumnUsed
+  };
+}
+
 function makeChart() {
   recalculateAll();
-  const b = getBounds();
-  const labels = [];
-  const data = [];
+  const source = extractChartSource();
 
-  // Determine column layout:
-  // 1 col selected  -> values only, labels = row numbers
-  // 2 cols selected -> first col = labels, second col = values
-  // 3+ cols selected -> all cols treated as separate datasets (use first col as labels if text)
-  const colSpan = b.cMax - b.cMin;
-  const isTwoCols = colSpan === 1;
-  const isMultiDataset = colSpan >= 2;
-
-  if (isMultiDataset) {
-    // First column: check if it's text (labels) or numeric (data)
-    const firstCellInp = cellInp[b.rMin]?.[b.cMin];
-    const firstVal = parseFloat(firstCellInp?.value ?? '');
-    const firstColIsLabels = isNaN(firstVal) && firstCellInp?.value.trim() !== '';
-
-    const dataStartCol = firstColIsLabels ? b.cMin + 1 : b.cMin;
-    const datasets = [];
-
-    for (let c = dataStartCol; c <= b.cMax; c++) {
-      const dsLabels = [];
-      const dsData = [];
-      // Use header row as dataset label if it looks like text
-      const headerInp = cellInp[b.rMin]?.[c];
-      const headerVal = parseFloat(headerInp?.value ?? '');
-      const colLabel = (!isNaN(headerVal) || !headerInp?.value.trim())
-        ? COLS[c]
-        : headerInp.value.trim();
-
-      const startRow = (!isNaN(headerVal)) ? b.rMin : b.rMin + 1;
-
-      for (let r = startRow; r <= b.rMax; r++) {
-        const inp = cellInp[r]?.[c];
-        if (!inp) continue;
-        const val = parseFloat(inp.value);
-        if (!isNaN(val)) {
-          dsData.push(val);
-          let lbl = `R${r}`;
-          if (firstColIsLabels) {
-            const lblInp = cellInp[r]?.[b.cMin];
-            if (lblInp?.value.trim()) lbl = lblInp.value.trim();
-          }
-          dsLabels.push(lbl);
-        }
-      }
-      if (dsData.length > 0) datasets.push({ label: colLabel, data: dsData, labels: dsLabels });
-    }
-
-    if (datasets.length === 0) { showInfoModal('Виділіть клітинки з числами!'); return; }
-    openModal('chartModal');
-    renderChartMulti(datasets);
-    return;
-  }
-
-  // 1 or 2 columns
-  for (let r = b.rMin; r <= b.rMax; r++) {
-    const valColIdx = isTwoCols ? b.cMax : b.cMin;
-    const valInp = cellInp[r]?.[valColIdx];
-    if (!valInp) continue;
-    const val = parseFloat(valInp.value);
-
-    if (!isNaN(val)) {
-      data.push(val);
-      let lbl = `R${r}`;
-      if (isTwoCols) {
-        const lblInp = cellInp[r]?.[b.cMin];
-        if (lblInp?.value.trim()) lbl = lblInp.value.trim();
-      }
-      labels.push(lbl);
-    }
-  }
-
-  if (data.length === 0) {
+  if (!source.rows.length) {
     showInfoModal('Виділіть клітинки з числами!');
     return;
   }
 
+  chartSource = source;
   openModal('chartModal');
-  renderChart(labels, data);
+  updateChartTypeButtons();
+  renderChartFromSource();
 }
 
-function renderChart(lbls, dats) {
-  if (chartObj) chartObj.destroy();
-  const canvas = document.getElementById('theChart');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-
-  const isPie = chartType === 'pie';
-
-  chartObj = new Chart(ctx, {
-    type: chartType,
-    data: {
-      labels: lbls,
-      datasets: [{
-        label: 'Значення',
-        data: dats,
-        backgroundColor: isPie
-          ? ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6366f1', '#14b8a6']
-          : '#3b82f6',
-        borderColor: chartType === 'line' ? '#3b82f6' : undefined,
-        borderWidth: 1,
-        tension: 0.4
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: isPie ? {} : { y: { beginAtZero: true } }
-    }
-  });
+// Чому точкову не можна побудувати з цього виділення.
+// Порожній рядок означає «можна».
+function scatterBlockReason(source) {
+  if (!source.hasNumericFirstColumn) {
+    return 'Для точкової діаграми перший стовпець має містити числа — це значення X. ' +
+      'Виділіть два стовпці чисел без підписів.';
+  }
+  if (source.seriesLabels.length < 2) {
+    return 'Точкова діаграма показує залежність між двома величинами. ' +
+      'Виділіть щонайменше два стовпці чисел: перший — X, другий — Y.';
+  }
+  return '';
 }
 
-function renderChartMulti(datasets) {
-  if (chartObj) chartObj.destroy();
+function showChartNote(text) {
+  const note = document.getElementById('chartNote');
+  const wrap = document.querySelector('.chart-canvas-wrap');
+  if (note) {
+    note.textContent = text || '';
+    note.hidden = !text;
+  }
+  if (wrap) wrap.hidden = !!text;
+}
+
+function renderChartFromSource() {
+  if (!chartSource) return;
+
   const canvas = document.getElementById('theChart');
   if (!canvas) return;
-  const ctx = canvas.getContext('2d');
 
-  const palette = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6366f1', '#14b8a6'];
+  if (chartObj) { chartObj.destroy(); chartObj = null; }
+
+  if (chartType === 'scatter') {
+    const reason = scatterBlockReason(chartSource);
+    if (reason) { showChartNote(reason); return; }
+  }
+  showChartNote('');
+
+  chartObj = new Chart(canvas.getContext('2d'), chartType === 'scatter'
+    ? buildScatterConfig(chartSource)
+    : buildCategoryConfig(chartSource));
+}
+
+// Стовпчики / лінія / кругова: підписи по осі категорій, стовпці — ряди.
+function buildCategoryConfig(source) {
   const isPie = chartType === 'pie';
+  const labels = source.rows.map(row => row.label);
 
-  // Use labels from first dataset; merge all labels
-  const allLabels = datasets.reduce((acc, ds) => {
-    ds.labels.forEach(l => { if (!acc.includes(l)) acc.push(l); });
-    return acc;
-  }, []);
-
-  const chartDatasets = datasets.map((ds, i) => ({
-    label: ds.label,
-    data: ds.data,
-    backgroundColor: isPie ? palette : palette[i % palette.length],
-    borderColor: chartType === 'line' ? palette[i % palette.length] : undefined,
+  const datasets = source.seriesLabels.map((label, i) => ({
+    label,
+    data: source.rows.map(row => row.values[i]),
+    backgroundColor: isPie
+      ? CHART_PALETTE
+      : CHART_PALETTE[i % CHART_PALETTE.length],
+    borderColor: chartType === 'line' ? CHART_PALETTE[i % CHART_PALETTE.length] : undefined,
     borderWidth: 1,
     tension: 0.4
   }));
 
-  chartObj = new Chart(ctx, {
+  return {
     type: chartType,
-    data: {
-      labels: allLabels,
-      datasets: chartDatasets
-    },
+    data: { labels, datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      plugins: { legend: { display: datasets.length > 1 || isPie } },
       scales: isPie ? {} : { y: { beginAtZero: true } }
     }
+  };
+}
+
+// Точкова: перший числовий стовпець — X, кожен наступний — окремий ряд Y.
+// Точку беремо лише там, де є обидва числа: неповна пара спотворила б залежність.
+function buildScatterConfig(source) {
+  const xLabel = source.seriesLabels[0];
+
+  const datasets = source.seriesLabels.slice(1).map((label, i) => ({
+    label,
+    data: source.rows
+      .filter(row => row.values[0] !== null && row.values[i + 1] !== null)
+      .map(row => ({ x: row.values[0], y: row.values[i + 1] })),
+    backgroundColor: CHART_PALETTE[i % CHART_PALETTE.length],
+    borderColor: CHART_PALETTE[i % CHART_PALETTE.length],
+    pointRadius: 5,
+    pointHoverRadius: 7
+  }));
+
+  return {
+    type: 'scatter',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: datasets.length > 1 } },
+      scales: {
+        // beginAtZero тут свідомо немає: у лабораторній роботі важливий
+        // діапазон самих вимірів, а не відстань до нуля.
+        x: { type: 'linear', position: 'bottom', title: { display: true, text: xLabel } },
+        y: { title: { display: true, text: datasets.length === 1 ? datasets[0].label : '' } }
+      }
+    }
+  };
+}
+
+function updateChartTypeButtons() {
+  document.querySelectorAll('[data-chart-type]').forEach(btn => {
+    const active = btn.dataset.chartType === chartType;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
   });
 }
 
 function setChartType(t) {
   chartType = t;
-  if (chartObj) {
-    if (chartObj.data.datasets.length > 1) {
-      renderChartMulti(chartObj.data.datasets.map(ds => ({
-        label: ds.label,
-        data: ds.data,
-        labels: chartObj.data.labels
-      })));
-    } else {
-      renderChart(chartObj.data.labels, chartObj.data.datasets[0].data);
-    }
-  }
+  updateChartTypeButtons();
+  renderChartFromSource();
 }
 
 window.TablesCharts = {
   makeChart,
-  renderChart,
-  renderChartMulti,
-  setChartType
+  setChartType,
+  extractChartSource,
+  buildCategoryConfig,
+  buildScatterConfig,
+  scatterBlockReason,
+  updateChartTypeButtons
 };

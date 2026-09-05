@@ -75,6 +75,7 @@ function evalScalar(node) {
   switch (node.type) {
     case 'num': return node.value;
     case 'str': return node.value;
+    case 'bool': return node.value ? 1 : 0; // булеві живуть як 1/0, як в AND/OR
     case 'err': throw formulaError(node.value);
     case 'ref': return getCellValueForRef(node);
     case 'range': throw formulaError(FORMULA_ERRORS.VALUE); // діапазон не можна як скаляр
@@ -123,12 +124,36 @@ function collectValues(argNodes) {
   return out;
 }
 
+// Двовимірний доступ до аргументу-діапазону (для VLOOKUP / INDEX / MATCH).
+// Одиночне посилання чи скаляр трактуємо як діапазон 1×1 — так само, як Excel.
+function collectMatrix(node) {
+  if (!node) throw formulaError(FORMULA_ERRORS.VALUE);
+
+  if (node.type === 'range') {
+    const sheetName = node.start.sheet;
+    let pushed = false;
+    if (sheetName) { pushEvalContext(resolveSheetContext(sheetName)); pushed = true; }
+    try {
+      return rangeToGrid(node.start.col, node.start.row, node.end.col, node.end.row);
+    } finally {
+      if (pushed) popEvalContext();
+    }
+  }
+
+  const value = evalScalar(node);
+  return { rows: 1, cols: 1, get: (r, c) => (r === 0 && c === 0 ? value : null) };
+}
+
 const FORMULA_CTX = {
   evalScalar,
   toNumber: toFormulaNumber,
+  toText: formulaToString,
   isTruthy: isFormulaTruthy,
   num: node => toFormulaNumber(evalScalar(node)),
-  collectValues
+  text: node => formulaToString(evalScalar(node)),
+  compare: compareValues,
+  collectValues,
+  collectMatrix
 };
 
 function dispatchFunction(node) {

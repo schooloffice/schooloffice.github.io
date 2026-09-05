@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tables XLSX Behavior</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Tables XLSX Behavior</h1>
+  <pre id="result">Running...</pre>
+
+  <script src="../tables/js/addressing.js"></script>
+  <script src="../tables/js/model.js"></script>
+  <script src="../tables/js/storage.js"></script>
+  <script src="../tables/js/formula-parser.js"></script>
+  <script src="../tables/js/formula-references.js"></script>
+  <script src="../tables/js/formula-functions.js"></script>
+  <script src="../tables/js/formula-engine.js"></script>
+  <script src="../tables/js/core.js"></script>
+  <script src="../tables/js/state.js"></script>
+  <script src="../tables/js/workbook-file.js"></script>
+  <script src="../tables/js/xlsx-zip.js"></script>
+  <script src="../tables/js/xlsx-format.js"></script>
+  <script src="../tables/js/xlsx-export.js"></script>
+  <script src="../tables/js/xlsx-import.js"></script>
+  <script>
+    const result = document.getElementById('result');
+    const checks = [];
+
+    function assertEqual(name, actual, expected) {
+      if (Object.is(actual, expected)) return `PASS ${name}`;
+      throw new Error(`${name}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    }
+
+    function assertTrue(name, value) {
+      return assertEqual(name, !!value, true);
+    }
+
+    async function assertRejects(name, promise, expectedFragment) {
+      try {
+        await promise;
+      } catch (e) {
+        const message = String(e && e.message || e);
+        if (message.includes(expectedFragment)) return `PASS ${name}`;
+        throw new Error(`${name}: expected message containing "${expectedFragment}", got "${message}"`);
+      }
+      throw new Error(`${name}: expected rejection, but it resolved`);
+    }
+
+    async function run() {
+      const Zip = window.TablesXlsxZip;
+      const Fmt = window.TablesXlsxFormat;
+      const Exp = window.TablesXlsxExport;
+      const Imp = window.TablesXlsxImport;
+
+      // ---- ZIP: запис "stored" і читання назад ----
+      const encoder = new TextEncoder();
+      const zipped = Zip.zipWrite([
+        { name: 'a.xml', data: encoder.encode('<root/>') },
+        { name: 'вкладена/кирилиця.xml', data: encoder.encode('привіт світ') }
+      ]);
+      const unzipped = await Zip.zipRead(zipped);
+      checks.push(assertEqual('zip: кількість записів', unzipped.size, 2));
+      checks.push(assertEqual('zip: зміст',
+        new TextDecoder().decode(unzipped.get('a.xml')), '<root/>'));
+      checks.push(assertEqual('zip: кириличне ім’я запису',
+        new TextDecoder().decode(unzipped.get('вкладена/кирилиця.xml')), 'привіт світ'));
+
+      // Власний інфлятор — запасний шлях для старих шкільних пристроїв без
+      // DecompressionStream. Він мусить давати той самий результат, що й нативний.
+      if (typeof CompressionStream === 'function') {
+        const samples = [
+          'abcabcabc',
+          '<row r="1"><c r="A1" t="s"><v>0</v></c></row>'.repeat(400),
+          Array.from({ length: 4096 }, (_, i) => String.fromCharCode(32 + (i * 7) % 95)).join('')
+        ];
+        for (let i = 0; i < samples.length; i++) {
+          const raw = encoder.encode(samples[i]);
+          const compressed = new Uint8Array(await new Response(
+            new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate-raw'))
+          ).arrayBuffer());
+          const restored = new TextDecoder().decode(Zip.inflateRawFallback(compressed, raw.length));
+          checks.push(assertEqual(`zip: власний inflate = нативний (зразок ${i + 1})`, restored, samples[i]));
+        }
+      } else {
+        checks.push('SKIP zip: власний inflate (CompressionStream недоступний)');
+      }
+
+      // ---- Формули: серіалізація в синтаксис Excel ----
+      const formulaCases = [
+        ['SUM(A1:A5)', 'SUM(A1:A5)'],
+        ['AVG(B1:B9)', 'AVERAGE(B1:B9)'],
+        ['POW(2,10)', 'POWER(2,10)'],
+        ['CEIL(3.2)', 'CEILING(3.2)'],
+        ['IF(A1>5;"так";"ні")', 'IF(A1>5,"так","ні")'],
+        ['SUM($A$1:$B$2)', 'SUM($A$1:$B$2)'],
+        ['A1-(B1-C1)', 'A1-(B1-C1)'],
+        ['A1/(B1/C1)', 'A1/(B1/C1)'],
+        ['(A1+B1)*C1', '(A1+B1)*C1'],
+        ['A1*(B1+C1)/D1', 'A1*(B1+C1)/D1'],
+        ['SUM(Аркуш2!A1:A9)', 'SUM(Аркуш2!A1:A9)'],
+        ["'Мій аркуш'!A1", "'Мій аркуш'!A1"],
+        // Логічні літерали мають лишатися словами, а не перетворюватися на 1/0.
+        ['VLOOKUP("Іваненко",A2:C5,2,FALSE)', 'VLOOKUP("Іваненко",A2:C5,2,FALSE)'],
+        ['IF(A1>5,TRUE,FALSE)', 'IF(A1>5,TRUE,FALSE)'],
+        // CONCAT є лише в Excel 2019+; для скалярів віддаємо сумісний CONCATENATE,
+        // але з діапазоном лишаємо CONCAT, бо CONCATENATE дав би хибну відповідь.
+        ['CONCAT("7-",A2)', 'CONCATENATE("7-",A2)'],
+        ['CONCAT(A1," ",B1)', 'CONCATENATE(A1," ",B1)'],
+        ['CONCAT(A2:A3)', 'CONCAT(A2:A3)'],
+        ['CONCAT(A1,B2:B3)', 'CONCAT(A1,B2:B3)'],
+        ['CONCATENATE("а","б")', 'CONCATENATE("а","б")'],
+        // Решта нових функцій — це справжні назви Excel, тож ідуть без змін.
+        ['INDEX(C2:C5,MATCH("Коваленко",A2:A5,0))', 'INDEX(C2:C5,MATCH("Коваленко",A2:A5,0))'],
+        ['IFERROR(VLOOKUP(D1,A2:C5,2,FALSE),0)', 'IFERROR(VLOOKUP(D1,A2:C5,2,FALSE),0)'],
+        ['RANK(B2,B2:B9,1)', 'RANK(B2,B2:B9,1)'],
+        ['ROUNDUP(A1,2)', 'ROUNDUP(A1,2)'],
+        ['MID(A1,2,3)', 'MID(A1,2,3)']
+      ];
+      for (const [input, expected] of formulaCases) {
+        checks.push(assertEqual(`формула → Excel: ${input}`, Fmt.toExcelFormula(input), expected));
+      }
+      checks.push(assertEqual('формула: нерозбірлива → null', Fmt.toExcelFormula('це не формула (('), null));
+
+      // ---- Розпізнавання кодів формату ----
+      // Excel у неанглійській локалі пише локалізовані роздільники у сам файл.
+      const formatCases = [
+        ['#,##0', 'style-num-int'],
+        ['#.##0', 'style-num-int'],
+        ['#,##0.00', 'style-num-fixed2'],
+        ['#.##0,00', 'style-num-fixed2'],
+        ['0,00', 'style-num-fixed2'],
+        ['0.00%', 'style-num-percent'],
+        ['0,00%', 'style-num-percent'],
+        ['m/d/yyyy', 'style-num-date'],
+        ['dd.mm.yyyy', 'style-num-date'],
+        ['m/d/yy h:mm', 'style-num-datetime'],
+        ['0.00E+00', ''],
+        ['General', ''],
+        ['@', '']
+      ];
+      for (const [code, expected] of formatCases) {
+        checks.push(assertEqual(`формат "${code}"`, Imp.numberClassForFormatCode(code), expected));
+      }
+
+      // ---- Зсув спільних формул (протягування в Excel) ----
+      checks.push(assertEqual('shared formula: зсув рядка',
+        Imp.shiftFormula('AVERAGE(B2:C2)', 0, 3), 'AVERAGE(B5:C5)'));
+      checks.push(assertEqual('shared formula: абсолютні не зсуваються',
+        Imp.shiftFormula('$B$2+C2', 0, 2), '$B$2+C4'));
+      checks.push(assertEqual('shared formula: текст у лапках недоторканий',
+        Imp.shiftFormula('IF(A1>1,"A1 тут",B1)', 0, 1), 'IF(A2>1,"A1 тут",B2)'));
+
+      // ---- Наскрізний round-trip: наша книга → .xlsx → назад ----
+      const source = {
+        name: 'Оцінки',
+        rows: 30,
+        cols: 10,
+        cellData: {
+          A1: 'Учень', B1: 'Бал', C1: 'Середнє', D1: 'Відсоток', E1: 'Дата', F1: 'Ціна',
+          A2: 'Іваненко', B2: '8', C2: '=AVERAGE(B2:B4)', D2: '0.85', E2: '45000', F2: '125.5',
+          A3: 'Петренко', B3: '11', C3: '=B3-(B2-2)',
+          A4: 'Коваленко', B4: '6',
+          A6: 'Сума', B6: '=SUM(B2:B4)',
+          A8: 'Текст <&> "лапки"'
+        },
+        cellStyles: {
+          A1: 'style-align-center style-bg-blue style-border-all style-text-bold',
+          C2: 'style-num-fixed2',
+          D2: 'style-num-percent',
+          E2: 'style-num-date',
+          F2: 'style-num-currency-uah',
+          A3: 'style-text-italic style-text-red',
+          A4: 'style-text-strike'
+        },
+        colWidths: { 0: 140 },
+        condRules: [{ range: [1, 2, 1, 4], op: 'lt', v1: 7, v2: null, fill: '#fee2e2' }]
+      };
+
+      const bytes = Exp.buildXlsxPackage({ sheets: [source] });
+      const parts = await Zip.zipRead(bytes);
+      checks.push(assertTrue('пакет має workbook.xml', parts.has('xl/workbook.xml')));
+      checks.push(assertTrue('пакет має styles.xml', parts.has('xl/styles.xml')));
+      checks.push(assertTrue('пакет має sharedStrings.xml', parts.has('xl/sharedStrings.xml')));
+
+      // fullCalcOnLoad обов'язковий: кешованих значень формул ми не пишемо.
+      const workbookXml = new TextDecoder().decode(parts.get('xl/workbook.xml'));
+      checks.push(assertTrue('workbook просить перерахунок при відкритті',
+        workbookXml.includes('fullCalcOnLoad="1"')));
+
+      // Умовне форматування має потрапити в аркуш.
+      const sheetXml = new TextDecoder().decode(parts.get('xl/worksheets/sheet1.xml'));
+      checks.push(assertTrue('аркуш містить умовне форматування',
+        sheetXml.includes('<conditionalFormatting') && sheetXml.includes('operator="lessThan"')));
+      checks.push(assertTrue('спецсимволи екрановані', sheetXml.indexOf('<&>') === -1));
+
+      const { payload, report } = await Imp.parseXlsxBytes(bytes, 'round-trip');
+      const back = payload.sheets[0];
+
+      checks.push(assertEqual('round-trip: назва аркуша', back.name, 'Оцінки'));
+      for (const key of Object.keys(source.cellData)) {
+        checks.push(assertEqual(`round-trip: клітинка ${key}`, back.cellData[key], source.cellData[key]));
+      }
+      for (const key of Object.keys(source.cellStyles)) {
+        const expected = source.cellStyles[key].split(/\s+/).sort().join(' ');
+        const actual = String(back.cellStyles[key] || '').split(/\s+/).sort().join(' ');
+        checks.push(assertEqual(`round-trip: стиль ${key}`, actual, expected));
+      }
+      checks.push(assertEqual('round-trip: ширина колонки', back.colWidths[0], 140));
+      checks.push(assertEqual('round-trip: без втрат у звіті', report.unsupportedFormulas, 0));
+      checks.push(assertEqual('round-trip: без обрізань', report.truncatedCells, 0));
+
+      // ---- Кілька аркушів і міжаркушеві посилання ----
+      const multi = Exp.buildXlsxPackage({
+        sheets: [
+          { name: 'Перший', rows: 5, cols: 3, cellData: { A1: '42' }, cellStyles: {}, colWidths: {}, condRules: [] },
+          { name: 'Другий', rows: 5, cols: 3, cellData: { A1: '=Перший!A1' }, cellStyles: {}, colWidths: {}, condRules: [] }
+        ]
+      });
+      const multiBack = await Imp.parseXlsxBytes(multi, 'multi');
+      checks.push(assertEqual('кілька аркушів: кількість', multiBack.payload.sheets.length, 2));
+      checks.push(assertEqual('кілька аркушів: міжаркушева формула',
+        multiBack.payload.sheets[1].cellData.A1, '=Перший!A1'));
+
+      // ---- Назви аркушів, заборонені в Excel ----
+      const odd = Exp.buildXlsxPackage({
+        sheets: [{ name: 'A/B*C[D]', rows: 3, cols: 3, cellData: { A1: '1' }, cellStyles: {}, colWidths: {}, condRules: [] }]
+      });
+      const oddBack = await Imp.parseXlsxBytes(odd, 'odd');
+      checks.push(assertTrue('назва аркуша очищена від заборонених символів',
+        !/[:\\/?*[\]]/.test(oddBack.payload.sheets[0].name)));
+
+      // ---- Недовірений вхід не повинен ламати редактор ----
+      await assertRejects('надто короткий файл',
+        Imp.parseXlsxBytes(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]), 'bad'), 'надто малий')
+        .then(r => checks.push(r));
+
+      await assertRejects('сміття замість ZIP',
+        Imp.parseXlsxBytes(new Uint8Array(2048).fill(0x41), 'bad'), 'не ZIP-архів')
+        .then(r => checks.push(r));
+
+      const notXlsx = Zip.zipWrite([{ name: 'readme.txt', data: encoder.encode('не таблиця') }]);
+      await assertRejects('ZIP без workbook.xml',
+        Imp.parseXlsxBytes(notXlsx, 'bad'), 'не файл Excel')
+        .then(r => checks.push(r));
+
+      const brokenXml = Zip.zipWrite([{ name: 'xl/workbook.xml', data: encoder.encode('<workbook><sheets>') }]);
+      await assertRejects('пошкоджений XML',
+        Imp.parseXlsxBytes(brokenXml, 'bad'), 'Пошкоджена частина')
+        .then(r => checks.push(r));
+
+      await assertRejects('завеликий файл',
+        Imp.parseXlsxBytes(new Uint8Array(11 * 1024 * 1024), 'big'), 'завеликий')
+        .then(r => checks.push(r));
+
+      // ---- Шлюз валідації ----
+      // Розібраний .xlsx іде в стан застосунку лише через ту саму перевірку,
+      // що й .arttab. Тут переконуємось, що розібране справді її проходить.
+      const gated = window.TablesWorkbookFile.validateWorkbookPayload(payload);
+      checks.push(assertEqual('шлюз валідації: аркуш уцілів', gated.sheets[0].name, 'Оцінки'));
+      checks.push(assertEqual('шлюз валідації: дані уціліли', gated.sheets[0].cellData.B6, '=SUM(B2:B4)'));
+      checks.push(assertEqual('шлюз валідації: стилі уціліли',
+        gated.sheets[0].cellStyles.C2, 'style-num-fixed2'));
+    }
+
+    run().then(() => {
+      result.className = 'pass';
+      result.textContent = checks.join('\n') + '\n\nPASSED';
+      document.body.dataset.tablesXlsx = 'passed';
+    }).catch(error => {
+      result.className = 'fail';
+      result.textContent = checks.join('\n') + '\n\n' + String(error && error.stack || error);
+      document.body.dataset.tablesXlsx = 'failed';
+    });
+  </script>
+</body>
+</html>

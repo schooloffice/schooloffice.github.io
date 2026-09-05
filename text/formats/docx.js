@@ -87,6 +87,7 @@ const ArtDocx = (() => {
         children: collectRuns(node).length ? collectRuns(node) : [new TextRun('')],
         heading: opts.heading,
         alignment: _alignment(node.style.textAlign),
+        spacing: _spacing(node),
         indent: node.style.marginLeft ? { left: Math.round(parseInt(node.style.marginLeft, 10) * 15) } : undefined
       });
     }
@@ -95,8 +96,11 @@ const ArtDocx = (() => {
 
     function listParagraphs(listNode) {
       const tag = listNode.tagName.toLowerCase();
+      // Інтервал задається на самому списку, тож успадковуємо його в пункти.
+      const spacing = _spacing(listNode);
       return [...listNode.children].map(li => new Paragraph({
         children: collectRuns(li).length ? collectRuns(li) : [new TextRun('')],
+        spacing: _spacing(li) || spacing,
         bullet: tag === 'ul' ? { level: 0 } : undefined,
         numbering: tag === 'ol' ? { reference: 'numbered-list', level: 0 } : undefined
       }));
@@ -179,14 +183,38 @@ const ArtDocx = (() => {
     const pageMargin = Object.fromEntries(
       Object.entries(sourceMargins).map(([side, cm]) => [side, Math.round(Number(cm) * CM_TO_TWIPS)])
     );
+    const section = {
+      properties: { page: { size: pageSize, margin: pageMargin } },
+      children
+    };
+
+    // Номер сторінки — справжнє поле PAGE у колонтитулі, а не вписаний текст:
+    // Word перерахує його сам, якщо документ доредагують.
+    const numbers = meta.pageNumbers;
+    if (numbers && numbers.enabled) {
+      const { Footer, PageNumber } = docx;
+      const footer = new Footer({
+        children: [new Paragraph({
+          alignment: _alignment(numbers.position === 'center' ? 'center' : numbers.position),
+          children: [new TextRun({ children: [PageNumber.CURRENT] })]
+        })]
+      });
+
+      if (numbers.skipFirst) {
+        // titlePage вмикає окремий колонтитул першої сторінки; лишаємо його
+        // порожнім — саме так у Word роблять титульну без номера.
+        section.properties.titlePage = true;
+        section.footers = { first: new Footer({ children: [new Paragraph({ children: [] })] }), default: footer };
+      } else {
+        section.footers = { default: footer };
+      }
+    }
+
     const doc = new Document({
       numbering: {
         config: [{ reference: 'numbered-list', levels: [{ level: 0, format: 'decimal', text: '%1.', alignment: AlignmentType.START }] }]
       },
-      sections: [{
-        properties: { page: { size: pageSize, margin: pageMargin } },
-        children
-      }]
+      sections: [section]
     });
     return Packer.toBlob(doc);
   }
@@ -212,6 +240,18 @@ const ArtDocx = (() => {
 
   function _ptToHalfPt(pt) { const m = /([\d.]+)pt/.exec(pt || ''); return m ? Math.round(parseFloat(m[1]) * 2) : undefined; }
   function _alignment(value) { return ({ center: docx.AlignmentType.CENTER, right: docx.AlignmentType.RIGHT, justify: docx.AlignmentType.JUSTIFIED }[value] || docx.AlignmentType.LEFT); }
+
+  // Міжрядковий інтервал у DOCX міряється у 1/240 рядка при lineRule="auto",
+  // тож безрозмірний CSS line-height множимо на 240: 1,5 → 360.
+  function _spacing(node) {
+    const raw = (node.style && node.style.lineHeight) || '';
+    const value = parseFloat(raw);
+    if (!raw || !Number.isFinite(value) || value <= 0) return undefined;
+    // Значення з одиницями (px, pt, %) не переносимо: у школі інтервал завжди
+    // безрозмірний, а вгадувати переведення — гірше, ніж лишити типовий.
+    if (/[a-z%]/i.test(raw)) return undefined;
+    return { line: Math.round(value * 240), lineRule: docx.LineRuleType.AUTO };
+  }
   function _cssColorToHex(color) {
     if (!color) return undefined;
     if (/^#([0-9a-f]{6})$/i.test(color)) return color.slice(1);

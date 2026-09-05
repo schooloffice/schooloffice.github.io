@@ -620,6 +620,13 @@ body.panel-collapsed .properties-panel {
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
+/* Спільна рамка кількох фігур: суцільніша й ширша, щоб її не сплутати
+   з рамкою однієї фігури, у якої є маркери розміру. */
+.selection-box.multi {
+  stroke-width: 2;
+  stroke-dasharray: 10 5;
+}
+
 .selection-handle,
 .selection-endpoint {
   fill: #ffffff;

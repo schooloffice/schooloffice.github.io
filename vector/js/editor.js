@@ -40,6 +40,7 @@ window.ArtVector = window.ArtVector || {};
     setObjects(objects) {
       state.objects = utils.deepClone(objects || []);
       state.selectedObjectId = null;
+      state.selectedObjectIds = [];
       state.draftObject = null;
       this.renderAll();
     },
@@ -69,6 +70,7 @@ window.ArtVector = window.ArtVector || {};
       const before = state.objects.length;
       state.objects = state.objects.filter((item) => item.id !== id);
       if (state.selectedObjectId === id) state.selectedObjectId = null;
+      state.selectedObjectIds = (state.selectedObjectIds || []).filter((item) => item !== id);
       this.renderAll();
       return state.objects.length !== before;
     },
@@ -84,11 +86,12 @@ window.ArtVector = window.ArtVector || {};
       } else if (constants.LINE_TYPES.includes(copy.type)) {
         copy.x1 += 20; copy.x2 += 20;
         copy.y1 += 20; copy.y2 += 20;
-      } else if (copy.type === 'pen') {
+      } else if (constants.POINT_TYPES.includes(copy.type)) {
         copy.points = copy.points.map((point) => ({ x: point.x + 20, y: point.y + 20 }));
       }
       state.objects.push(copy);
       state.selectedObjectId = copy.id;
+      state.selectedObjectIds = [copy.id];
       this.renderAll();
       return copy;
     },
@@ -126,6 +129,7 @@ window.ArtVector = window.ArtVector || {};
       const obj = utils.deepClone(state.draftObject);
       state.objects.push(obj);
       state.selectedObjectId = obj.id;
+      state.selectedObjectIds = [obj.id];
       state.draftObject = null;
       this.renderAll();
       return obj;
@@ -179,8 +183,48 @@ window.ArtVector = window.ArtVector || {};
       return Array.from(this.elements.contentLayer.children).find((node) => node.dataset.id === id) || null;
     },
 
+    // Спільна рамка кількох фігур. Рахуємо по вже намальованих вузлах, тож
+    // працює однаково для прямокутників, ліній, контурів і тексту.
+    selectionBounds(ids) {
+      const pad = 8;
+      let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
+
+      ids.forEach((id) => {
+        const node = this.findObjectNode(id);
+        if (!node || typeof node.getBBox !== 'function') return;
+        const box = node.getBBox();
+        minX = Math.min(minX, box.x);
+        minY = Math.min(minY, box.y);
+        maxX = Math.max(maxX, box.x + box.width);
+        maxY = Math.max(maxY, box.y + box.height);
+      });
+
+      if (minX === Infinity) return null;
+      return {
+        x: Math.max(0, minX - pad),
+        y: Math.max(0, minY - pad),
+        width: (maxX - minX) + pad * 2,
+        height: (maxY - minY) + pad * 2
+      };
+    },
+
     renderSelection() {
       const layer = this.elements.selectionLayer;
+      const ids = state.selectedObjectIds || [];
+
+      // Кілька фігур: показуємо спільну рамку без маркерів. Тягнути розмір
+      // групи одним рухом ми не вміємо, тож і маркери обіцяти не можна.
+      if (ids.length > 1) {
+        const box = this.selectionBounds(ids);
+        if (!box) { layer.replaceChildren(); return; }
+        const group = svgEl('g');
+        group.appendChild(svgEl('rect', {
+          class: 'selection-box multi', x: box.x, y: box.y, width: box.width, height: box.height, rx: 4
+        }));
+        layer.replaceChildren(group);
+        return;
+      }
+
       const selected = this.getObjectById(state.selectedObjectId);
       if (!selected) {
         layer.replaceChildren();
@@ -240,7 +284,7 @@ window.ArtVector = window.ArtVector || {};
         ? svgEl('g')
         : svgEl('g', {
           'data-id': obj.id,
-          class: obj.id === state.selectedObjectId ? 'vector-object selected' : 'vector-object'
+          class: (state.selectedObjectIds || []).includes(obj.id) ? 'vector-object selected' : 'vector-object'
         });
       group.appendChild(shape);
       return group;
@@ -264,6 +308,8 @@ window.ArtVector = window.ArtVector || {};
           return this.lineNode(obj, true);
         case 'pen':
           return this.penNode(obj);
+        case 'curve':
+          return this.curveNode(obj);
         case 'text':
           return this.textNode(obj);
         default:
@@ -316,6 +362,43 @@ window.ArtVector = window.ArtVector || {};
       // Маркер стрілки успадковує колір через currentColor.
       node.style.setProperty('color', stroke);
       return node;
+    },
+
+    // Згладжений сплайн через ті самі точки, що й в олівця. Контрольні точки
+    // рахуємо за Catmull-Rom: крива гарантовано проходить через кожну задану
+    // точку, тож намальоване не «відпливає» від руки учня.
+    curvePath(points) {
+      const list = points || [];
+      if (list.length < 2) return '';
+      if (list.length === 2) {
+        return `M ${list[0].x} ${list[0].y} L ${list[1].x} ${list[1].y}`;
+      }
+
+      let d = `M ${list[0].x} ${list[0].y}`;
+      for (let i = 0; i < list.length - 1; i += 1) {
+        const p0 = list[i - 1] || list[i];
+        const p1 = list[i];
+        const p2 = list[i + 1];
+        const p3 = list[i + 2] || p2;
+        const c1x = p1.x + (p2.x - p0.x) / 6;
+        const c1y = p1.y + (p2.y - p0.y) / 6;
+        const c2x = p2.x - (p3.x - p1.x) / 6;
+        const c2y = p2.y - (p3.y - p1.y) / 6;
+        d += ` C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2.x} ${p2.y}`;
+      }
+      return d;
+    },
+
+    curveNode(obj) {
+      return svgEl('path', {
+        d: this.curvePath(obj.points),
+        stroke: obj.stroke || '#1f2937',
+        'stroke-width': obj.strokeWidth || 3,
+        fill: obj.fill && obj.fill !== 'none' ? obj.fill : 'none',
+        opacity: (obj.opacity ?? 100) / 100,
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round'
+      });
     },
 
     penNode(obj) {
@@ -408,6 +491,7 @@ window.ArtVector = window.ArtVector || {};
       state.currentFontSize = Number(payload.currentFontSize) || 32;
       state.objects = utils.deepClone(payload.objects || []);
       state.selectedObjectId = null;
+      state.selectedObjectIds = [];
       state.draftObject = null;
       this.resizeArtboard(state.canvasWidth, state.canvasHeight);
       this.renderAll();

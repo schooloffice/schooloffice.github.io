@@ -317,13 +317,61 @@ const ArtSelection = (() => {
     return true;
   }
 
+  // Усі блоки, яких торкається виділення. Для згорнутої каретки — один блок,
+  // під яким вона стоїть. Абзацні властивості (вирівнювання, міжрядковий
+  // інтервал) мають застосовуватися до всього виділеного, а не лише до першого
+  // абзацу: учень виділяє текст цілком і очікує, що зміниться весь.
+  function getBlocksInSelection(editor) {
+    const range = getRange(editor);
+    if (!range) return [];
+
+    const current = getCurrentBlock(editor);
+    if (range.collapsed) return current ? [current] : [];
+
+    const blocks = [];
+    getPageContents(editor).forEach(page => {
+      page.querySelectorAll(BLOCK_SELECTOR).forEach(block => {
+        // Вкладені блоки (абзац усередині клітинки) беремо лише як найглибші,
+        // інакше інтервал ліг би і на таблицю, і на її вміст.
+        if (block.querySelector(BLOCK_SELECTOR)) return;
+        if (range.intersectsNode(block)) blocks.push(block);
+      });
+    });
+
+    if (!blocks.length && current) blocks.push(current);
+    return blocks;
+  }
+
   function setAlignment(editor, align) {
-    const block = getCurrentBlock(editor);
     const page = getActivePageContent(editor);
-    if (!block || !page || block === page) return false;
-    block.style.textAlign = align === 'left' ? '' : align;
+    const blocks = getBlocksInSelection(editor).filter(block => block !== page);
+    if (!blocks.length) return false;
+    blocks.forEach(block => { block.style.textAlign = align === 'left' ? '' : align; });
     normalizeEditor(editor);
     return true;
+  }
+
+  // Міжрядковий інтервал зберігаємо як безрозмірний line-height: він
+  // масштабується разом із розміром шрифту і так само розуміється у DOCX.
+  function setLineHeight(editor, value) {
+    const page = getActivePageContent(editor);
+    const blocks = getBlocksInSelection(editor).filter(block => block !== page);
+    if (!blocks.length) return false;
+    const normalized = Number(value);
+    blocks.forEach(block => {
+      block.style.lineHeight = Number.isFinite(normalized) && normalized > 0 ? String(normalized) : '';
+    });
+    normalizeEditor(editor);
+    return true;
+  }
+
+  // Поточний інтервал виділення: число, або '' якщо блоки різні чи не задано.
+  function getLineHeight(editor) {
+    const page = getActivePageContent(editor);
+    const blocks = getBlocksInSelection(editor).filter(block => block !== page);
+    if (!blocks.length) return '';
+    const first = blocks[0].style.lineHeight || '';
+    return blocks.every(block => (block.style.lineHeight || '') === first) ? first : '';
   }
 
   function toggleList(editor, listTag) {
@@ -795,7 +843,8 @@ const ArtSelection = (() => {
     getPageContents, getActivePageContent,
     insertNode, insertBlockNode, insertHTML, insertText, insertParagraphAfter,
     toggleInlineTag, applyInlineStyle, clearInlineStyle, insertImage,
-    setBlockTag, setAlignment, toggleList, indent, outdent, insertHorizontalRule,
+    setBlockTag, setAlignment, setLineHeight, getLineHeight, getBlocksInSelection,
+    toggleList, indent, outdent, insertHorizontalRule,
     copy, cut, pastePlainText, queryState, getCurrentBlock, normalizeEditor, getRange
   };
 })();

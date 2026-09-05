@@ -231,6 +231,114 @@
       checks.push(assertThrows('error #NUM! sqrt', () => evaluateFormula('SQRT(-1)'), '#NUM!'));
       checks.push(assertThrows('error #CIRC!', () => evaluateFormula('E1'), '#CIRC!'));
 
+      // ---- Хвиля: пошук, підстановка, текст, округлення ----
+      // Журнал: A=прізвище, B=бал, C=предмет. Відсортований за B за зростанням,
+      // щоб перевірити і точний, і наближений пошук.
+      setGridSize(20, 10);
+      cellData = {
+        A1: 'Прізвище', B1: 'Бал', C1: 'Предмет',
+        A2: 'Бондаренко', B2: '4', C2: 'фізика',
+        A3: 'Коваленко', B3: '6', C3: 'хімія',
+        A4: 'Іваненко', B4: '8', C4: 'біологія',
+        A5: 'Петренко', B5: '11', C5: 'математика',
+        D1: 'Іваненко',
+        E1: '', E2: '=1/0'
+      };
+
+      // VLOOKUP: точний пошук за текстом у першому стовпці.
+      checks.push(assertEqual('VLOOKUP точний: бал',
+        evaluateFormula('VLOOKUP("Іваненко",A2:C5,2,FALSE)'), 8));
+      checks.push(assertEqual('VLOOKUP точний: предмет',
+        evaluateFormula('VLOOKUP("Іваненко",A2:C5,3,FALSE)'), 'біологія'));
+      checks.push(assertEqual('VLOOKUP точний: пошук за посиланням',
+        evaluateFormula('VLOOKUP(D1,A2:C5,2,FALSE)'), 8));
+      checks.push(assertEqual('VLOOKUP точний: регістр не має значення',
+        evaluateFormula('VLOOKUP("іваненко",A2:C5,2,FALSE)'), 8));
+      checks.push(assertThrows('VLOOKUP точний: не знайдено → #N/A',
+        () => evaluateFormula('VLOOKUP("Сидоренко",A2:C5,2,FALSE)'), '#N/A'));
+      checks.push(assertThrows('VLOOKUP: стовпець поза таблицею → #REF!',
+        () => evaluateFormula('VLOOKUP("Іваненко",A2:C5,9,FALSE)'), '#REF!'));
+      checks.push(assertThrows('VLOOKUP: номер стовпця < 1 → #VALUE!',
+        () => evaluateFormula('VLOOKUP("Іваненко",A2:C5,0,FALSE)'), '#VALUE!'));
+
+      // VLOOKUP наближений (за замовчуванням, як в Excel): найбільше значення ≤ шуканого.
+      checks.push(assertEqual('VLOOKUP наближений: точний збіг',
+        evaluateFormula('VLOOKUP(8,B2:C5,2)'), 'біологія'));
+      checks.push(assertEqual('VLOOKUP наближений: між значеннями',
+        evaluateFormula('VLOOKUP(7,B2:C5,2)'), 'хімія'));
+      checks.push(assertEqual('VLOOKUP наближений: більше за все',
+        evaluateFormula('VLOOKUP(99,B2:C5,2)'), 'математика'));
+      checks.push(assertThrows('VLOOKUP наближений: менше за все → #N/A',
+        () => evaluateFormula('VLOOKUP(1,B2:C5,2)'), '#N/A'));
+
+      // MATCH
+      checks.push(assertEqual('MATCH точний у стовпці',
+        evaluateFormula('MATCH("Петренко",A2:A5,0)'), 4));
+      checks.push(assertEqual('MATCH точний у рядку',
+        evaluateFormula('MATCH("Бал",A1:C1,0)'), 2));
+      checks.push(assertEqual('MATCH наближений', evaluateFormula('MATCH(7,B2:B5,1)'), 2));
+      checks.push(assertThrows('MATCH не знайдено → #N/A',
+        () => evaluateFormula('MATCH("Сидоренко",A2:A5,0)'), '#N/A'));
+
+      // INDEX
+      checks.push(assertEqual('INDEX двовимірний', evaluateFormula('INDEX(A2:C5,3,1)'), 'Іваненко'));
+      checks.push(assertEqual('INDEX одновимірний стовпець', evaluateFormula('INDEX(A2:A5,2)'), 'Коваленко'));
+      checks.push(assertEqual('INDEX одновимірний рядок', evaluateFormula('INDEX(A1:C1,3)'), 'Предмет'));
+      checks.push(assertThrows('INDEX поза межами → #REF!',
+        () => evaluateFormula('INDEX(A2:C5,9,1)'), '#REF!'));
+
+      // INDEX+MATCH разом — типова шкільна зв'язка.
+      checks.push(assertEqual('INDEX+MATCH',
+        evaluateFormula('INDEX(C2:C5,MATCH("Коваленко",A2:A5,0))'), 'хімія'));
+
+      // IFERROR
+      checks.push(assertEqual('IFERROR ловить #DIV/0!', evaluateFormula('IFERROR(1/0,"—")'), '—'));
+      checks.push(assertEqual('IFERROR ловить #N/A',
+        evaluateFormula('IFERROR(VLOOKUP("Сидоренко",A2:C5,2,FALSE),0)'), 0));
+      checks.push(assertEqual('IFERROR пропускає успішне значення',
+        evaluateFormula('IFERROR(2+2,"—")'), 4));
+      checks.push(assertEqual('IFERROR ловить помилку з іншої клітинки',
+        evaluateFormula('IFERROR(E2,"хиба")'), 'хиба'));
+
+      // RANK: бали 8, 8, 5, 10, 12 — однакові значення дістають однаковий ранг.
+      // За спаданням: 12(1) 10(2) 8(3) 8(3) 5(5); за зростанням: 5(1) 8(2) 8(2) 10(4) 12(5).
+      cellData.F1 = '8'; cellData.F2 = '8'; cellData.F3 = '5'; cellData.F4 = '10'; cellData.F5 = '12';
+      checks.push(assertEqual('RANK за спаданням', evaluateFormula('RANK(8,F1:F5)'), 3));
+      checks.push(assertEqual('RANK найбільшого', evaluateFormula('RANK(12,F1:F5)'), 1));
+      checks.push(assertEqual('RANK найменшого', evaluateFormula('RANK(5,F1:F5)'), 5));
+      checks.push(assertEqual('RANK за зростанням', evaluateFormula('RANK(8,F1:F5,1)'), 2));
+      checks.push(assertEqual('RANK за зростанням: найменше стає першим',
+        evaluateFormula('RANK(5,F1:F5,1)'), 1));
+      checks.push(assertThrows('RANK: значення відсутнє → #N/A',
+        () => evaluateFormula('RANK(7,F1:F5)'), '#N/A'));
+
+      // Округлення від нуля / до нуля, зокрема для від'ємних.
+      checks.push(assertEqual('ROUNDUP додатне', evaluateFormula('ROUNDUP(2.111,2)'), 2.12));
+      checks.push(assertEqual('ROUNDDOWN додатне', evaluateFormula('ROUNDDOWN(2.119,2)'), 2.11));
+      checks.push(assertEqual('ROUNDUP від нуля для від’ємного', evaluateFormula('ROUNDUP(-2.111,2)'), -2.12));
+      checks.push(assertEqual('ROUNDDOWN до нуля для від’ємного', evaluateFormula('ROUNDDOWN(-2.119,2)'), -2.11));
+      checks.push(assertEqual('ROUNDUP без розрядів', evaluateFormula('ROUNDUP(2.01)'), 3));
+      checks.push(assertEqual('ROUNDDOWN без розрядів', evaluateFormula('ROUNDDOWN(2.99)'), 2));
+
+      // Текстові
+      cellData.G1 = 'Іваненко Марія';
+      checks.push(assertEqual('LEN', evaluateFormula('LEN(G1)'), 14));
+      checks.push(assertEqual('LEN числа', evaluateFormula('LEN(12345)'), 5));
+      checks.push(assertEqual('LEFT', evaluateFormula('LEFT(G1,8)'), 'Іваненко'));
+      checks.push(assertEqual('LEFT без аргументу', evaluateFormula('LEFT(G1)'), 'І'));
+      checks.push(assertEqual('RIGHT', evaluateFormula('RIGHT(G1,5)'), 'Марія'));
+      checks.push(assertEqual('RIGHT довше за рядок', evaluateFormula('RIGHT(G1,99)'), 'Іваненко Марія'));
+      checks.push(assertEqual('MID', evaluateFormula('MID(G1,10,5)'), 'Марія'));
+      checks.push(assertEqual('MID за межею', evaluateFormula('MID(G1,99,5)'), ''));
+      checks.push(assertThrows('MID: початок < 1 → #VALUE!',
+        () => evaluateFormula('MID(G1,0,5)'), '#VALUE!'));
+      checks.push(assertEqual('CONCAT', evaluateFormula('CONCAT("7-",A2)'), '7-Бондаренко'));
+      checks.push(assertEqual('CONCAT діапазону', evaluateFormula('CONCAT(A2:A3)'), 'БондаренкоКоваленко'));
+      checks.push(assertEqual('CONCATENATE аліас', evaluateFormula('CONCATENATE("а","б","в")'), 'абв'));
+
+      // Літерал #N/A має розбиратися парсером (трапляється в імпортованих книгах).
+      checks.push(assertThrows('літерал #N/A', () => evaluateFormula('#N/A'), '#N/A'));
+
       result.className = 'pass';
       result.textContent = checks.join('\n') + '\n\nPASSED';
       document.body.dataset.tablesFormula = 'passed';

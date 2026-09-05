@@ -599,6 +599,16 @@ body {
   cursor: pointer;
 }
 
+.page-setup-check {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  font-size: .9rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: .5rem;
+}
+
 .page-setup-field {
   display: flex;
   flex-direction: column;
@@ -733,15 +743,23 @@ body {
   overflow: hidden;
 }
 
+/* Номер сторінки — властивість документа: він друкується й потрапляє в .docx.
+   Порожній data-page-label означає «без номера» (вимкнено або титульна). */
 .page::after {
-  content: attr(data-page-number);
+  content: attr(data-page-label);
   position: absolute;
-  right: 28px;
   bottom: 20px;
-  color: #94a3b8;
-  font-size: 12px;
-  font-weight: 700;
+  left: 28px;
+  right: 28px;
+  color: var(--slate, #334155);
+  font-family: 'Times New Roman', serif;
+  font-size: 12pt;
+  text-align: right;
+  pointer-events: none;
 }
+
+.pages-wrap[data-page-number-position="left"] .page::after { text-align: left; }
+.pages-wrap[data-page-number-position="center"] .page::after { text-align: center; }
 
 .page-content {
   height: calc(var(--page-height) - var(--page-pad-top) - var(--page-pad-bottom));
@@ -749,7 +767,10 @@ body {
   position: relative;
   font-family: 'Times New Roman', serif;
   font-size: 14pt;
-  line-height: 1.7;
+  /* 1,5 — шкільний стандарт оформлення робіт, і водночас це робить
+     узгодженим список «Інтервал» на панелі: раніше типові 1,7 означали,
+     що вибір «1,5» ЗМЕНШУВАВ відстань між рядками замість збільшити. */
+  line-height: 1.5;
   color: var(--slate);
   caret-color: var(--accent);
   word-break: break-word;
@@ -1306,6 +1327,14 @@ body {
   border-color: var(--accent);
 }
 
+/* Результат пошуку/заміни: скільки знайдено, скільки замінено. */
+.find-status {
+  margin: 0 0 .75rem;
+  min-height: 1.15rem;
+  font-size: .85rem;
+  color: var(--muted, #64748b);
+}
+
 .shortcuts-grid {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -1487,8 +1516,13 @@ mark.search-hit.current {
     break-after: avoid;
   }
 
+  /* Номер сторінки друкується разом із документом. Поля сторінки у друку
+     задає @page, тож у самої .page падінгу вже немає — ставимо номер
+     під текстом потоку, а не абсолютно. */
   .page::after {
-    display: none;
+    position: static;
+    display: block;
+    margin-top: 1.5rem;
   }
 
   .page-content {
