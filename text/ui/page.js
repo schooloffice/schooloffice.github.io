@@ -16,12 +16,18 @@ const ArtPage = (() => {
 
   const DEFAULT_MARGINS = { top: 2, right: 1.5, bottom: 2, left: 3 };
   const SIDES = ['top', 'bottom', 'left', 'right'];
+  // Скільки разів і як часто чекати на першу розкладку сторінки й лінійки
+  // (див. updateRuler): ~3 секунди, після чого припиняємо.
+  const RULER_MAX_RETRIES = 25;
+  const RULER_RETRY_MS = 120;
 
   let _ruler = null;
   let _track = null;
   let _ticks = null;
   let _drag = null;
   let _rulerFrame = 0;
+  let _rulerTimer = 0;
+  let _rulerRetries = 0;
 
   function init() {
     _ruler = document.getElementById('pageRuler');
@@ -92,14 +98,37 @@ const ArtPage = (() => {
   // ── Лінійка ─────────────────────────────────────────────────────────────
   function scheduleRulerUpdate() {
     cancelAnimationFrame(_rulerFrame);
+    clearTimeout(_rulerTimer);
+    // rAF дає кадр саме тоді, коли браузер малює, — це правильний момент для
+    // вимірювання. Але кадру може не бути взагалі: фонова вкладка, згорнуте
+    // вікно, headless-прогін у CI. Тому дублюємо планування таймером, інакше
+    // лінійка мовчки лишається несинхронізованою.
     _rulerFrame = requestAnimationFrame(updateRuler);
+    _rulerTimer = setTimeout(updateRuler, RULER_RETRY_MS);
   }
 
   function updateRuler() {
+    cancelAnimationFrame(_rulerFrame);
+    clearTimeout(_rulerTimer);
     if (!_ruler || !_track) return;
     const page = document.querySelector('.page');
     const host = _ruler.getBoundingClientRect();
-    if (!page || !host.width) return;
+    if (!page || !host.width) {
+      // Оновлення після init() могло статися ще до того, як з'явиться перша
+      // `.page` або відбудеться перша розкладка лінійки. Раніше ми просто
+      // виходили — і більше ніхто не планував спробу, бо на свіжому документі
+      // немає ні scroll, ні resize, ні зміни стану. Лінійка так і лишалася з
+      // розміткою за замовчуванням. Тому пробуємо ще кілька разів, але не
+      // крутимо цикл вічно: на вузьких екранах `.ruler` — display: none, і
+      // нульова ширина там є нормою, а не гонкою.
+      if (_rulerRetries < RULER_MAX_RETRIES) {
+        _rulerRetries += 1;
+        scheduleRulerUpdate();
+      }
+      return;
+    }
+
+    _rulerRetries = 0;
 
     const rect = page.getBoundingClientRect();
     const size = pageSizeCm();

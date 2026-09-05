@@ -535,6 +535,17 @@
 
       const leftHandle = doc.querySelector('[data-ruler-handle="left"]');
       const rulerReportsMargin = leftHandle.getAttribute('aria-valuenow') === '3.0';
+      // Лінійка синхронізується в rAF, тож у логах має бути видно, чи вона
+      // взагалі встигла розкластися, а не лише «FAIL».
+      const rulerDiagnostics = {
+        trackLeft: rulerTrack.style.left || '(unset)',
+        trackWidth: rulerTrack.style.width || '(unset)',
+        pageOffset: Math.round(pageRect.left - rulerRect.left),
+        pageWidth: Math.round(pageRect.width),
+        rulerWidth: Math.round(rulerRect.width),
+        ticks: doc.getElementById('rulerTicks').childElementCount,
+        valueNow: leftHandle.getAttribute('aria-valuenow')
+      };
 
       leftHandle.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
       await wait(400);
@@ -743,7 +754,8 @@
         `applied geometry: ${JSON.stringify(appliedGeometry)}`,
         `page setup controls outside the modal: ${setupOverflow.length}`,
         `comma margin accepted: ${commaMarginAccepted}`,
-        `pages with normal/wide margins: ${pagesWithNormalMargins}/${pagesWithWideMargins}`
+        `pages with normal/wide margins: ${pagesWithNormalMargins}/${pagesWithWideMargins}`,
+        `ruler: ${JSON.stringify(rulerDiagnostics)}`
       ];
 
       result.textContent = checks
