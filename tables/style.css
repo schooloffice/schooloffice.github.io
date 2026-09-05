@@ -547,16 +547,24 @@ body {
   position: sticky;
   top: 0;
   z-index: 25;
+  height: var(--head-h);
 }
 
+/* Заголовок рядка живе в body, тож його висота має дорівнювати висоті клітинки,
+   інакше він піднімає весь рядок до висоти шапки. */
+#grid tbody th.row-header {
+  height: var(--cell-h);
+}
+
+/* Типографіка шапки задана явно: успадкований 16px/normal давав рядок ~21px,
+   і разом із padding+border тримав кожен рядок на 33px, ігноруючи --cell-h. */
 #grid th {
   background: #f8fafc;
   color: #475569;
-  font-weight: 800;
+  font: 800 13px/1.2 'Nunito Sans', sans-serif;
   border: 1px solid var(--line);
-  padding: 5px;
+  padding: 0 5px;
   text-align: center;
-  height: var(--head-h);
   min-width: 84px;
   position: relative;
 }
