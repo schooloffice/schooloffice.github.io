@@ -1274,6 +1274,88 @@
       const brokenDraftRefused = brokenApplied === false
         && (doc.querySelector('#editor h1')?.textContent || '').includes('Відновлений заголовок');
 
+      // ---- Робочий файл: зберегти → закрити → відкрити (аудит F06) ----
+      // Клік по <a download> скинув би файл у теку завантажень, тож
+      // перехоплюємо його і дивимося, що саме редактор пропонує зберегти.
+      const realAnchorClickText = win.HTMLAnchorElement.prototype.click;
+      const realCreateObjectURL = win.URL.createObjectURL;
+      const savedFiles = [];
+      let lastBlob = null;
+      // CSP редактора не дозволяє fetch до blob:, тож перехоплюємо сам Blob
+      // і читаємо його напряму — без мережі.
+      win.URL.createObjectURL = function createObjectURL(blob) {
+        lastBlob = blob;
+        return realCreateObjectURL.call(win.URL, blob);
+      };
+      win.HTMLAnchorElement.prototype.click = function click(...args) {
+        if (this.hasAttribute('download')) {
+          savedFiles.push({ name: this.getAttribute('download') || '', blob: lastBlob });
+          return undefined;
+        }
+        return realAnchorClickText.apply(this, args);
+      };
+
+      await resetDocument(win, doc);
+      win.art.state.set('fileName', 'моя робота');
+      win.art.state.set('pageSize', 'a5');
+      win.art.state.set('orientation', 'landscape');
+      win.art.state.set('pageNumbers', { enabled: true, position: 'center', skipFirst: true });
+      let projectPage = pageContents(doc)[0];
+      projectPage.innerHTML = '<h1>Робота учня</h1><p><strong>Жирний</strong> абзац</p>';
+      setCaretAtEnd(win, projectPage.lastElementChild);
+      win.art.editor.insertTable(4, 3);
+      await wait(500);
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await wait(300);
+
+      win.art.editor.saveProject();
+      await wait(200);
+      const savedFile = savedFiles[savedFiles.length - 1] || { name: '' };
+      const savesWithOwnExtension = savedFile.name === `моя робота.${artDoc.FILE_EXTENSION}`;
+      const savingClearsDirty = win.art.state.isDirty() === false;
+
+      // Читаємо назад те, що саме пішло у файл.
+      const savedText = savedFile.blob ? await savedFile.blob.text() : '';
+      const savedPayload = JSON.parse(savedText);
+      const savedIsValid = artDoc.validate(savedPayload).ok;
+
+      // Закриваємо документ і відкриваємо файл заново.
+      await resetDocument(win, doc);
+      win.art.state.set('fileName', 'інша робота');
+      const reopened = win.art.editor.applyDocument(savedPayload);
+      await wait(400);
+      const reopenedHeading = (doc.querySelector('#editor h1')?.textContent || '');
+      const roundTripKeepsHeading = reopened && reopenedHeading.includes('Робота учня');
+      const roundTripKeepsFormatting = !!doc.querySelector('#editor strong');
+      const roundTripKeepsTable = doc.querySelectorAll('#editor table').length === 1
+        && doc.querySelectorAll('#editor table tr:not([data-art-table-repeat])').length === 4;
+      const roundTripKeepsGeometry = win.art.state.get('pageSize') === 'a5'
+        && win.art.state.get('orientation') === 'landscape'
+        && win.art.state.get('pageNumbers').skipFirst === true;
+      const roundTripKeepsName = win.art.state.get('fileName') === 'моя робота';
+      const reopenedIsSaved = win.art.state.isDirty() === false;
+
+      // Ctrl+S має зберігати роботу, а не експортувати формат обміну: раніше
+      // він віддавав .docx, який не повертає документ таким, як був (F06, F15).
+      win.art.state.setDirty(true);
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', {
+        key: 's', ctrlKey: true, bubbles: true, cancelable: true
+      }));
+      await wait(300);
+      const shortcutSaved = savedFiles[savedFiles.length - 1]?.name || '';
+      const shortcutSavesWorkingFile = shortcutSaved.endsWith(`.${artDoc.FILE_EXTENSION}`);
+
+      // Експорт — це не збереження роботи: .txt втрачає таблиці й зображення.
+      win.art.state.setDirty(true);
+      await win.art.editor.saveAs('txt');
+      await wait(200);
+      const exportKeepsWorkUnsaved = win.art.state.isDirty() === true;
+      const exportUsesExchangeExtension = (savedFiles[savedFiles.length - 1]?.name || '').endsWith('.txt');
+
+      win.HTMLAnchorElement.prototype.click = realAnchorClickText;
+      win.URL.createObjectURL = realCreateObjectURL;
+      win.art.modals.closeAll?.();
+
       await draft.clear();
       await resetDocument(win, doc);
 
@@ -1406,7 +1488,19 @@
         check('restoring applies the page geometry', restoreAppliesGeometry),
         check('restored work stays marked unsaved', restoreStaysUnsaved),
         check('restoring applies the document name', restoreSetsName),
-        check('a corrupted draft is refused and leaves the document alone', brokenDraftRefused)
+        check('a corrupted draft is refused and leaves the document alone', brokenDraftRefused),
+        check('saving writes the editor’s own extension', savesWithOwnExtension),
+        check('saving the working file clears the unsaved mark', savingClearsDirty),
+        check('the saved file validates as a document', savedIsValid),
+        check('save → close → open keeps the heading', roundTripKeepsHeading),
+        check('save → close → open keeps inline formatting', roundTripKeepsFormatting),
+        check('save → close → open keeps the whole table', roundTripKeepsTable),
+        check('save → close → open keeps page geometry and numbering', roundTripKeepsGeometry),
+        check('save → close → open keeps the document name', roundTripKeepsName),
+        check('a reopened working file counts as saved', reopenedIsSaved),
+        check('Ctrl+S saves the working file, not an exchange format', shortcutSavesWorkingFile),
+        check('an export does not clear the unsaved mark', exportKeepsWorkUnsaved),
+        check('an export still writes its exchange extension', exportUsesExchangeExtension)
       ];
 
       const failed = checks.filter(item => !item.ok);

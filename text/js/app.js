@@ -10,7 +10,7 @@ function createShellCommands() {
   return {
     new: () => ArtMenu.dispatch('new'),
     open: () => ArtMenu.dispatch('open'),
-    save: () => ArtEditor.saveAs('docx'),
+    save: () => ArtEditor.saveProject(),
     undo: () => {
       ArtHistory.undo();
       ArtToolbar.updateState();

@@ -66,15 +66,19 @@
           <span class="shortcut">Ctrl+O</span>
         </button>
         <div class="menu-sep"></div>
+        <button class="menu-item" data-action="save-project" role="menuitem">
+          <span><i class="fa-solid fa-floppy-disk fa-fw"></i> Зберегти роботу</span>
+          <span class="shortcut">Ctrl+S</span>
+        </button>
+        <div class="menu-sep"></div>
         <button class="menu-item" data-action="save-txt" role="menuitem">
-          <span><i class="fa-solid fa-file-lines fa-fw"></i> Зберегти як .txt</span>
+          <span><i class="fa-solid fa-file-lines fa-fw"></i> Експорт у .txt</span>
         </button>
         <button class="menu-item" data-action="save-rtf" role="menuitem">
-          <span><i class="fa-solid fa-file-code fa-fw"></i> Зберегти як .rtf</span>
+          <span><i class="fa-solid fa-file-code fa-fw"></i> Експорт у .rtf</span>
         </button>
         <button class="menu-item" data-action="save-docx" role="menuitem">
-          <span><i class="fa-solid fa-file-word fa-fw"></i> Зберегти як .docx</span>
-          <span class="shortcut">Ctrl+S</span>
+          <span><i class="fa-solid fa-file-word fa-fw"></i> Експорт у .docx</span>
         </button>
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="page-setup" role="menuitem">
@@ -755,7 +759,7 @@
   <!-- ════════════════════════════════════════
      СЛУЖБОВІ ЕЛЕМЕНТИ
 ════════════════════════════════════════ -->
-  <input id="fileInput" type="file" accept=".txt,.rtf,.docx,text/plain,application/rtf,
+  <input id="fileInput" type="file" accept=".tekst,.txt,.rtf,.docx,application/json,text/plain,application/rtf,
                application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="sr-only"
     aria-hidden="true">
 

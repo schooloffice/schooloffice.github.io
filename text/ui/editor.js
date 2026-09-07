@@ -77,16 +77,23 @@ const ArtEditor = (() => {
     _initDraft();
   }
 
+  // Одне місце, яке знає, як зібрати документ зі стану редактора: чернетка
+  // й робочий файл мусять зберігати те саме, інакше відновлене й збережене
+  // розійдуться.
+  function _currentDocument() {
+    return ArtDocument.serialize({
+      html: _editor.innerHTML,
+      name: ArtState.get('fileName'),
+      page: ArtDocument.pageFromState(ArtState.documentSnapshot())
+    });
+  }
+
   // ---- Чернетка ----
   // Страховка від аварії вкладки: файл вона не замінює й лишає роботу
   // позначеною як незбережену (аудит F04, F07).
   function _initDraft() {
     ArtDraft.init({
-      build: () => ArtDocument.serialize({
-        html: _editor.innerHTML,
-        name: ArtState.get('fileName'),
-        page: ArtDocument.pageFromState(ArtState.documentSnapshot())
-      }),
+      build: _currentDocument,
       onStatus: _showDraftStatus
     });
 
@@ -173,7 +180,7 @@ const ArtEditor = (() => {
   // Text не мав жодного контролю розміру імпорту, на відміну від решти
   // редакторів (аудит F13). Межі свідомо різні: .docx стиснений, тож той самий
   // обсяг тексту важить менше за .txt.
-  const IMPORT_MAX_BYTES = { txt: 4 * 1024 * 1024, rtf: 8 * 1024 * 1024, docx: 10 * 1024 * 1024 };
+  const IMPORT_MAX_BYTES = { tekst: 12 * 1024 * 1024, txt: 4 * 1024 * 1024, rtf: 8 * 1024 * 1024, docx: 10 * 1024 * 1024 };
   // Межа для результату розбору: стиснений файл у межах ліміту все одно може
   // розгорнутися в документ, який редактор не витягне.
   const IMPORT_MAX_HTML_CHARS = 4 * 1024 * 1024;
@@ -189,6 +196,14 @@ const ArtEditor = (() => {
         `Максимальний розмір .${ext} — ${Math.round(maxBytes / 1024 / 1024)} МБ.`);
     }
     try {
+      // Робочий файл має власний шлях: він не «імпортується зі спрощенням»,
+      // а відновлює документ таким, яким його зберегли.
+      if (ext === ArtDocument.FILE_EXTENSION) {
+        await openProject(file);
+        _announce(`Файл ${file.name} відкрито`);
+        return;
+      }
+
       let result;
       if (ext === 'txt') result = await ArtTxt.importTxt(file);
       else if (ext === 'rtf') result = await ArtRtf.importRtf(file);
@@ -219,6 +234,43 @@ const ArtEditor = (() => {
     }
   }
 
+  // ---- Робочий файл ----
+  // Повний документ у власному форматі: логічний вміст, вбудовані зображення,
+  // назва, геометрія сторінки й нумерація. Саме він продовжує роботу між
+  // уроками; DOCX/RTF/TXT — формати обміну, які частину цього втрачають.
+  function saveProject() {
+    ArtModals.close('modalSave');
+    const payload = _currentDocument();
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const fileName = `${ArtState.get('fileName')}.${ArtDocument.FILE_EXTENSION}`;
+    _download(blob, fileName);
+    ArtState.set('fileFormat', ArtDocument.FILE_EXTENSION);
+    ArtHistory.markSaved();
+    _flashSaved();
+    // Завантаження через <a download> не підтверджує запис на диск: браузер міг
+    // показати діалог, який користувач скасував (аудит F07).
+    _announce(`Файл ${fileName} передано для завантаження`);
+  }
+
+  async function openProject(file) {
+    const text = await file.text();
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw new Error('Файл пошкоджений або це не файл ПЛЮС Тексту.');
+    }
+    const validated = ArtDocument.validate(parsed);
+    if (!validated.ok) {
+      throw new Error(validated.reason === 'newer-version'
+        ? 'Файл створено новішою версією редактора.'
+        : 'Файл не відповідає формату ПЛЮС Тексту.');
+    }
+    // Заміна документа — після перевірки й атомарно: невдале відкриття лишає
+    // поточну роботу на місці (аудит F08).
+    applyDocument(validated.value);
+  }
+
   async function saveAs(format) {
     ArtModals.close('modalSave');
     const html = _getExportHTML();
@@ -240,9 +292,12 @@ const ArtEditor = (() => {
       } else return;
       _download(blob, `${ArtState.get('fileName')}.${ext}`);
       ArtState.set('fileFormat', format);
-      ArtHistory.markSaved();
+      // Експорт НЕ знімає позначку незбереженої роботи: .txt втрачає таблиці
+      // й зображення, .rtf і .docx — частину оформлення, і жоден з них не
+      // повертає документ таким, яким він був (аудит F06, F07). Робочий файл
+      // усе одно треба зберегти.
       _flashSaved();
-      _announce(`Збережено як ${ArtState.get('fileName')}.${ext}`);
+      _announce(`Файл ${ArtState.get('fileName')}.${ext} передано для завантаження`);
       _warnAboutFormatLimits(format, html);
     } catch (err) {
       ArtModals.info('Помилка збереження', err.message || String(err));
@@ -250,12 +305,23 @@ const ArtEditor = (() => {
   }
 
   // Чесно попереджаємо про спрощення, а не мовчки втрачаємо оформлення.
+  const EXCHANGE_FORMAT_LOSSES = {
+    txt: ['таблиці, зображення й усе оформлення'],
+    rtf: ['частину оформлення, яке RTF не описує'],
+    docx: []
+  };
+
   function _warnAboutFormatLimits(format, html) {
-    const notes = format === 'docx' ? (ArtDocx.describeExportLimits?.(html) || []) : [];
-    if (!notes.length) return;
+    const notes = format === 'docx'
+      ? (ArtDocx.describeExportLimits?.(html) || [])
+      : [...(EXCHANGE_FORMAT_LOSSES[format] || [])];
+    const extension = ArtDocument.FILE_EXTENSION;
     ArtModals.info(
-      'Збережено з застереженнями',
-      `Документ збережено, але деяке оформлення спрощено:\n• ${notes.join('\n• ')}`
+      'Файл передано для завантаження',
+      [
+        `Це формат обміну: ${notes.length ? `у ньому втрачено ${notes.join(', ')}` : 'він описує не все, що вміє редактор'}.`,
+        `Щоб продовжити роботу наступного разу, збережіть її у файл .${extension}.`
+      ].join('\n')
     );
   }
 
@@ -2271,7 +2337,7 @@ const ArtEditor = (() => {
   }
 
   return {
-    init, newDoc, saveAs, setOrientation, setZoom, hasSelectedImage, setSelectedImageLayout,
+    init, newDoc, saveAs, saveProject, openProject, setOrientation, setZoom, hasSelectedImage, setSelectedImageLayout,
     insertTable, tableAction, toggleTableMenu, hideTableMenu, refreshLayout, openImageDialog,
     findNext, replaceCurrent, replaceAll, clearFindHighlights, editFileName,
     // Логічний (не сторінковий) HTML документа — те, що йде у файл.
