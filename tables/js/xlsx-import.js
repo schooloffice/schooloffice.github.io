@@ -419,13 +419,24 @@ function readSharedStrings(doc) {
   });
 }
 
+// Частини XLSX, які справді читає імпорт. Аркуші названі в rels довільно,
+// тому беремо всі XML з xl/worksheets/.
+const XLSX_NEEDED_PARTS = /^xl\/(workbook\.xml|_rels\/workbook\.xml\.rels|sharedStrings\.xml|styles\.xml|worksheets\/[^/]+\.xml)$/;
+
+function isNeededXlsxPart(name) {
+  return XLSX_NEEDED_PARTS.test(name);
+}
+
 // ---- Складання книги ----
 async function parseXlsxBytes(bytes, fallbackName) {
   if (bytes.length > XLSX_MAX_FILE_BYTES) {
     throw new Error(`Файл завеликий (максимум ${Math.round(XLSX_MAX_FILE_BYTES / 1024 / 1024)} МБ)`);
   }
 
-  const parts = await window.TablesXlsxZip.zipRead(bytes);
+  // Розпаковуємо лише те, що читаємо. Теми, картинки, налаштування принтера й
+  // решта частин XLSX нас не цікавлять, а кожна розгорнута частина — це
+  // пам'ять і час на слабкому шкільному пристрої (аудит F09).
+  const parts = await window.TablesXlsxZip.zipRead(bytes, { wanted: isNeededXlsxPart });
   const workbookPart = parts.get('xl/workbook.xml');
   if (!workbookPart) throw new Error('Це не файл Excel: немає xl/workbook.xml');
 

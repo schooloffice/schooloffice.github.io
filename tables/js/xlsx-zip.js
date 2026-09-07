@@ -9,10 +9,25 @@
 //   1) DecompressionStream('deflate-raw') — нативний, швидкий (браузери з 2023 р.);
 //   2) власний puff-style інфлятор — запасний шлях для старих шкільних пристроїв.
 //
-// Межі розміру перевіряє викликач (xlsx-import.js), тут лише структура архіву.
+// Межі розпакування живуть ТУТ, а не лише у викликача. Раніше перевірявся
+// заявлений у заголовку `uncompressedSize`, а розпаковування читало весь
+// результат одним `Response.arrayBuffer()`: архів на 1150 байтів, який заявляв
+// 1 байт виходу, повертав мегабайт (аудит F09). Тепер обмежується фактичний
+// вихід — і на запис, і сумарно на архів.
 
 const ZIP_MAX_ENTRIES = 512;
-const ZIP_MAX_ENTRY_BYTES = 64 * 1024 * 1024;
+const ZIP_MAX_ENTRY_BYTES = 32 * 1024 * 1024;
+// Сумарний бюджет усіх розпакованих частин: 512 записів по 32 МіБ — це 16 ГіБ
+// «дозволених» заголовками, тож без спільної межі поодинокі ліміти нічого не
+// гарантують.
+const ZIP_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+
+class ZipLimitError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ZipLimitError';
+  }
+}
 
 // ---- CRC32 ----
 const CRC32_TABLE = (() => {
@@ -32,15 +47,18 @@ function crc32(bytes) {
 }
 
 // ---- Growable byte buffer ----
-function makeByteSink(initial) {
-  let buf = new Uint8Array(Math.max(64, initial || 1024));
+function makeByteSink(initial, limit = Infinity) {
+  let buf = new Uint8Array(Math.max(64, Math.min(initial || 1024, limit)));
   let len = 0;
 
   function ensure(extra) {
+    // Бюджет перевіряємо ДО збільшення буфера: інакше «бомба» встигає
+    // виділити пам'ять, перш ніж хтось помітить перевищення.
+    if (len + extra > limit) throw new ZipLimitError('Розпакований вміст перевищує допустимий розмір');
     if (len + extra <= buf.length) return;
     let next = buf.length * 2;
     while (next < len + extra) next *= 2;
-    const grown = new Uint8Array(next);
+    const grown = new Uint8Array(Math.min(next, Math.max(limit, len + extra)));
     grown.set(buf.subarray(0, len));
     buf = grown;
   }
@@ -138,9 +156,15 @@ function findEndOfCentralDirectory(bytes) {
   throw new Error('Це не ZIP-архів: не знайдено кінець каталогу');
 }
 
-async function zipRead(bytes) {
+// `wanted` — необов'язковий предикат імені. Без нього розпаковується весь
+// архів; XLSX-імпорт передає свій, бо йому потрібні лише кілька XML-частин,
+// а теми, картинки й налаштування принтера нема сенсу навіть розгортати.
+async function zipRead(bytes, options = {}) {
   if (!(bytes instanceof Uint8Array)) throw new Error('Очікувався Uint8Array');
   if (bytes.length < 22) throw new Error('Це не ZIP-архів: файл надто малий');
+
+  const wanted = typeof options.wanted === 'function' ? options.wanted : null;
+  const totalLimit = Number.isFinite(options.maxTotalBytes) ? options.maxTotalBytes : ZIP_MAX_TOTAL_BYTES;
 
   const eocd = findEndOfCentralDirectory(bytes);
   const count = readU16(bytes, eocd + 10);
@@ -158,6 +182,7 @@ async function zipRead(bytes) {
       throw new Error('Пошкоджений каталог архіву');
     }
     const method = readU16(bytes, at + 10);
+    const crc = readU32(bytes, at + 16);
     const compressedSize = readU32(bytes, at + 20);
     const uncompressedSize = readU32(bytes, at + 24);
     const nameLen = readU16(bytes, at + 28);
@@ -166,20 +191,47 @@ async function zipRead(bytes) {
     const localOffset = readU32(bytes, at + 42);
     const name = decoder.decode(bytes.subarray(at + 46, at + 46 + nameLen));
 
+    // Заявленому розміру не віримо, але й явно завеликий заголовок читати
+    // не варто: це найдешевша відмова.
     if (uncompressedSize > ZIP_MAX_ENTRY_BYTES) throw new Error(`Частина ${name} завелика`);
+    // Два записи з однаковим іменем — спосіб підсунути іншу частину, ніж
+    // побачив би той, хто дивиться архів у звичайному архіваторі.
+    if (entries.has(name)) throw new Error(`Архів містить дві частини з іменем ${name}`);
+    if (method !== 0 && method !== 8) throw new Error(`Непідтримуване стиснення в ${name}`);
 
-    entries.set(name, { method, compressedSize, uncompressedSize, localOffset });
+    entries.set(name, { method, crc, compressedSize, uncompressedSize, localOffset });
     at += 46 + nameLen + extraLen + commentLen;
   }
 
   const files = new Map();
+  let totalBytes = 0;
   for (const [name, entry] of entries) {
-    files.set(name, await readEntry(bytes, entry, name));
+    if (wanted && !wanted(name)) continue;
+    const remaining = totalLimit - totalBytes;
+    const budget = Math.min(ZIP_MAX_ENTRY_BYTES, remaining);
+    if (budget <= 0) throw new Error('Розпакований вміст архіву перевищує допустимий розмір');
+
+    let data;
+    try {
+      data = await readEntry(bytes, entry, name, budget);
+    } catch (error) {
+      // Формулювання залежить від того, яка саме межа спрацювала: сам запис
+      // завеликий чи вже вичерпано спільний бюджет архіву.
+      if (error instanceof ZipLimitError) {
+        throw remaining <= ZIP_MAX_ENTRY_BYTES
+          ? new Error('Розпакований вміст архіву перевищує допустимий розмір')
+          : new Error(`Частина ${name} завелика`);
+      }
+      throw error;
+    }
+
+    totalBytes += data.length;
+    files.set(name, data);
   }
   return files;
 }
 
-async function readEntry(bytes, entry, name) {
+async function readEntry(bytes, entry, name, budget) {
   const at = entry.localOffset;
   if (at + 30 > bytes.length || readU32(bytes, at) !== 0x04034B50) {
     throw new Error(`Пошкоджений запис ${name}`);
@@ -190,23 +242,69 @@ async function readEntry(bytes, entry, name) {
   const dataEnd = dataStart + entry.compressedSize;
   if (dataEnd > bytes.length) throw new Error(`Пошкоджений запис ${name}`);
 
+  // Про перевищення межі повідомляємо через ZipLimitError: формулювання
+  // добирає zipRead, бо лише він знає, чи справа в записі, чи в бюджеті архіву.
   const raw = bytes.subarray(dataStart, dataEnd);
-  if (entry.method === 0) return raw.slice();
-  if (entry.method !== 8) throw new Error(`Непідтримуване стиснення в ${name}`);
-  return inflateRaw(raw, entry.uncompressedSize);
+  let data;
+  if (entry.method === 0) {
+    if (raw.length > budget) throw new ZipLimitError('Запис перевищує допустимий розмір');
+    data = raw.slice();
+  } else {
+    data = await inflateRaw(raw, entry.uncompressedSize, budget);
+  }
+
+  // CRC із каталогу — єдина перевірка, яку архів дає сам на себе. Нуль
+  // трапляється в записах із data descriptor, там звіряти нема з чим.
+  if (entry.crc !== 0 && crc32(data) !== entry.crc) {
+    throw new Error(`Частина ${name} пошкоджена (не збігається контрольна сума)`);
+  }
+  return data;
 }
 
 // ---- Inflate ----
-async function inflateRaw(data, expectedSize) {
+// Читаємо порціями і зупиняємося на перевищенні бюджету. `Response.arrayBuffer()`
+// цього не вміє: він спершу дочитує весь потік, тож «бомба» встигає зайняти
+// пам'ять незалежно від будь-яких перевірок після нього (аудит F09).
+async function inflateNativeLimited(data, budget) {
+  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  const reader = stream.getReader();
+  const chunks = [];
+  let total = 0;
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > budget) throw new ZipLimitError('Розпакований вміст перевищує допустимий розмір');
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  }
+
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.length;
+  }
+  return out;
+}
+
+async function inflateRaw(data, expectedSize, budget = ZIP_MAX_ENTRY_BYTES) {
   if (typeof DecompressionStream === 'function') {
     try {
-      const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-      return new Uint8Array(await new Response(stream).arrayBuffer());
+      return await inflateNativeLimited(data, budget);
     } catch (e) {
+      // Перевищення бюджету — це рішення, а не збій движка: не пробуємо ще раз
+      // запасним інфлятором, інакше та сама «бомба» просто піде довшим шляхом.
+      if (e instanceof ZipLimitError) throw e;
       // Старий движок або відсутній 'deflate-raw' — падаємо на власний інфлятор.
     }
   }
-  return inflateRawFallback(data, expectedSize);
+  return inflateRawFallback(data, expectedSize, budget);
 }
 
 const LENGTH_BASE = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
@@ -248,8 +346,10 @@ function fixedTables() {
   return { literal: FIXED_LITERAL, distance: FIXED_DISTANCE };
 }
 
-function inflateRawFallback(data, expectedSize) {
-  const out = makeByteSink(expectedSize > 0 ? expectedSize : data.length * 4);
+function inflateRawFallback(data, expectedSize, budget = ZIP_MAX_ENTRY_BYTES) {
+  // Початковий розмір беремо із заявленого, але він може брехати, тож бюджет
+  // передаємо окремо: sink перевіряє його перед кожним збільшенням буфера.
+  const out = makeByteSink(Math.min(expectedSize > 0 ? expectedSize : data.length * 4, budget), budget);
   let pos = 0;
   let bitBuf = 0;
   let bitCount = 0;
@@ -373,5 +473,8 @@ window.TablesXlsxZip = {
   zipWrite,
   zipRead,
   crc32,
-  inflateRawFallback
+  inflateRawFallback,
+  ZipLimitError,
+  ZIP_MAX_ENTRY_BYTES,
+  ZIP_MAX_TOTAL_BYTES
 };
