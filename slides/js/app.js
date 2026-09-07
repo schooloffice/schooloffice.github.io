@@ -294,10 +294,12 @@ async function hydrateFromDraft() {
   if (!saved) return;
   applyPresentationData(saved);
   resetHistory();
-  state.unsavedChanges = false;
+  // Відновлена чернетка — врятована робота, а не збережений файл: вона лишається
+  // в цьому браузері й може бути перезаписана наступною роботою (аудит F07).
+  state.unsavedChanges = true;
   updateDirtyUi();
   renderAll();
-  setStatusRight('Відновлено чернетку');
+  setStatusRight('Відновлено чернетку — збережіть у файл');
 }
 
 function renderAll() {

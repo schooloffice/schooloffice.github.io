@@ -341,6 +341,33 @@
 
       clearCells(['A1', 'B1', 'A2', 'B2', 'A3', 'B3', 'A4', 'B4']);
 
+      // ---- Невдалий запис не має виглядати як збереження (аудит F07) ----
+      const saveBadge = doc.getElementById('saveBadge');
+      const realSetItem = win.Storage.prototype.setItem;
+      win.Storage.prototype.setItem = function blockedSetItem() {
+        const error = new Error('QuotaExceededError');
+        error.name = 'QuotaExceededError';
+        throw error;
+      };
+      win.persistStateToStorage();
+      win.setSaveBadge();
+      const badgeOnFailure = saveBadge.textContent || '';
+
+      // Одна невдача не має назавжди вимикати спроби запису.
+      win.Storage.prototype.setItem = realSetItem;
+      win.persistStateToStorage();
+      win.setSaveBadge();
+      const badgeAfterRecovery = saveBadge.textContent || '';
+
+      checks.push(['storage: невдалий запис не називається збереженням',
+        !/Збережено/.test(badgeOnFailure)]);
+      checks.push(['storage: невдалий запис видно користувачу',
+        /не вдалося/i.test(badgeOnFailure)]);
+      checks.push(['storage: наступна вдала спроба знову працює',
+        /Чернетку збережено/.test(badgeAfterRecovery)]);
+      checks.push(['storage: бейдж говорить саме про чернетку, а не про файл',
+        /чернетк/i.test(badgeAfterRecovery)]);
+
       const failures = checks.filter(([, ok]) => !ok).map(([name]) => name);
       result.className = failures.length ? 'fail' : 'pass';
       result.textContent = checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} ${name}`).join('\n') +

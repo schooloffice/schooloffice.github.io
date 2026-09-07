@@ -160,7 +160,10 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         if (serial) {
           await canvasApi.restoreSerializable(serial);
         }
-        state.unsavedChanges = false;
+        // Відновлена чернетка — врятована робота, а не збережений файл: вона
+        // лишається в цьому браузері й може бути перезаписана наступною роботою
+        // (аудит F07).
+        state.unsavedChanges = true;
         ui.updateDirtyUI();
         ui.updateDetailStatus();
       } catch (error) {

@@ -288,19 +288,26 @@ function initTablesEditor() {
 Збережи дані вручну через кнопку "Зберегти CSV".`);
   });
 
+  // Запис не вдався: робота лишається тільки в пам'яті вкладки, тож єдиний
+  // надійний вихід — експортувати файл. Раніше цей випадок був невидимий.
+  let storageBlockedShown = false;
+  window.addEventListener('storage-blocked', () => {
+    setSaveBadge();
+    if (storageBlockedShown) return;
+    storageBlockedShown = true;
+    showInfoModal('Чернетку не збережено',
+      'Браузер не дав записати дані. Робота лишається у вкладці, але зникне після закриття — збережіть її у файл через «Експорт».');
+  });
+
   window.addEventListener('storage-warning', (e) => {
     const mb = (e.detail.bytes / 1024 / 1024).toFixed(1);
     const badge = document.getElementById('saveBadge');
-    if (badge) {
-      badge.textContent = `⚠️ Багато даних (${mb} МБ)`;
-      badge.style.color = '#f59e0b';
-      badge.style.opacity = 1;
-      setTimeout(() => {
-        badge.style.opacity = 0;
-        badge.textContent = 'Збережено';
-        badge.style.color = '';
-      }, 3000);
-    }
+    if (!badge) return;
+    badge.textContent = `⚠️ Багато даних (${mb} МБ)`;
+    badge.style.color = '#f59e0b';
+    // Повертаємо саме поточний стан, а не напис «Збережено»: попередження
+    // тимчасове, а правда про чернетку належить setSaveBadge.
+    setTimeout(setSaveBadge, 3000);
   });
 
   // ---- Touch support (планшети / телефони) ----

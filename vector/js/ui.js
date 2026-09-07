@@ -348,7 +348,10 @@ window.ArtVector = window.ArtVector || {};
       this.elements.dirtyDot.style.opacity = state.unsavedChanges ? '1' : '0';
     },
 
-    flashSavedBadge() {
+    // Текст задає та дія, що його викликала: «збережено» і «файл передано
+    // браузеру» — різні речі, і бейдж не має видавати одне за інше.
+    flashSavedBadge(text) {
+      if (text) this.elements.saveBadge.textContent = text;
       this.elements.saveBadge.style.opacity = '1';
       clearTimeout(this.saveBadgeTimeout);
       this.saveBadgeTimeout = setTimeout(() => {

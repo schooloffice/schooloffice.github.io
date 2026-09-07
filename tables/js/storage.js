@@ -1,7 +1,24 @@
 'use strict';
 
 // ---- Storage load/save (DOM-free except storage events) ----
-let storageAvailable = true;
+//
+// Запис у localStorage може не вдатися: квота вичерпана, сховище заблоковане
+// політикою браузера, приватне вікно. Раніше помилка ковталася, прапорець
+// `storageAvailable` назавжди вимикав усі наступні спроби, а бейдж усе одно
+// показував «Збережено ✓» (аудит F07). Тепер кожна операція повертає результат,
+// спроби не вимикаються назавжди, а UI бачить, що саме сталося.
+let storageFailureStreak = 0;
+
+function noteStorageFailure(error) {
+  // Шумимо в консоль лише на першій невдачі поспіль: під час набору тексту
+  // запис іде часто, і повторювані винятки нічого не додають.
+  if (storageFailureStreak === 0) console.warn('Локальне сховище недоступне:', error);
+  storageFailureStreak++;
+}
+
+function noteStorageSuccess() {
+  storageFailureStreak = 0;
+}
 
 const STORAGE_KEYS = {
   meta: 'kom_meta',
@@ -16,22 +33,23 @@ const STORAGE_WARN_BYTES = 3 * 1024 * 1024;
 const STORAGE_MAX_BYTES = 4.5 * 1024 * 1024;
 
 function safeSetItem(key, value) {
-  if (!storageAvailable) return;
   try {
     localStorage.setItem(key, value);
+    noteStorageSuccess();
+    return { ok: true };
   } catch (e) {
-    storageAvailable = false;
-    console.warn('SessionStorage disabled:', e);
+    noteStorageFailure(e);
+    return { ok: false, error: e };
   }
 }
 
 function safeGetItem(key) {
-  if (!storageAvailable) return null;
   try {
-    return localStorage.getItem(key);
+    const value = localStorage.getItem(key);
+    noteStorageSuccess();
+    return value;
   } catch (e) {
-    storageAvailable = false;
-    console.warn('SessionStorage disabled:', e);
+    noteStorageFailure(e);
     return null;
   }
 }
@@ -74,25 +92,44 @@ function estimateStorageSize(obj) {
   return JSON.stringify(obj).length * 2;
 }
 
+// Результат останньої спроби записати чернетку. Бейдж читає саме його, тому
+// не може повідомити про успіх там, де запису не було (аудит F07).
+let lastPersistResult = { ok: true, reason: '' };
+
+function getLastPersistResult() {
+  return lastPersistResult;
+}
+
 function persistStateToStorage() {
   syncActiveSheetFromGlobals();
   const json = JSON.stringify({ sheets, activeSheet });
   const totalBytes = json.length * 2;
 
+  // Власний розмір — лише дешевий запобіжник: він не знає, скільки місця
+  // зайняли інші дані цього origin. Остаточну відповідь дає сам запис.
   if (totalBytes > STORAGE_MAX_BYTES) {
+    lastPersistResult = { ok: false, reason: 'too-large' };
     window.dispatchEvent(new CustomEvent('storage-overflow', { detail: { bytes: totalBytes } }));
-    return;
+    return lastPersistResult;
   }
 
-  safeSetItem(STORAGE_KEYS.sheets, json);
+  const written = safeSetItem(STORAGE_KEYS.sheets, json);
+  lastPersistResult = written.ok ? { ok: true, reason: '' } : { ok: false, reason: 'blocked' };
+
+  if (!written.ok) {
+    window.dispatchEvent(new CustomEvent('storage-blocked', { detail: { error: written.error } }));
+    return lastPersistResult;
+  }
 
   if (totalBytes > STORAGE_WARN_BYTES) {
     window.dispatchEvent(new CustomEvent('storage-warning', { detail: { bytes: totalBytes } }));
   }
+  return lastPersistResult;
 }
 
 window.TablesStorage = {
   estimateStorageSize,
+  getLastPersistResult,
   loadStateFromStorage,
   persistStateToStorage,
   safeGetItem,

@@ -103,19 +103,44 @@ function extractStyleStringFromTd(td) {
   return styles.join(' ');
 }
 
-function setDirty(flag = true, label = 'Є зміни…') {
+// Три стани бейджа, а не два. «Збережено» тут завжди означало б неправду:
+// таблиця живе в браузерній чернетці, а файл користувач зберігає сам через
+// експорт. Тому успіх називаємо чернеткою, а невдалий запис показуємо як
+// невдалий, а не як збереження (аудит F07).
+const SAVE_BADGE_STYLES = {
+  dirty: { background: '#fff7ed', borderColor: '#fed7aa', color: '#c2410c' },
+  saved: { background: '#ecfdf5', borderColor: '#bbf7d0', color: '#0f766e' },
+  failed: { background: '#fef2f2', borderColor: '#fecaca', color: '#b91c1c' }
+};
+
+function paintSaveBadge(kind, text) {
   const badge = document.getElementById('saveBadge');
   const dot = document.getElementById('dirtyDot');
-  if (dot) dot.style.opacity = flag ? '1' : '0';
+  if (dot) dot.style.opacity = kind === 'saved' ? '0' : '1';
   if (!badge) return;
-  badge.textContent = flag ? label : 'Збережено ✓';
-  badge.style.background = flag ? '#fff7ed' : '#ecfdf5';
-  badge.style.borderColor = flag ? '#fed7aa' : '#bbf7d0';
-  badge.style.color = flag ? '#c2410c' : '#0f766e';
+  const style = SAVE_BADGE_STYLES[kind] || SAVE_BADGE_STYLES.dirty;
+  badge.textContent = text;
+  badge.style.background = style.background;
+  badge.style.borderColor = style.borderColor;
+  badge.style.color = style.color;
 }
 
+function setDirty(flag = true, label = 'Є зміни…') {
+  if (flag) paintSaveBadge('dirty', label);
+  else setSaveBadge();
+}
+
+const PERSIST_FAILURE_LABELS = {
+  'too-large': 'Забагато даних для чернетки',
+  blocked: 'Не вдалося оновити чернетку'
+};
+
 function setSaveBadge() {
-  setDirty(false);
+  // Стан беремо з результату останнього запису, а не з факту виклику: інакше
+  // бейдж повідомляв би про успіх навіть тоді, коли сховище відмовило.
+  const result = window.TablesStorage?.getLastPersistResult?.() || { ok: true };
+  if (result.ok) paintSaveBadge('saved', 'Чернетку збережено ✓');
+  else paintSaveBadge('failed', PERSIST_FAILURE_LABELS[result.reason] || PERSIST_FAILURE_LABELS.blocked);
 }
 
 // ---- Aria announcer для скрінрідерів ----

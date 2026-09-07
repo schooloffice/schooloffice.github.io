@@ -39,12 +39,19 @@ window.VectorApp = window.VectorApp || {};
     autosaveDraft();
   }
 
-  function markSaved() {
+  // Знімати позначку незбереженої роботи має право лише те, що справді дає
+  // користувачеві повний проєкт: збереження або відкриття файла .json.
+  // Спрощені експорти (SVG, PNG) для цього не годяться — див. exportSvg.
+  function markSaved(label = 'Збережено ✓') {
     state.unsavedChanges = false;
     ui.updateDirtyUI();
-    ui.flashSavedBadge();
+    ui.flashSavedBadge(label);
     autosaveDraft();
   }
+
+  // Завантаження через <a download> не підтверджує запис на диск: браузер міг
+  // показати діалог, який користувач скасував. Тому формулювання саме таке.
+  const HANDED_TO_BROWSER = 'Файл передано для завантаження';
 
   function pushUndo() {
     if (state.undoStack.length >= constants.MAX_UNDO) state.undoStack.shift();
@@ -343,7 +350,7 @@ window.VectorApp = window.VectorApp || {};
   function saveProject() {
     const payload = JSON.stringify(editor.buildProjectPayload(), null, 2);
     utils.downloadText(payload, `${state.fileName || constants.DEFAULT_FILE_NAME}.json`);
-    markSaved();
+    markSaved(HANDED_TO_BROWSER);
   }
 
   function openProject() {
@@ -399,10 +406,13 @@ window.VectorApp = window.VectorApp || {};
     markSaved();
   }
 
+  // SVG назад не імпортується, а PNG не містить редагованих об'єктів: жоден
+  // з них не замінює проєкт, тож незбережена робота лишається незбереженою
+  // (аудит F07).
   function exportSvg() {
     const markup = editor.exportSvgMarkup();
     utils.downloadText(markup, `${state.fileName || constants.DEFAULT_FILE_NAME}.svg`, 'image/svg+xml;charset=utf-8');
-    markSaved();
+    ui.flashSavedBadge(HANDED_TO_BROWSER);
   }
 
   async function exportPng() {
@@ -410,7 +420,7 @@ window.VectorApp = window.VectorApp || {};
       const blob = await editor.exportPngBlob();
       if (!blob) throw new Error('PNG blob is empty');
       utils.downloadBlob(blob, `${state.fileName || constants.DEFAULT_FILE_NAME}.png`);
-      markSaved();
+      ui.flashSavedBadge(HANDED_TO_BROWSER);
     } catch (error) {
       console.error(error);
       ui.showInfoModal('Помилка експорту', 'Не вдалося сформувати PNG. Спробуйте ще раз.', '⚠️');
@@ -1146,8 +1156,12 @@ window.VectorApp = window.VectorApp || {};
       return;
     }
     restorePayload(payload);
-    state.unsavedChanges = false;
+    // Відновлена чернетка — це врятована робота, а не збережений файл: вона
+    // лишається в цьому браузері й може бути перезаписана наступною роботою.
+    // Тому позначка незбереженого стану зберігається (аудит F07).
+    state.unsavedChanges = true;
     ui.updateAll();
+    ui.flashSavedBadge('Відновлено чернетку — збережіть у файл');
   }
 
   function initVectorEditor() {

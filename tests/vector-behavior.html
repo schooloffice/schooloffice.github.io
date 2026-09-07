@@ -554,6 +554,22 @@
       ui.elements.modalConfirm.click();
       await waitFor(() => !confirmVisible(), 'error modal closed');
 
+      // --- Експорт не робить проєкт збереженим (аудит F07) ---
+      // Клік по <a download> у тесті скинув би файл у теку завантажень.
+      const realAnchorClick = win.HTMLAnchorElement.prototype.click;
+      win.HTMLAnchorElement.prototype.click = function click(...args) {
+        if (this.hasAttribute('download')) return undefined;
+        return realAnchorClick.apply(this, args);
+      };
+      state.objects = [rectObject({ id: 'mine' })];
+      state.unsavedChanges = true;
+      editor.renderAll();
+      doc.querySelector('[data-action="export-svg"]').click();
+      await waitFor(() => ui.elements.saveBadge.style.opacity === '1', 'export badge shown');
+      const svgExportKeepsUnsavedWork = state.unsavedChanges === true;
+      const exportBadgeDoesNotClaimSaved = !/Збережено/.test(ui.elements.saveBadge.textContent || '');
+      win.HTMLAnchorElement.prototype.click = realAnchorClick;
+
       const checks = [
         check('single click selects one shape', singleClickSelectsOne),
         check('shift-click adds a shape to the selection', shiftClickAdds),
@@ -620,7 +636,9 @@
         check('opening a project asks before discarding unsaved work', openAsksBeforeReplacing),
         check('cancelling the open keeps the current project', cancelKeepsCurrentProject),
         check('confirming the open applies the new project', confirmAppliesNewProject),
-        check('a broken project file leaves the current work alone', brokenFileKeepsProject)
+        check('a broken project file leaves the current work alone', brokenFileKeepsProject),
+        check('SVG export leaves unsaved work marked unsaved', svgExportKeepsUnsavedWork),
+        check('an export does not claim the project was saved', exportBadgeDoesNotClaimSaved)
       ];
 
       result.className = 'pass';
