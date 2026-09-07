@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="uk"><meta charset="utf-8"><title>Локальні перевірки аудиту</title>
+<h1>Перевірки аудиту: лише синтетичні дані</h1>
+<pre id="results">Виконується…</pre><div id="fixture" contenteditable="true"></div>
+<script src="../../vendor/dompurify/purify.min.js"></script>
+<script src="../../vendor/docx/index.umd.js"></script>
+<script src="../../vendor/mammoth/mammoth.browser.min.js"></script>
+<script src="../../text/core/sanitize.js"></script>
+<script src="../../text/core/selection.js"></script>
+<script src="../../text/formats/docx.js"></script>
+<script>
+(async () => {
+  const result = {};
+  try {
+    result.dompurifyVersion = DOMPurify.version;
+    // Only inspect returned strings. Never attach untrusted markup to the live DOM.
+    result.sanitizedStyle = ArtSanitize.clean('<p style="position:fixed;inset:0;z-index:999999">audit</p>');
+    const purifier = window.DOMPurify;
+    window.DOMPurify = undefined;
+    result.fallbackLink = ArtSanitize.clean('<a href="java&#10;script:void(0)">audit</a>');
+    window.DOMPurify = purifier;
+
+    const editor = document.getElementById('fixture');
+    editor.textContent = 'Синтетичний текст';
+    const range = document.createRange(); range.selectNodeContents(editor);
+    const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new DOMException('Synthetic denial', 'NotAllowedError'); } } });
+    const before = editor.textContent;
+    const copied = await ArtSelection.cut(editor);
+    result.cutDenied = { before, copied, after: editor.textContent };
+    if (original) Object.defineProperty(navigator, 'clipboard', original); else delete navigator.clipboard;
+
+    const docState = { orientation: 'landscape', pageSize: 'a5', margins: { top: 1, right: 1, bottom: 1, left: 1 }, pageNumbers: { enabled: true, position: 'center', skipFirst: false } };
+    const blob = await ArtDocx.exportDocx('<p style="text-align:center"><strong>Перевірка</strong></p>', docState);
+    const imported = await ArtDocx.importDocx(new File([blob], 'audit.docx'));
+    result.docxRoundTrip = { originalDocumentState: docState, importedMeta: imported.meta, importedHTML: imported.html };
+
+    // Read actual Cache API state; never clear or modify it.
+    result.cacheRoutes = [];
+    const keys = await caches.keys();
+    for (const name of keys.filter(k => /^office-plus-.*-precache$/.test(k))) {
+      const cache = await caches.open(name);
+      for (const route of ['/', '/text/', '/text/index.html', '/flowcharts/', '/flowcharts/index.html']) {
+        result.cacheRoutes.push({ cache: name, route, exists: !!await cache.match(route) });
+      }
+    }
+  } catch(error) { result.error = error.stack || error.message; }
+  document.getElementById('results').textContent = JSON.stringify(result, null, 2);
+  document.title = 'Аудит: перевірки завершено';
+})();
+</script></html>

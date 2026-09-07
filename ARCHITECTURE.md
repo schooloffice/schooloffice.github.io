@@ -8,8 +8,7 @@
 
 - `office-shell.js` - thin adapter для boot, command routing і file picker.
 - `office-ui.js` - shared UI helpers: команди, modal/menu/dropdown/status поведінка.
-- `offline.js` - реєстрація Service Worker.
-- `sw.js` - offline/cache policy і список локальних ресурсів.
+- `sw.js` - перехідний Service Worker: поки офлайн відкладено, він знімає реєстрацію та кеші попередніх офлайн-релізів і не обслуговує ресурси.
 - `UI_TOKENS.css`, `shell-overrides.css` - shared shell styling.
 - `vendor/` - локальні сторонні залежності.
 - `tests/` - статичні й browser-smoke перевірки.
@@ -33,10 +32,10 @@ Shared layer не повинен містити редактор-специфі�
 
 ## Layer Rules
 
-- `index.html` підключає shared root файли лише наприкінці: `../office-shell.js`, `../office-ui.js`, `../offline.js`.
+- `index.html` підключає shared root файли лише наприкінці: `../office-shell.js`, `../office-ui.js`.
 - `js/runtime.js` не містить бізнес-логіки; він імпортує `js/app.js` і запускає `window.<Editor>App.boot`.
 - `js/app.js` не дублює shared root API, а делегує в `window.OfficeShell` і `window.OfficeUI`.
-- Shared root layer не знає внутрішньої структури конкретного редактора, крім стабільних ресурсних шляхів у `sw.js` і тестах.
+- Shared root layer не знає внутрішньої структури конкретного редактора, крім стабільних ресурсних шляхів у тестах.
 - Локальні модулі можуть залежати від shared root API, але не повинні конфліктувати з глобальними іменами інших редакторів.
 
 ## Правило Нарізки Модулів
@@ -46,7 +45,6 @@ Shared layer не повинен містити редактор-специфі�
 - має самостійну доменну відповідальність;
 - зменшує змішування UI, state, persistence, parsing або domain logic;
 - має стабільний порядок підключення або імпорту;
-- доданий у `sw.js`, якщо є runtime-ресурсом;
 - покритий статичним аудитом або browser-smoke сценарієм.
 
 Якщо файл менший за 30-40 рядків і не має окремої ролі, його краще залишити частиною сусіднього шару. Мета - зрозуміла система, а не велика кількість модулів.

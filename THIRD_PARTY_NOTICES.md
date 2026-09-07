@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-This project vendors browser bundles locally so the editors can keep working offline after the first load. Keep this file in sync whenever a file under `vendor/` is added, removed, or replaced.
+This project vendors browser bundles locally so every release ships one reviewed set of files, the editors make no third-party network requests, and offline support stays possible when it returns. Keep this file in sync whenever a file under `vendor/` is added, removed, or replaced.
 
 This file is an engineering inventory, not legal advice. The repository's own code is licensed under the root MIT `LICENSE`.
 

@@ -12,8 +12,7 @@
 - `shell-overrides.css`
 - `design-tokens.json`
 - `SERVICE_THEME_MAP.json`
-- `offline.js`
-- `sw.js`
+- `sw.js` (перехідний worker; поки офлайн відкладено, редактори його не підключають)
 
 Кожен редактор має підключати:
 
@@ -23,10 +22,9 @@
 <link rel="stylesheet" href="../shell-overrides.css">
 <script src="../office-shell.js" defer></script>
 <script src="../office-ui.js" defer></script>
-<script src="../offline.js" defer></script>
 ```
 
-Порядок важливий: shared tokens -> локальні стилі -> shell overrides -> office-shell -> office-ui -> offline.
+Порядок важливий: shared tokens -> локальні стилі -> shell overrides -> office-shell -> office-ui.
 
 ## 2. DOM-контракт shell
 

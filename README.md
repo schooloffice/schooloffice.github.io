@@ -69,7 +69,7 @@
 
 1. Зафіксувати baseline і тестовий стенд.
 2. Підключити `UI_TOKENS.css` і `office-*` shell-класи у всі редактори.
-3. Винести зовнішні CDN-ресурси в локальний `vendor/`, щоб редактори працювали офлайн.
+3. Винести зовнішні CDN-ресурси в локальний `vendor/`: реліз постачає один переглянутий набір файлів, і це передумова офлайну.
 4. Уніфікувати меню, toolbar, statusbar, zoom, undo/redo.
 5. Уніфікувати поведінку keyboard shortcuts, dropdown, modal і workspace focus.
 6. Після цього полірувати редактори по одному за локальними `UI_MIGRATION_TO_STANDARD.md`.
@@ -116,7 +116,7 @@ powershell -ExecutionPolicy Bypass -File tests\cleanup-test-artifacts.ps1
 - `OfficeShell.registerCommands` / `OfficeShell.runCommand` як стандартний adapter-шар для `new/open/save/undo/redo`;
 - `OfficeShell.openFilePicker` для file-open entry points;
 - modal/dropdown/statusbar контракти.
-- `sw.js` precache-контракт: `CORE_ASSETS` не має мертвих шляхів і містить локальні asset-и, які підключають HTML-файли редакторів.
+- контракт ресурсів релізу: HTML не посилається на неіснуючі локальні asset-и; поки офлайн відкладено, `sw.js` лишається перехідним worker'ом без обслуговування кешу, а `offline.js` не повертається без окремого рішення.
 
 `tests/browser-smoke.html` можна відкрити в браузері як додатковий smoke-тест DOM-структури, а `tests/run-browser-smoke.ps1` автоматизує цей сценарій через headless Chrome і додатково запускає поведінкові перевірки для Flowcharts, Slides і Tables. Для `slides/` `slides/js/runtime.js` лишається тонкою module-entry обгорткою для стабільного підключення в HTML, а `tests/slides-behavior.html` перевіряє, що `SlidesApp.boot`, список слайдів, сцена і project helpers справді працюють у браузері. Зовнішні CDN-ресурси поки лише позначаються warning-ами: їх винесення в локальний `vendor/` є окремим наступним кроком. Директорії `tests/.browser-profile*` і файли `.browser-smoke.*` є локальними артефактами запуску; вони ігноруються git і чистяться через `tests\cleanup-test-artifacts.ps1`.
 
@@ -136,7 +136,7 @@ powershell -ExecutionPolicy Bypass -File tests\serve-office.ps1 -Port 4173
 Станом на зараз у пакеті вже зроблено такі базові кроки:
 
 - прибрано жорстку прив'язку runtime-маршрутів до старого брендового префікса;
-- усі 6 редакторів підключені до спільного shell-шару через `UI_TOKENS.css`, `office-shell.js`, `office-ui.js` та `offline.js`;
+- усі 6 редакторів підключені до спільного shell-шару через `UI_TOKENS.css`, `office-shell.js` та `office-ui.js`;
 - уніфіковано базовий app shell:
   - header
   - menubar
@@ -180,10 +180,9 @@ powershell -ExecutionPolicy Bypass -File tests\serve-office.ps1 -Port 4173
   - `showPromptModal`
   - без `alertModal`, `showAlert`, `showTextPrompt`
 - confirm-кнопки вирівняно до моделі `Скасувати` + конкретна дія;
-- підготовлено offline-базу:
+- залежності постачаються з релізом (передумова офлайну, який відкладено):
   - локальні vendor-ресурси
-  - `offline.js`
-  - `sw.js`
+  - `sw.js` — поки що перехідний worker, який знімає офлайн-кеш попередніх релізів
 - Таблиці розділено на доменні JS-шари з перевіркою в `tests/static-ui-audit.ps1` і `tests/tables-formula-behavior.html`.
 
 ## Що ще залишилось

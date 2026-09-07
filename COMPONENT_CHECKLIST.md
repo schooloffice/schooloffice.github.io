@@ -17,7 +17,7 @@
 - [ ] Є `body.office-app`.
 - [ ] Є правильний `data-office-service`.
 - [ ] Підключено `UI_TOKENS.css`, локальний `style.css`, `shell-overrides.css`.
-- [ ] Підключено `office-shell.js`, `office-ui.js` і `offline.js` у правильному порядку.
+- [ ] Підключено `office-shell.js` і `office-ui.js` у правильному порядку.
 - [ ] Є header, menubar, toolbar, workspace, statusbar.
 
 ## Standard Commands
@@ -41,10 +41,12 @@
 - [ ] `Escape` закриває верхній overlay.
 - [ ] Focus не губиться після закриття.
 
-## Offline
+## Ресурси релізу
 
-- [ ] Нові локальні JS/CSS/image/font asset-и, підключені в HTML редакторів, додано в `sw.js` `CORE_ASSETS`.
-- [ ] `CORE_ASSETS` не містить шляхів до видалених або перейменованих файлів.
+Офлайн відкладено, тому пункт про `sw.js` `CORE_ASSETS` тимчасово знято; він повернеться разом з офлайн-кроком.
+
+- [ ] Нові локальні JS/CSS/image/font asset-и справді існують за шляхами, які підключає HTML (перевіряє `tests/static-ui-audit.ps1`).
+- [ ] HTML не містить посилань на видалені або перейменовані файли; нових зовнішніх запитів не додано — залежності лишаються у `vendor/`.
 
 ## Browser QA
 

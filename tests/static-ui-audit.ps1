@@ -33,7 +33,6 @@ $requiredRootFiles = @(
   'THIRD_PARTY_NOTICES.md',
   'office-shell.js',
   'office-ui.js',
-  'offline.js',
   'sw.js'
 )
 
@@ -302,28 +301,6 @@ function Assert-LocalHtmlAssetsExist {
   }
 }
 
-function Get-LocalHtmlAssetPaths {
-  param(
-    [string]$Html,
-    [string]$IndexPath
-  )
-
-  $htmlRoot = Split-Path -Parent $IndexPath
-  $assetMatches = [regex]::Matches($Html, '<(?:script|link|img|source)\b[^>]*(?:src|href)="([^"]+)"')
-  foreach ($match in $assetMatches) {
-    $assetPath = $match.Groups[1].Value
-    if (Test-ExternalOrVirtualPath $assetPath) { continue }
-
-    $assetPathWithoutQuery = ($assetPath -split '[?#]', 2)[0]
-    $resolved = [IO.Path]::GetFullPath((Join-Path $htmlRoot $assetPathWithoutQuery))
-    if (-not $resolved.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase)) { continue }
-    if (-not (Test-Path $resolved -PathType Leaf)) { continue }
-
-    $relative = $resolved.Substring($Root.Length).TrimStart('\', '/').Replace('\', '/')
-    "./$relative"
-  }
-}
-
 function Assert-StaticIdReferencesExist {
   param(
     [string]$Html,
@@ -349,47 +326,6 @@ function Assert-StaticIdReferencesExist {
       if ($optional -contains $ref) { continue }
       Assert-True ($ids -contains $ref) "${relativePath}: static id reference has no matching HTML id: $ref"
     }
-  }
-}
-
-function Assert-ServiceWorkerPrecache {
-  param([string]$ServiceWorkerContent)
-
-  $precacheAssets = [regex]::Matches($ServiceWorkerContent, "['""](\./[^'""]+)['""]") |
-    ForEach-Object { $_.Groups[1].Value } |
-    Sort-Object -Unique
-
-  foreach ($asset in $precacheAssets) {
-    $localPath = Join-Path $Root ($asset.Substring(2) -replace '/', [IO.Path]::DirectorySeparatorChar)
-    Assert-True (Test-Path $localPath) "sw.js: precache asset does not exist: $asset"
-  }
-
-  $requiredAssets = New-Object System.Collections.Generic.HashSet[string]
-  foreach ($asset in @(
-    './index.html',
-    './office-shell.js',
-    './office-ui.js',
-    './offline.js',
-    './UI_TOKENS.css',
-    './shell-overrides.css',
-    './design-tokens.json',
-    './SERVICE_THEME_MAP.json'
-  )) {
-    [void]$requiredAssets.Add($asset)
-  }
-
-  foreach ($service in $services) {
-    [void]$requiredAssets.Add("./$($service.Path)/index.html")
-    $indexPath = Join-Path (Join-Path $Root $service.Path) 'index.html'
-    if (-not (Test-Path $indexPath)) { continue }
-    $html = Get-Content -Raw -Encoding UTF8 $indexPath
-    foreach ($asset in Get-LocalHtmlAssetPaths $html $indexPath) {
-      [void]$requiredAssets.Add($asset)
-    }
-  }
-
-  foreach ($asset in $requiredAssets) {
-    Assert-True ($precacheAssets -contains $asset) "sw.js: CORE_ASSETS is missing required local asset: $asset"
   }
 }
 
@@ -466,6 +402,9 @@ $rootIndexPath = Join-Path $Root 'index.html'
 if (Test-Path $rootIndexPath) {
   $rootHtml = Get-Content -Raw -Encoding UTF8 $rootIndexPath
   Assert-ProductionHtmlSecurityBaseline $rootHtml 'index.html'
+  # Раніше root-асети трималися в переліку CORE_ASSETS сервіс-воркера. Поки офлайн
+  # відкладено, аудит перевіряє їх існування напряму по HTML головної сторінки.
+  Assert-LocalHtmlAssetsExist $rootHtml $rootIndexPath 'index.html'
   Assert-True ($rootHtml -notmatch '/office/art-') "Root index still contains old /office/art-* links"
   Assert-True ($rootHtml -notmatch '/office/office-') "Root index contains invalid /office/office-* links"
   Assert-True ($rootHtml -notmatch "pathname\.endsWith\('/office'\)") "Standalone root index should not contain the old /office redirect"
@@ -518,9 +457,7 @@ foreach ($service in $services) {
   Assert-True ($html -match 'href="\.\./shell-overrides\.css"') "$($service.Path): shell-overrides.css is not linked after local styling"
   Assert-True ($html -match 'src="\.\./office-shell\.js"') "$($service.Path): office-shell.js is not linked"
   Assert-True ($html -match 'src="\.\./office-ui\.js"') "$($service.Path): office-ui.js is not linked"
-  Assert-True ($html -match 'src="\.\./offline\.js"') "$($service.Path): offline.js is not registered"
   Assert-True ($html -match 'src="\.\./office-shell\.js"[\s\S]*src="\.\./office-ui\.js"') "$($service.Path): office-shell.js must be linked before office-ui.js"
-  Assert-True ($html -match 'src="\.\./office-ui\.js"[\s\S]*src="\.\./offline\.js"') "$($service.Path): office-ui.js must be linked before offline.js"
   Assert-True ($html -match '<body[^>]*class="[^"]*\boffice-app\b[^"]*"') "$($service.Path): body is missing office-app class"
   Assert-True ($html -match "<body[^>]*data-office-service=""$($service.Key)""") "$($service.Path): body has missing or wrong data-office-service"
   Assert-True ($html -notmatch 'href="/office"') "$($service.Path): back link should be relative so custom domains under /office/ resolve correctly"
@@ -559,7 +496,7 @@ foreach ($service in $services) {
 
   $externalMatches = [regex]::Matches($html, '<(?:script|link|img|source)\b[^>]*(?:src|href)="https?://')
   if ($externalMatches.Count -gt 0) {
-    Add-Warning "$($service.Path): external resources are still present ($($externalMatches.Count)); offline hardening is a later migration step."
+    Add-Warning "$($service.Path): external resources are still present ($($externalMatches.Count)); dependencies should stay vendored under vendor/ so a release ships one reviewed set of files."
   }
 }
 
@@ -1190,25 +1127,29 @@ if (Test-Path $officeUiPath) {
   Assert-True ($officeUi -match '!panel\.contains\(document\.activeElement\)') "office-ui.js: modal focus sync must avoid refocusing when focus is already inside the modal"
 }
 
+# Поки офлайн відкладено, sw.js лишається за старою адресою лише як перехідний worker,
+# який знімає офлайн-кеш попередніх релізів. Обслуговувати ресурси з Cache API
+# він більше не має права, інакше старий код повертатиметься після оновлення.
 $swPath = Join-Path $Root 'sw.js'
 if (Test-Path $swPath) {
   $sw = Get-Content -Raw -Encoding UTF8 $swPath
-  Assert-True ($sw -match 'const PRECACHE_NAME =') "sw.js: expected a dedicated precache bucket"
-  Assert-True ($sw -match 'const RUNTIME_CACHE =') "sw.js: expected a dedicated runtime cache bucket"
-  Assert-True ($sw -match 'const MAX_RUNTIME_ENTRIES =') "sw.js: runtime cache should declare an explicit size cap"
-  Assert-True ($sw -match "request\.mode === 'navigate' \|\| acceptsHtml\(request\)") "sw.js: HTML requests should use a dedicated navigation strategy"
-  Assert-True ($sw -match 'event\.waitUntil\(refresh\)') "sw.js: asset refresh should continue in the background"
-  Assert-True ($sw -match 'trimRuntimeCache') "sw.js: runtime cache should be pruned after writes"
-  Assert-True ($sw -notmatch 'caches\.match\(request\)\.then\(cached => \{\s*if \(cached\) return cached;\s*return fetch\(request\)') "sw.js: legacy blanket cache-first handler should be removed"
-  Assert-ServiceWorkerPrecache $sw
+  Assert-True ($sw -match 'self\.registration\.unregister\(\)') "sw.js: transitional worker must unregister itself"
+  Assert-True ($sw -match "const LEGACY_CACHE_PREFIX = 'office-plus-v'") "sw.js: cache teardown must be limited to a verified package prefix"
+  Assert-True ($sw -match 'key\.startsWith\(LEGACY_CACHE_PREFIX\)') "sw.js: only caches carrying the package prefix may be deleted"
+  Assert-True ($sw -notmatch "addEventListener\('fetch'") "sw.js: while offline is deferred the worker must not intercept fetches"
+  Assert-True ($sw -notmatch 'CORE_ASSETS|PRECACHE_NAME|RUNTIME_CACHE') "sw.js: precache buckets belong to the removed offline policy"
+  Assert-True ($sw -notmatch 'caches\.open\(') "sw.js: transitional worker must not open caches for serving"
+  Assert-True ($sw -notmatch 'clients\.matchAll|client\.navigate') "sw.js: migration must not force-reload tabs that hold unsaved work"
 }
 
-$offlinePath = Join-Path $Root 'offline.js'
-if (Test-Path $offlinePath) {
-  $offline = Get-Content -Raw -Encoding UTF8 $offlinePath
-  Assert-True ($offline -match 'navigator\.serviceWorker\.register') "offline.js: service worker registration must remain enabled"
-  Assert-True ($offline -notmatch 'getRegistrations\(\)[\s\S]*unregister\(\)') "offline.js: must not unregister the service worker during normal boot"
-  Assert-True ($offline -notmatch 'caches\.keys\(\)[\s\S]*caches\.delete') "offline.js: must not clear offline caches during normal boot"
+# offline.js прибрано разом із відкладеним офлайном: браузер сам звіряє байти вже
+# зареєстрованого worker'а під час навігації, тож для міграції реєстратор не потрібен.
+# Повернути його має саме офлайн-крок, разом із новою реалізацією precache.
+Assert-True (-not (Test-Path (Join-Path $Root 'offline.js'))) "offline.js must not return while offline is deferred; restoring it needs the separate offline step"
+foreach ($service in $services) {
+  $swIndexPath = Join-Path (Join-Path $Root $service.Path) 'index.html'
+  if (-not (Test-Path $swIndexPath)) { continue }
+  Assert-True ((Get-Content -Raw -Encoding UTF8 $swIndexPath) -notmatch 'offline\.js') "$($service.Path): offline.js registration must not be re-added"
 }
 
 $modalContractFiles = @(

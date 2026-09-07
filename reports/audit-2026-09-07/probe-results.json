@@ -1,0 +1,197 @@
+{
+  "date": "2026-09-07",
+  "scope": "synthetic probes of repository source; not a full browser test",
+  "code": [
+    {
+      "domain": "text",
+      "jsFiles": 14,
+      "lines": 4691,
+      "largest": [
+        {
+          "file": "text/ui/editor.js",
+          "lines": 2153
+        },
+        {
+          "file": "text/core/selection.js",
+          "lines": 850
+        }
+      ]
+    },
+    {
+      "domain": "tables",
+      "jsFiles": 33,
+      "lines": 6951,
+      "largest": [
+        {
+          "file": "tables/js/grid.js",
+          "lines": 630
+        },
+        {
+          "file": "tables/js/xlsx-import.js",
+          "lines": 548
+        }
+      ]
+    },
+    {
+      "domain": "slides",
+      "jsFiles": 24,
+      "lines": 6945,
+      "largest": [
+        {
+          "file": "slides/js/app.js",
+          "lines": 2408
+        },
+        {
+          "file": "slides/js/table-element.js",
+          "lines": 628
+        }
+      ]
+    },
+    {
+      "domain": "paint",
+      "jsFiles": 12,
+      "lines": 4044,
+      "largest": [
+        {
+          "file": "paint/js/canvas.js",
+          "lines": 1107
+        },
+        {
+          "file": "paint/js/app.js",
+          "lines": 920
+        }
+      ]
+    },
+    {
+      "domain": "vector",
+      "jsFiles": 9,
+      "lines": 2879,
+      "largest": [
+        {
+          "file": "vector/js/app.js",
+          "lines": 1172
+        },
+        {
+          "file": "vector/js/editor.js",
+          "lines": 569
+        }
+      ]
+    },
+    {
+      "domain": "flowcharts",
+      "jsFiles": 34,
+      "lines": 6090,
+      "largest": [
+        {
+          "file": "flowcharts/js/editor.js",
+          "lines": 975
+        },
+        {
+          "file": "flowcharts/js/core.js",
+          "lines": 757
+        }
+      ]
+    }
+  ],
+  "offlineRoutes": [
+    {
+      "route": "/",
+      "resolves": false
+    },
+    {
+      "route": "/text/",
+      "resolves": false
+    },
+    {
+      "route": "/tables/",
+      "resolves": false
+    },
+    {
+      "route": "/slides/",
+      "resolves": false
+    },
+    {
+      "route": "/paint/",
+      "resolves": false
+    },
+    {
+      "route": "/vector/",
+      "resolves": false
+    },
+    {
+      "route": "/flowcharts/",
+      "resolves": false
+    },
+    {
+      "route": "/text/index.html",
+      "resolves": true
+    }
+  ],
+  "precache": {
+    "assets": 165,
+    "bytes": 5951800
+  },
+  "zip": [
+    {
+      "native": true,
+      "fileBytes": 1150,
+      "advertisedBytes": 1,
+      "actualBytes": 1048576,
+      "rejected": false
+    },
+    {
+      "native": false,
+      "fileBytes": 1150,
+      "advertisedBytes": 1,
+      "actualBytes": 1048576,
+      "rejected": false
+    }
+  ],
+  "formulas": [
+    {
+      "expr": "SUM(1,2)",
+      "value": 3
+    },
+    {
+      "expr": "2^3",
+      "error": "#VALUE!"
+    },
+    {
+      "expr": "\"a\"&\"b\"",
+      "error": "#VALUE!"
+    },
+    {
+      "expr": "1E3",
+      "error": "#VALUE!"
+    }
+  ],
+  "repeatedReferences": {
+    "rows": 16,
+    "value": 32768,
+    "evaluateCalls": 32768
+  },
+  "csv": {
+    "input": "1,5;2,5\n3,5;4,5",
+    "parsed": [
+      [
+        "1",
+        "5;2",
+        "5"
+      ],
+      [
+        "3",
+        "5;4",
+        "5"
+      ]
+    ]
+  },
+  "sort": {
+    "A1": "1",
+    "B1": "=A2*10",
+    "A2": "2",
+    "B2": "=A1*10"
+  },
+  "storageFailure": {
+    "badge": "Збережено ✓"
+  }
+}
