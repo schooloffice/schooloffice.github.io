@@ -193,6 +193,8 @@ window.TextApp.boot = () => {
     selection: ArtSelection,
     sanitize: ArtSanitize,
     document: ArtDocument,
+    draft: ArtDraft,
+    draftStorage: ArtDraftStorage,
     formats: { docx: ArtDocx, rtf: ArtRtf, txt: ArtTxt }
   };
 };

@@ -1181,6 +1181,100 @@
         && /art-image-block/.test(tampered.value.content)
         && /img-align-left/.test(tampered.value.content);
 
+      // ---- Чернетка: страховка від аварії (аудит F04) ----
+      // Сховище підміняємо на кероване: перевіряємо політику чернетки, а не
+      // поведінку IndexedDB, і не залишаємо слідів у реальному сховищі.
+      const draft = win.art.draft;
+
+      function makeStorage() {
+        const store = { record: null, writes: 0, failNext: false, hold: null };
+        return {
+          store,
+          saveDraft(data) {
+            store.writes++;
+            if (store.failNext) { store.failNext = false; return Promise.reject(new Error('quota')); }
+            if (store.hold) return store.hold.then(() => { store.record = data; });
+            store.record = data;
+            return Promise.resolve();
+          },
+          loadDraft() { return Promise.resolve(store.record); },
+          clearDraft() { store.record = null; return Promise.resolve(true); }
+        };
+      }
+
+      const statuses = [];
+      let fakeStorage = makeStorage();
+      draft.init({
+        storage: fakeStorage,
+        build: () => artDoc.serialize({
+          html: '<p>чернетка</p>',
+          name: 'робота',
+          page: artDoc.pageFromState(win.art.state.documentSnapshot())
+        }),
+        onStatus: (status) => statuses.push(status.state)
+      });
+
+      draft.noteChange();
+      const pendingReported = statuses[statuses.length - 1] === 'pending';
+      const flushed = await draft.flush();
+      const draftWritten = flushed.ok && !!fakeStorage.store.record;
+      const savedReported = statuses[statuses.length - 1] === 'saved';
+
+      // Записане має читатися назад як перевірений документ.
+      const restored = await draft.load();
+      const draftRoundTrips = !!restored && restored.content.includes('чернетка') && restored.name === 'робота';
+
+      // Відмова сховища мусить бути видимою, а не тихою.
+      fakeStorage.store.failNext = true;
+      draft.noteChange();
+      const failedWrite = await draft.flush();
+      const failureIsVisible = failedWrite.ok === false && statuses[statuses.length - 1] === 'failed';
+
+      // Пізній запис не має оголошувати збереженими новіші зміни.
+      let release;
+      fakeStorage.store.hold = new Promise(resolve => { release = resolve; });
+      draft.noteChange();
+      const slowWrite = draft.flush();
+      draft.noteChange();            // зміни, поки триває запис
+      release();
+      await slowWrite;
+      const staleWriteStaysPending = statuses[statuses.length - 1] === 'pending';
+      const revisionsMoveForward = draft.revisions().saved < draft.revisions().current;
+      fakeStorage.store.hold = null;
+
+      // Порожня чернетка не варта питання «відновити?».
+      fakeStorage = makeStorage();
+      draft.init({
+        storage: fakeStorage,
+        build: () => artDoc.serialize({ html: '<p><br></p>', name: 'порожньо', page: artDoc.pageFromState(win.art.state.documentSnapshot()) }),
+        onStatus: () => {}
+      });
+      await draft.flush();
+      const emptyDraftIsNotOffered = (await draft.load()) === null;
+
+      // Відновлення застосовує документ, але лишає його НЕзбереженим:
+      // чернетка живе в цьому браузері й файла не замінює (аудит F07).
+      await resetDocument(win, doc);
+      const restorePayload = artDoc.serialize({
+        html: '<h1>Відновлений заголовок</h1><p>текст</p>',
+        name: 'з чернетки',
+        page: { size: 'a5', orientation: 'landscape', margins: { top: 1, right: 1, bottom: 1, left: 1 }, numbers: { enabled: true, position: 'center', skipFirst: true } }
+      });
+      const applied = win.art.editor.applyDocument(restorePayload, { restored: true });
+      await wait(400);
+      const restoreAppliesContent = applied
+        && (doc.querySelector('#editor h1')?.textContent || '').includes('Відновлений заголовок');
+      const restoreAppliesGeometry = win.art.state.get('pageSize') === 'a5'
+        && win.art.state.get('orientation') === 'landscape';
+      const restoreStaysUnsaved = win.art.state.isDirty() === true;
+      const restoreSetsName = win.art.state.get('fileName') === 'з чернетки';
+
+      // Пошкоджена чернетка не має потрапляти в документ.
+      const brokenApplied = win.art.editor.applyDocument({ format: 'чужий', version: 1, content: '<p>х</p>' }, { restored: true });
+      const brokenDraftRefused = brokenApplied === false
+        && (doc.querySelector('#editor h1')?.textContent || '').includes('Відновлений заголовок');
+
+      await draft.clear();
       await resetDocument(win, doc);
 
       const checks = [
@@ -1299,7 +1393,20 @@
         check('oversized content is refused', rejectsOversized),
         check('a tampered file is cleaned, not applied as is', tamperedIsCleaned),
         check('foreign classes are dropped', dropsForeignClasses),
-        check('the document’s own classes are kept', keepsDocumentClasses)
+        check('the document’s own classes are kept', keepsDocumentClasses),
+        check('a change is reported as pending before it is written', pendingReported),
+        check('the draft is actually written', draftWritten),
+        check('a written draft is reported as saved', savedReported),
+        check('a draft reads back as a validated document', draftRoundTrips),
+        check('a storage failure is visible, not silent', failureIsVisible),
+        check('a late write does not declare newer changes saved', staleWriteStaysPending),
+        check('draft revisions move forward, never backward', revisionsMoveForward),
+        check('an empty draft is not offered for restore', emptyDraftIsNotOffered),
+        check('restoring applies the draft content', restoreAppliesContent),
+        check('restoring applies the page geometry', restoreAppliesGeometry),
+        check('restored work stays marked unsaved', restoreStaysUnsaved),
+        check('restoring applies the document name', restoreSetsName),
+        check('a corrupted draft is refused and leaves the document alone', brokenDraftRefused)
       ];
 
       const failed = checks.filter(item => !item.ok);

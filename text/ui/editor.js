@@ -73,6 +73,86 @@ const ArtEditor = (() => {
     _updateFileName();
     _syncView();
     ArtSelection.focusEditor(_editor);
+
+    _initDraft();
+  }
+
+  // ---- Чернетка ----
+  // Страховка від аварії вкладки: файл вона не замінює й лишає роботу
+  // позначеною як незбережену (аудит F04, F07).
+  function _initDraft() {
+    ArtDraft.init({
+      build: () => ArtDocument.serialize({
+        html: _editor.innerHTML,
+        name: ArtState.get('fileName'),
+        page: ArtDocument.pageFromState(ArtState.documentSnapshot())
+      }),
+      onStatus: _showDraftStatus
+    });
+
+    // Геометрія сторінки — теж документ, тож її зміна має потрапляти в чернетку.
+    ArtState.on('change:pageSize', () => ArtDraft.noteChange());
+    ArtState.on('change:orientation', () => ArtDraft.noteChange());
+    ArtState.on('change:margins', () => ArtDraft.noteChange());
+    ArtState.on('change:pageNumbers', () => ArtDraft.noteChange());
+
+    _offerDraftRestore();
+  }
+
+  const DRAFT_STATUS_TEXT = {
+    pending: 'Є зміни…',
+    saved: 'Чернетку збережено',
+    failed: 'Не вдалося зберегти чернетку'
+  };
+
+  function _showDraftStatus(status) {
+    const el = document.getElementById('draftStatus');
+    if (!el) return;
+    el.textContent = DRAFT_STATUS_TEXT[status?.state] || '';
+    el.dataset.state = status?.state || '';
+  }
+
+  async function _offerDraftRestore() {
+    const draft = await ArtDraft.load();
+    if (!draft) return;
+    // Поки читали сховище, учень міг почати працювати. Його робота важливіша
+    // за чернетку, тож пропозицію знімаємо мовчки.
+    if (ArtState.isDirty()) return;
+
+    ArtModals.confirm(
+      'Знайдено незавершену роботу з минулого разу. Відновити її?',
+      () => {
+        if (ArtState.isDirty()) return;
+        applyDocument(draft, { restored: true });
+      }
+    );
+  }
+
+  // Єдиний шлях, яким перевірений документ потрапляє в редактор: і чернетка,
+  // і майбутнє відкриття робочого файла проходять тут.
+  function applyDocument(payload, { restored = false } = {}) {
+    const validated = payload?.format ? ArtDocument.validate(payload) : null;
+    const value = validated?.ok ? validated.value : null;
+    if (!value) return false;
+
+    clearFindHighlights();
+    clearSelectedImage();
+    ArtState.restoreDocument(ArtDocument.pageToState(value.page));
+    _setDocumentHTML(value.content);
+    ArtState.set('fileName', value.name);
+    ArtHistory.init(_editor);
+    _updateFileName();
+    _syncView();
+
+    // Відновлена чернетка — врятована робота, а не збережений файл: позначку
+    // незбереженого стану знімати не можна.
+    if (restored) {
+      ArtState.setDirty(true);
+      _announce('Роботу відновлено з чернетки — збережіть її у файл');
+    } else {
+      ArtHistory.markSaved();
+    }
+    return true;
   }
 
   function newDoc() {
@@ -306,6 +386,8 @@ const ArtEditor = (() => {
     const inputType = e?.inputType || '';
     const delay = /^delete|^history|insertParagraph/.test(inputType) ? 0 : 180;
     _historyTimer = setTimeout(() => ArtHistory.pushNow(), delay);
+
+    ArtDraft.noteChange();
   }
 
   function _handleKeydown(e) {
@@ -2194,6 +2276,9 @@ const ArtEditor = (() => {
     findNext, replaceCurrent, replaceAll, clearFindHighlights, editFileName,
     // Логічний (не сторінковий) HTML документа — те, що йде у файл.
     // Відкрито для поведінкових тестів експорту.
-    getExportHTML: _getExportHTML
+    getExportHTML: _getExportHTML,
+    // Єдиний вхід перевіреного документа в редактор: чернетка зараз,
+    // робочий файл — наступним кроком.
+    applyDocument
   };
 })();

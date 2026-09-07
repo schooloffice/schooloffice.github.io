@@ -342,7 +342,13 @@ $productionJsFiles = Get-ChildItem -Path $Root -Recurse -File -Include '*.js' |
     $_.FullName -notmatch '\\tests\\'
   }
 
-$innerHtmlBaseline = 92
+# Ratchet рахує будь-яку згадку innerHTML, і читання, і запис. Підняття бази
+# має бути рішенням, а не звичкою, тож кожне записане тут:
+#   93 (2026-09-07): ui/editor.js читає власний HTML редактора, щоб побудувати
+#   чернетку. Це читання, тотожне тому, яке вже робить core/history.js для
+#   знімка стану; обійти його можна лише через outerHTML або XMLSerializer,
+#   тобто зіпсувавши код заради регулярного виразу.
+$innerHtmlBaseline = 93
 $innerHtmlCount = 0
 foreach ($jsFile in $productionJsFiles) {
   $relativePath = $jsFile.FullName.Substring($Root.Length).TrimStart('\', '/').Replace('\', '/')
