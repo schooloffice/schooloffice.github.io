@@ -29,6 +29,7 @@
   <script src="../tables/js/clipboard.js"></script>
   <script src="../tables/js/cell-format-ui.js"></script>
   <script src="../tables/js/sorting.js"></script>
+  <script src="../tables/js/workbook.js"></script>
   <script>
     const result = document.getElementById('result');
 
@@ -488,6 +489,55 @@
       );
       checks.push(assertEqual('cell style travels with its row', cellStyles.A1, 'style-num-percent'));
       checks.push(assertEqual('sorted values line up with the styles', styled.A1, '1'));
+
+      // ---- Розбір CSV (аудит F12) ----
+      const TAB = String.fromCharCode(9);
+      const BOM = String.fromCharCode(0xFEFF);
+      const fields = (text, delim) => parseCSV(text, delim).map(row => row.join('|')).join(' / ');
+
+      // Приклад із аудиту: два числа з десятковою комою, а не три поля.
+      checks.push(assertEqual('decimal comma is not a field separator',
+        fields('1,5;2,5'), '1,5|2,5'));
+      checks.push(assertEqual('semicolon wins on a decimal-comma file',
+        detectCSVDelimiter('Ціна;Кількість\n1,5;2\n2,5;3'), ';'));
+
+      // Кома лишається роздільником там, де вона справді ним є.
+      checks.push(assertEqual('plain comma file still uses a comma',
+        detectCSVDelimiter('a,b\nc,d'), ','));
+      checks.push(assertEqual('tab-separated file is recognised',
+        detectCSVDelimiter(`a${TAB}b\nc${TAB}d`), TAB));
+
+      // Роздільник у лапках не має перетягувати вибір на себе.
+      checks.push(assertEqual('delimiter inside quotes does not sway detection',
+        detectCSVDelimiter('name;note\nA;"x, y"\nB;"p, q"'), ';'));
+
+      // Розбір: лапки, подвоєні лапки, перенос усередині поля, BOM.
+      checks.push(assertEqual('quoted field keeps its delimiter',
+        fields('A;"x; y"'), 'A|x; y'));
+      checks.push(assertEqual('escaped quotes collapse to one',
+        fields('A;"він сказав ""так"""'), 'A|він сказав "так"'));
+      checks.push(assertEqual('newline inside a quoted field stays in the cell',
+        fields('A;"рядок 1\nрядок 2"'), 'A|рядок 1\nрядок 2'));
+      checks.push(assertEqual('BOM does not stick to the first cell',
+        fields(`${BOM}Ціна;Кількість`), 'Ціна|Кількість'));
+
+      // Коди з початковими нулями лишаються текстом як є.
+      checks.push(assertEqual('leading zeros survive the import',
+        fields('007;08'), '007|08'));
+
+      // Явно обраний роздільник має перекривати автовизначення.
+      checks.push(assertEqual('explicit delimiter overrides detection',
+        fields('1,5;2,5', ','), '1|5;2|5'));
+
+      // Розмірні межі перевіряються до заміни книги.
+      checks.push(assertEqual('empty parse is reported, not imported',
+        !!csvImportProblem(0, 0), true));
+      checks.push(assertEqual('too many rows are reported',
+        !!csvImportProblem(CSV_MAX_ROWS + 1, 2), true));
+      checks.push(assertEqual('too many columns are reported',
+        !!csvImportProblem(2, CSV_MAX_COLS + 1), true));
+      checks.push(assertEqual('a normal file has no complaint',
+        csvImportProblem(10, 3), ''));
 
       result.className = 'pass';
       result.textContent = checks.join('\n') + '\n\nPASSED';

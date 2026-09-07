@@ -279,6 +279,26 @@
     </div>
   </div>
 
+  <div id="csvImportModal" class="modal-overlay">
+    <div class="modal-content csv-import-box">
+      <h3 class="modal-title">Імпорт CSV</h3>
+      <p id="csvImportSummary" class="modal-text"></p>
+      <label class="csv-import-label" for="csvDelimiterSelect">Роздільник полів</label>
+      <select id="csvDelimiterSelect" class="csv-import-select">
+        <option value=";">Крапка з комою ( ; )</option>
+        <option value=",">Кома ( , )</option>
+        <option value="&#9;">Табуляція</option>
+      </select>
+      <p class="csv-import-hint">Десяткову кому редактор розуміє сам: «1,5» лишається числом.</p>
+      <div id="csvImportPreview" class="csv-import-preview" role="region"
+        aria-label="Попередній перегляд перших рядків"></div>
+      <div class="modal-actions">
+        <button data-close-modal="csvImportModal" class="modal-secondary-btn">Скасувати</button>
+        <button id="csvImportConfirm" class="modal-primary-btn">Імпортувати</button>
+      </div>
+    </div>
+  </div>
+
   <div id="chartModal" class="modal-overlay">
     <div class="choffice-modal-content">
       <div class="choffice-toolbar">

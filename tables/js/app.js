@@ -213,29 +213,17 @@ function initTablesEditor() {
 
       const reader = new FileReader();
       reader.onload = () => {
-        const text = String(reader.result || '');
-        const rows = parseCSV(text);
-
-        // Обмеження рядків/колонок
-        if (rows.length > 500) {
-          showInfoModal(`❌ Файл CSV має ${rows.length} рядків — це забагато (максимум 500).`);
-          csvInput.value = '';
-          return;
-        }
-        const cCount = rows.reduce((m, r) => Math.max(m, r.length), 0);
-        if (cCount > 200) {
-          showInfoModal(`❌ Файл CSV має ${cCount} колонок — це забагато (максимум 200).`);
-          csvInput.value = '';
-          return;
-        }
-
-        askConfirm(`Імпортувати CSV і перезаписати таблицю?\nРозмір: ${rows.length}×${cCount}`, () => {
-          importCSVText(text);
-        });
+        // Ліміти рядків/колонок і сам розбір лишаються діалогу: вони залежать
+        // від обраного роздільника, а його ще можна змінити.
+        openCsvImportDialog(String(reader.result || ''));
+        csvInput.value = '';
       };
       reader.readAsText(file);
     });
   }
+
+  document.getElementById('csvDelimiterSelect')?.addEventListener('change', refreshCsvImportPreview);
+  document.getElementById('csvImportConfirm')?.addEventListener('click', confirmCsvImport);
 
   const workbookInput = document.getElementById('workbookFileInput');
   if (workbookInput) {

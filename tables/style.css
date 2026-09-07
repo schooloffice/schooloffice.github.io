@@ -1086,3 +1086,54 @@ th.col-header {
   height: 24px;
   box-shadow: 0 6px 12px rgba(22, 163, 74, .22);
 }
+
+/* Діалог імпорту CSV: користувач бачить розібрані дані до заміни книги. */
+.csv-import-box {
+  width: min(94vw, 560px);
+}
+
+.csv-import-label {
+  display: block;
+  margin: .75rem 0 .25rem;
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.csv-import-select {
+  width: 100%;
+  padding: .4rem .5rem;
+  border: 1px solid var(--line);
+  border-radius: .4rem;
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+}
+
+.csv-import-hint {
+  margin: .4rem 0 .75rem;
+  font-size: .8rem;
+  color: var(--muted);
+}
+
+.csv-import-preview {
+  max-height: 40vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: .4rem;
+}
+
+.csv-import-preview table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: .82rem;
+}
+
+.csv-import-preview td {
+  border: 1px solid var(--line);
+  padding: .25rem .4rem;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

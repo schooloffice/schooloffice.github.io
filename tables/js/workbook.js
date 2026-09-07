@@ -78,12 +78,80 @@ function triggerCSVImport() {
   inp.click();
 }
 
-function parseCSV(text) {
+// Роздільники, які має сенс шукати у шкільному CSV. Порядок = пріоритет при
+// однаковій узгодженості: у локалі з десятковою комою кома частіше є десятковим
+// знаком, ніж роздільником полів, тож за нічиєї обираємо крапку з комою.
+const CSV_DELIMITERS = [';', '\t', ','];
+const CSV_SNIFF_RECORDS = 20;
+
+function stripBom(text) {
   const src = String(text || '');
-  const firstLine = src.split(/\r\n|\n|\r/)[0] || '';
-  const commaCount = (firstLine.match(/,/g) || []).length;
-  const semiCount = (firstLine.match(/;/g) || []).length;
-  const delim = semiCount > commaCount ? ';' : ',';
+  return src.charCodeAt(0) === 0xFEFF ? src.slice(1) : src;
+}
+
+// Рахує роздільники ПОЗА лапками в перших записах. Старий варіант рахував коми
+// й крапки з комою в першому рядку тексту, не дивлячись на лапки: «1,5;2,5»
+// перетворювався на три поля 1 / 5;2 / 5 (аудит F12), а кома всередині лапок
+// перетягувала вибір на свій бік.
+function countDelimitersPerRecord(text, delim, maxRecords) {
+  const counts = [];
+  let inQuotes = false;
+  let current = 0;
+
+  for (let i = 0; i < text.length && counts.length < maxRecords; i++) {
+    const ch = text[i];
+
+    if (inQuotes) {
+      if (ch !== '"') continue;
+      if (text[i + 1] === '"') { i++; continue; }
+      inQuotes = false;
+      continue;
+    }
+
+    if (ch === '"') { inQuotes = true; continue; }
+    if (ch === delim) { current++; continue; }
+
+    if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      counts.push(current);
+      current = 0;
+    }
+  }
+
+  if (counts.length < maxRecords) counts.push(current);
+  return counts;
+}
+
+// Справжній роздільник ділить файл рівно: та сама (і ненульова) кількість полів
+// у більшості записів. Повертаємо, у скількох записах ця кількість повторилася.
+function scoreDelimiter(counts) {
+  const tally = new Map();
+  for (const n of counts) {
+    if (n > 0) tally.set(n, (tally.get(n) || 0) + 1);
+  }
+
+  let consistent = 0;
+  for (const times of tally.values()) {
+    if (times > consistent) consistent = times;
+  }
+  return consistent;
+}
+
+function detectCSVDelimiter(text) {
+  const src = stripBom(text);
+  let best = { delim: ',', consistent: 0 };
+  for (const delim of CSV_DELIMITERS) {
+    const consistent = scoreDelimiter(countDelimitersPerRecord(src, delim, CSV_SNIFF_RECORDS));
+    if (consistent > best.consistent) best = { delim, consistent };
+  }
+  return best.consistent > 0 ? best.delim : ',';
+}
+
+function parseCSV(text, delimiter) {
+  // BOM додають Excel і Google Sheets; без зняття він приклеювався до першої
+  // клітинки і вона переставала збігатися із заголовком.
+  const src = stripBom(text);
+  const delim = CSV_DELIMITERS.includes(delimiter) ? delimiter : detectCSVDelimiter(src);
 
   const rows = [];
   let row = [];
@@ -147,11 +215,93 @@ function parseCSV(text) {
   return rows;
 }
 
-function importCSVText(text) {
+// ---- Діалог імпорту CSV ----
+// Книга змінюється лише після того, як користувач побачив саме ті дані, що
+// будуть імпортовані. Роздільник можна перевизначити: визначення за вмістом
+// буває неоднозначним — напр. один рядок «1,5;2,5» однаково схожий на два
+// числа з десятковою комою і на три поля.
+const CSV_MAX_ROWS = 500;
+const CSV_MAX_COLS = 200;
+const CSV_PREVIEW_ROWS = 5;
+const CSV_PREVIEW_COLS = 8;
+
+let csvImportSource = '';
+
+function openCsvImportDialog(text) {
+  csvImportSource = String(text || '');
+  const select = document.getElementById('csvDelimiterSelect');
+  if (select) select.value = detectCSVDelimiter(csvImportSource);
+  refreshCsvImportPreview();
+  openModal('csvImportModal');
+}
+
+function currentCsvDelimiter() {
+  const value = document.getElementById('csvDelimiterSelect')?.value;
+  return CSV_DELIMITERS.includes(value) ? value : detectCSVDelimiter(csvImportSource);
+}
+
+function parsedCsvRows() {
+  return parseCSV(csvImportSource, currentCsvDelimiter());
+}
+
+function csvImportProblem(rowCount, colCount) {
+  if (!rowCount) return 'З таким роздільником у файлі не видно даних. Спробуйте інший.';
+  if (rowCount > CSV_MAX_ROWS) return `Файл має ${rowCount} рядків — це забагато (максимум ${CSV_MAX_ROWS}).`;
+  if (colCount > CSV_MAX_COLS) return `Файл має ${colCount} колонок — це забагато (максимум ${CSV_MAX_COLS}).`;
+  return '';
+}
+
+function refreshCsvImportPreview() {
+  const rows = parsedCsvRows();
+  const cols = rows.reduce((m, r) => Math.max(m, r.length), 0);
+  const problem = csvImportProblem(rows.length, cols);
+
+  const summary = document.getElementById('csvImportSummary');
+  if (summary) {
+    summary.innerText = problem
+      || `Буде імпортовано ${rows.length}×${cols}. Поточну таблицю буде перезаписано.`;
+  }
+
+  const confirmBtn = document.getElementById('csvImportConfirm');
+  if (confirmBtn) confirmBtn.disabled = !!problem;
+
+  const host = document.getElementById('csvImportPreview');
+  if (!host) return;
+  host.replaceChildren();
+
+  const table = document.createElement('table');
+  const shownCols = Math.min(cols, CSV_PREVIEW_COLS);
+  for (const row of rows.slice(0, CSV_PREVIEW_ROWS)) {
+    const tr = document.createElement('tr');
+    for (let c = 0; c < shownCols; c++) {
+      const td = document.createElement('td');
+      td.textContent = row[c] ?? '';
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+  host.appendChild(table);
+}
+
+function confirmCsvImport() {
+  const rows = parsedCsvRows();
+  const cols = rows.reduce((m, r) => Math.max(m, r.length), 0);
+  if (csvImportProblem(rows.length, cols)) return;
+
+  closeModal('csvImportModal');
+  importCSVRows(rows);
+  csvImportSource = '';
+}
+
+function importCSVText(text, delimiter) {
+  importCSVRows(parseCSV(text, delimiter));
+}
+
+function importCSVRows(parsedRows) {
   // Зберігаємо поточний стан ДО перезапису — щоб undo міг відновити
   saveToHistory();
 
-  const rows = parseCSV(text);
+  const rows = Array.isArray(parsedRows) ? parsedRows : [];
   const maxCols = rows.reduce((m, r) => Math.max(m, r.length), 0);
   const needRows = rows.length;
 
