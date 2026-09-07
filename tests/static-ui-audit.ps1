@@ -1133,6 +1133,24 @@ if (Test-Path $officeUiPath) {
   Assert-True ($officeUi -match '!panel\.contains\(document\.activeElement\)') "office-ui.js: modal focus sync must avoid refocusing when focus is already inside the modal"
 }
 
+# Сховище чернеток живе в одному місці. До витягу кожен редактор мав власну
+# копію того самого механізму, і будь-яке виправлення довелося б робити чотири
+# рази — чотири рази ризикуючи тихою втратою чернеток.
+$draftStorageAdapters = @(
+  'paint/js/storage.js',
+  'vector/js/storage.js',
+  'slides/js/storage.js',
+  'text/core/draft-storage.js'
+)
+
+foreach ($adapterPath in $draftStorageAdapters) {
+  $fullAdapterPath = Join-Path $Root $adapterPath
+  if (-not (Test-Path $fullAdapterPath)) { continue }
+  $adapter = Get-Content -Raw -Encoding UTF8 $fullAdapterPath
+  Assert-True ($adapter -match 'OfficeDraftStorage') "${adapterPath}: draft storage must go through the shared office-draft-storage.js"
+  Assert-True ($adapter -notmatch 'indexedDB\.open') "${adapterPath}: the IndexedDB mechanism belongs to the shared layer, not to a per-editor copy"
+}
+
 # Розширення робочих файлів перейменовано разом із пакетом (Арт Офіс → Офіс
 # ПЛЮС). Старі розширення мусять лишатися в accept: перейменування, після
 # якого торішня робота не відкривається, — це втрата роботи, а не косметика.
