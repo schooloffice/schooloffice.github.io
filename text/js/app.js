@@ -195,6 +195,6 @@ window.TextApp.boot = () => {
     document: ArtDocument,
     draft: ArtDraft,
     draftStorage: ArtDraftStorage,
-    formats: { docx: ArtDocx, rtf: ArtRtf, txt: ArtTxt }
+    formats: { docx: ArtDocx, rtf: ArtRtf, txt: ArtTxt, exchange: ArtExchange }
   };
 };

@@ -12,7 +12,9 @@ const ArtTxt = (() => {
           .split(/\r?\n/)
           .map(line => `<p>${_esc(line) || '<br>'}</p>`)
           .join('');
-        resolve({ html, meta: { format: 'txt', fileName: file.name } });
+        // Звичайний текст нічого не втрачає під час очищення: сирий і
+        // прийнятий вміст тут збігаються.
+        resolve({ html, rawHtml: html, meta: { format: 'txt', fileName: file.name } });
       };
       fr.onerror = () => reject(new Error('Не вдалося прочитати файл'));
       fr.readAsText(file, 'utf-8');

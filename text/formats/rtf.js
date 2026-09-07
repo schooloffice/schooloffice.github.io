@@ -9,8 +9,8 @@ const ArtRtf = (() => {
       const fr = new FileReader();
       fr.onload = () => {
         try {
-          const html = _rtfToHtml(fr.result);
-          resolve({ html, meta: { format: 'rtf', fileName: file.name } });
+          const rawHtml = _rtfToHtml(fr.result);
+          resolve({ html: ArtSanitize.clean(rawHtml), rawHtml, meta: { format: 'rtf', fileName: file.name } });
         } catch (e) {
           reject(e);
         }

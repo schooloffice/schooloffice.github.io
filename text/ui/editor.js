@@ -222,13 +222,20 @@ const ArtEditor = (() => {
       ArtState.set('fileName', _stripExt(file.name));
       ArtState.set('fileFormat', result.meta.format);
       ArtHistory.init(_editor);
-      ArtHistory.markSaved();
+      // Імпорт формату обміну НЕ дає збереженої роботи: робочого файла ще
+      // немає, і закриття вкладки лишило б учня лише з чернеткою (аудит F06).
+      ArtState.setDirty(true);
       _updateFileName();
       _syncView();
-      if (result.meta.warnings?.length) {
-        ArtModals.info('Файл відкрито з застереженнями', 'Деяке форматування могло бути спрощено.');
-      }
-      _announce(`Файл ${file.name} відкрито`);
+
+      // Звіт конкретний: раніше сюди приходив порожній список попереджень,
+      // хоча з документа зникали властивості сторінки й частина оформлення.
+      const report = ArtExchange.describeImport(result.meta.format, result.rawHtml || result.html, result.html);
+      ArtModals.info(
+        'Файл відкрито як формат обміну',
+        ArtExchange.importSummary(result.meta.format, report, ArtDocument.FILE_EXTENSION)
+      );
+      _announce(`Файл ${file.name} відкрито; збережіть роботу у .${ArtDocument.FILE_EXTENSION}`);
     } catch (err) {
       ArtModals.info('Помилка відкриття', err.message || String(err));
     }

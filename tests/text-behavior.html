@@ -1356,6 +1356,27 @@
       win.URL.createObjectURL = realCreateObjectURL;
       win.art.modals.closeAll?.();
 
+      // ---- Формати обміну: втрати названі, а не замовчані (аудит F06) ----
+      const exchange = win.art.formats.exchange;
+
+      // Конвертер віддав зображення, таблицю й посилання; редактор прийняв не все.
+      const rawFromConverter = '<p style="color:red">текст</p><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw="><table><tr><td>1</td></tr></table><a href="http://e.com">лінк</a><sup>2</sup>';
+      const cleanedByEditor = win.art.sanitize.clean('<p>текст</p><table><tr><td>1</td></tr></table>');
+      const docxReport = exchange.describeImport('docx', rawFromConverter, cleanedByEditor);
+      const reportCountsLostImage = docxReport.measured.some(note => /зображенн/.test(note));
+      const reportCountsLostLink = docxReport.measured.some(note => /посиланн/.test(note));
+      const reportKeepsWhatSurvived = !docxReport.measured.some(note => /таблиц/.test(note));
+      const reportNamesFormatLimits = docxReport.inherent.some(note => /властивості сторінки/.test(note));
+
+      // Навіть коли нічого не зникло, формат обміну описує не все.
+      const cleanReport = exchange.describeImport('txt', '<p>а</p>', '<p>а</p>');
+      const emptyReportStillWarns = cleanReport.measured.length === 0
+        && cleanReport.inherent.length > 0;
+
+      const summary = exchange.importSummary('txt', cleanReport, artDoc.FILE_EXTENSION);
+      const summaryPointsToWorkingFile = summary.includes(`.${artDoc.FILE_EXTENSION}`)
+        && /не збережена/i.test(summary);
+
       await draft.clear();
       await resetDocument(win, doc);
 
@@ -1500,7 +1521,13 @@
         check('a reopened working file counts as saved', reopenedIsSaved),
         check('Ctrl+S saves the working file, not an exchange format', shortcutSavesWorkingFile),
         check('an export does not clear the unsaved mark', exportKeepsWorkUnsaved),
-        check('an export still writes its exchange extension', exportUsesExchangeExtension)
+        check('an export still writes its exchange extension', exportUsesExchangeExtension),
+        check('the import report counts a dropped image', reportCountsLostImage),
+        check('the import report counts a dropped link', reportCountsLostLink),
+        check('the import report does not blame what survived', reportKeepsWhatSurvived),
+        check('the import report names what the format cannot hold', reportNamesFormatLimits),
+        check('a clean import still warns about the format', emptyReportStillWarns),
+        check('the summary points at the working file', summaryPointsToWorkingFile)
       ];
 
       const failed = checks.filter(item => !item.ok);

@@ -26,7 +26,12 @@ const ArtDocx = (() => {
               "p[style-name='Заголовок 3'] => h3:fresh"
             ]
           });
-          resolve({ html: ArtSanitize.clean(result.value), meta: { format: 'docx', fileName: file.name, warnings: result.messages || [] } });
+          const rawHtml = result.value;
+          resolve({
+            html: ArtSanitize.clean(rawHtml),
+            rawHtml,
+            meta: { format: 'docx', fileName: file.name, warnings: result.messages || [] }
+          });
         } catch (e) {
           reject(new Error('Не вдалося прочитати .docx: ' + (e.message || e)));
         }
