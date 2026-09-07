@@ -5,8 +5,17 @@ const ArtSanitize = (() => {
   const ALLOWED_TAGS = [
     'p', 'br', 'div', 'span', 'strong', 'b', 'em', 'i', 'u', 's', 'strike',
     'h1', 'h2', 'h3', 'h4', 'blockquote', 'ul', 'ol', 'li',
-    'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'a', 'img'
+    'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'a', 'img', 'figure'
   ];
+
+  // Власний словник документа. `class` пропускаємо тільки з цього закритого
+  // списку: без нього робочий файл втрачав би вирівнювання зображення, бо
+  // клас зникав ще до того, як редактор його прочитає. Чужий клас із
+  // недовіреного файла не проходить — а отже, і не може зачепити стилі UI.
+  const ALLOWED_CLASSES = new Set([
+    'art-image-block', 'art-image-frame',
+    'img-align-left', 'img-align-center', 'img-align-right'
+  ]);
 
   // Дозволяємо лише те оформлення, яке документ справді використовує.
   // Раніше `style` пропускався цілком, тож вставлений фрагмент міг містити
@@ -49,6 +58,28 @@ const ArtSanitize = (() => {
     }
   }
 
+  // Порядок атрибутів — деталь серіалізації, а не властивість документа: DOM
+  // і DOMPurify відтворюють його по-різному, тож без фіксованого порядку
+  // очищення того самого вмісту двічі давало б різні рядки. Сталий порядок
+  // робить clean() ідемпотентним, а робочий файл — детермінованим.
+  function canonicalizeAttributes(root) {
+    for (const el of root.querySelectorAll('*')) {
+      const attributes = [...el.attributes]
+        .map(attr => [attr.name, attr.value])
+        .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+      for (const [name] of attributes) el.removeAttribute(name);
+      for (const [name, value] of attributes) el.setAttribute(name, value);
+    }
+  }
+
+  function applyClassPolicy(root) {
+    for (const el of root.querySelectorAll('[class]')) {
+      const kept = [...el.classList].filter(name => ALLOWED_CLASSES.has(name));
+      if (kept.length) el.setAttribute('class', kept.join(' '));
+      else el.removeAttribute('class');
+    }
+  }
+
   function clean(dirty = '') {
     // Без sanitizer HTML у документ не потрапляє взагалі. Раніше тут був
     // ручний blacklist, слабший за основний шлях: він, зокрема, лишав
@@ -59,7 +90,7 @@ const ArtSanitize = (() => {
 
     const html = DOMPurify.sanitize(String(dirty), {
       ALLOWED_TAGS,
-      ALLOWED_ATTR: ['style', 'href', 'target', 'rel', 'colspan', 'rowspan', 'src', 'alt'],
+      ALLOWED_ATTR: ['style', 'class', 'href', 'target', 'rel', 'colspan', 'rowspan', 'src', 'alt'],
       ALLOW_DATA_ATTR: false,
       // Рядки, а не регулярні вирази: DOMPurify звіряє імена атрибутів за
       // точним збігом, тож /^on/i у цьому списку просто ігнорувався б.
@@ -73,6 +104,8 @@ const ArtSanitize = (() => {
     const holder = document.createElement('template');
     holder.innerHTML = html;
     applyStylePolicy(holder.content);
+    applyClassPolicy(holder.content);
+    canonicalizeAttributes(holder.content);
     return serialize(holder.content);
   }
 

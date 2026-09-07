@@ -192,6 +192,7 @@ window.TextApp.boot = () => {
     state: ArtState,
     selection: ArtSelection,
     sanitize: ArtSanitize,
+    document: ArtDocument,
     formats: { docx: ArtDocx, rtf: ArtRtf, txt: ArtTxt }
   };
 };

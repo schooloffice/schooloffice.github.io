@@ -33,35 +33,11 @@ const ArtHistory = (() => {
   }
 
   // Пагінація змінює фізичні .page-обгортки, але не сам документ. Для dirty та
-  // усунення дублів історії порівнюємо логічний потік без службових клонів.
+  // усунення дублів історії порівнюємо логічний потік без службових клонів —
+  // тією самою функцією, що формує вміст робочого файла (core/document.js),
+  // щоб «що вважається зміною» і «що потрапляє у файл» не могли розійтися.
   function _logicalHTML(html) {
-    const source = document.createElement('div');
-    source.innerHTML = html || '';
-    const logical = document.createElement('div');
-    const pageContents = [...source.querySelectorAll('.page-content')];
-    const containers = pageContents.length ? pageContents : [source];
-    containers.forEach(container => {
-      [...container.childNodes].forEach(node => logical.appendChild(node.cloneNode(true)));
-    });
-
-    logical.querySelectorAll('.art-sel-marker, tr[data-art-table-repeat]').forEach(node => node.remove());
-    logical.querySelectorAll('[data-art-flow-tail]').forEach(node => node.removeAttribute('data-art-flow-tail'));
-    logical.querySelectorAll('.is-selected').forEach(node => node.classList.remove('is-selected'));
-    logical.querySelectorAll('mark.search-hit').forEach(mark => mark.replaceWith(...mark.childNodes));
-
-    let node = logical.firstElementChild;
-    while (node) {
-      const next = node.nextElementSibling;
-      if (node.tagName === 'TABLE' && next?.tagName === 'TABLE' && next.dataset.artTablePart === 'continued') {
-        const body = node.tBodies[0] || node;
-        [...(next.tBodies[0] || next).rows].forEach(row => body.appendChild(row));
-        next.remove();
-        continue;
-      }
-      node = next;
-    }
-    logical.querySelectorAll('table[data-art-table-part]').forEach(table => table.removeAttribute('data-art-table-part'));
-    return logical.innerHTML;
+    return ArtDocument.logicalContent(html);
   }
 
   function pushNow() {

@@ -1081,6 +1081,106 @@
         && win.__pwnedText !== true;
       const fallbackKeepsText = withoutSanitizer.includes('перший') && withoutSanitizer.includes('лінк');
 
+      // ---- Модель документа: логічний вміст замість сторінкової верстки (F06) ----
+      // Fixture свідомо містить усе, що пагінатор спотворює: довгу таблицю,
+      // розрізану між сторінками, повторені заголовки, зображення з рамкою
+      // й маркерами розміру, а також нетипову геометрію сторінки.
+      const artDoc = win.art.document;
+
+      await resetDocument(win, doc);
+      win.art.state.set('pageSize', 'a5');
+      win.art.state.set('orientation', 'landscape');
+      win.art.page.setMargins({ top: 1, right: 1, bottom: 1, left: 1 });
+      win.art.state.set('pageNumbers', { enabled: true, position: 'center', skipFirst: true });
+      await wait(200);
+
+      let modelPage = pageContents(doc)[0];
+      modelPage.innerHTML = '<h1>Заголовок роботи</h1><p><strong>Жирний</strong> вступ</p>';
+      setCaretAtEnd(win, modelPage.lastElementChild);
+      const pixel = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+      win.art.selection.insertImage(editor, pixel, 'крапка');
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await wait(200);
+      // Вирівнювання зображення — властивість документа, а не оформлення UI.
+      doc.querySelector('#editor figure.art-image-block')?.classList.add('img-align-center');
+
+      setCaretAtEnd(win, pageContents(doc)[0].lastElementChild || pageContents(doc)[0]);
+      win.art.editor.insertTable(40, 3);
+      await waitFor(() => pageContents(doc).length > 1, 'model fixture pagination', 20000);
+      let modelSettled = pageContents(doc).length;
+      await waitFor(() => {
+        const now = pageContents(doc).length;
+        const stable = now === modelSettled;
+        modelSettled = now;
+        return stable;
+      }, 'model fixture pagination to settle', 20000);
+      await wait(400);
+
+      const splitPages = pageContents(doc).length;
+      const domTables = doc.querySelectorAll('#editor table').length;
+      const domDataRows = doc.querySelectorAll('#editor table tr:not([data-art-table-repeat])').length;
+      const domRepeatedHeaders = doc.querySelectorAll('#editor tr[data-art-table-repeat]').length;
+
+      const payload = artDoc.serialize({
+        html: editor.innerHTML,
+        name: win.art.state.get('fileName'),
+        page: artDoc.pageFromState(win.art.state.documentSnapshot())
+      });
+
+      const parsed = new win.DOMParser().parseFromString(`<div>${payload.content}</div>`, 'text/html');
+      const modelRoot = parsed.body.firstElementChild;
+
+      const schemaIsVersioned = payload.format === 'art-text' && payload.version === artDoc.SCHEMA_VERSION;
+      const dropsPageWrappers = !modelRoot.querySelector('.page, .page-content');
+      const rejoinsSplitTable = splitPages > 1 && domTables > 1 && modelRoot.querySelectorAll('table').length === 1;
+      const keepsEveryRow = modelRoot.querySelectorAll('table tr').length === domDataRows;
+      const dropsRepeatedHeaders = domRepeatedHeaders > 0
+        && !modelRoot.querySelector('tr[data-art-table-repeat]');
+      const dropsLayoutMarkers = !modelRoot.querySelector('[data-art-table-part], .art-image-handle, .art-sel-marker, mark.search-hit');
+      const keepsHeadingAndFormatting = !!modelRoot.querySelector('h1')
+        && !!modelRoot.querySelector('strong');
+      const keepsImage = !!modelRoot.querySelector('img[src^="data:image/gif"]');
+      const keepsImageAlignment = !!modelRoot.querySelector('.img-align-center');
+      const capturesPageGeometry = payload.page.size === 'a5'
+        && payload.page.orientation === 'landscape'
+        && payload.page.margins.left === 1
+        && payload.page.numbers.enabled === true
+        && payload.page.numbers.skipFirst === true;
+
+      // Найгостріша перевірка: очищення не має псувати наш власний вивід.
+      // Якщо валідація змінює те, що щойно серіалізував редактор, робочий
+      // файл втрачає дані вже на першому колі.
+      const validated = artDoc.validate(payload);
+      const validateAccepts = validated.ok;
+      const roundTripIsStable = validated.ok && validated.value.content === payload.content;
+      const roundTripKeepsPage = validated.ok
+        && JSON.stringify(validated.value.page) === JSON.stringify(payload.page);
+
+      // Стан редактора і файл називають геометрію по-різному — міст має бути оборотним.
+      const stateBridgeRoundTrips = JSON.stringify(
+        artDoc.pageFromState(artDoc.pageToState(payload.page))
+      ) === JSON.stringify(payload.page);
+
+      // Недовірений файл: усе, що не наш формат, відхиляється до застосування.
+      const rejectsForeignFormat = artDoc.validate({ format: 'інший', version: 1, content: '' }).reason === 'wrong-format';
+      const rejectsNewerVersion = artDoc.validate({ format: 'art-text', version: artDoc.SCHEMA_VERSION + 1, content: '' }).reason === 'newer-version';
+      const rejectsOversized = artDoc.validate({
+        format: 'art-text', version: 1, content: 'я'.repeat(artDoc.MAX_CONTENT_CHARS + 1)
+      }).reason === 'too-large';
+
+      const tampered = artDoc.validate({
+        format: 'art-text',
+        version: 1,
+        content: '<p class="menubar">текст</p><figure class="art-image-block img-align-left"><img src="' + pixel + '"></figure><script>window.__pwnedDoc = true;<\/script>'
+      });
+      const tamperedIsCleaned = tampered.ok
+        && !/<script/i.test(tampered.value.content)
+        && win.__pwnedDoc !== true;
+      const dropsForeignClasses = tampered.ok && !/class="[^"]*menubar/.test(tampered.value.content);
+      const keepsDocumentClasses = tampered.ok
+        && /art-image-block/.test(tampered.value.content)
+        && /img-align-left/.test(tampered.value.content);
+
       await resetDocument(win, doc);
 
       const checks = [
@@ -1179,7 +1279,27 @@
         check('sanitizer drops url() values even in allowed properties', dropsUrlValues),
         check('sanitizer keeps tables, alignment and borders', keepsTables),
         check('without DOMPurify no markup reaches the document', fallbackDropsMarkup),
-        check('without DOMPurify the text still arrives', fallbackKeepsText)
+        check('without DOMPurify the text still arrives', fallbackKeepsText),
+        check('document payload is versioned', schemaIsVersioned),
+        check('payload carries no page wrappers', dropsPageWrappers),
+        check('a table split across pages is stored as one table', rejoinsSplitTable),
+        check('every data row survives the rejoin', keepsEveryRow),
+        check('repeated headers are layout, not content', dropsRepeatedHeaders),
+        check('layout markers and resize handles are dropped', dropsLayoutMarkers),
+        check('headings and inline formatting survive', keepsHeadingAndFormatting),
+        check('an embedded image survives', keepsImage),
+        check('image alignment survives', keepsImageAlignment),
+        check('page geometry and numbering are captured', capturesPageGeometry),
+        check('validate accepts what serialize produced', validateAccepts),
+        check('validation does not alter the editor’s own output', roundTripIsStable),
+        check('validation keeps the page settings intact', roundTripKeepsPage),
+        check('state/file page bridge round-trips', stateBridgeRoundTrips),
+        check('a foreign format is refused', rejectsForeignFormat),
+        check('a newer schema version is refused', rejectsNewerVersion),
+        check('oversized content is refused', rejectsOversized),
+        check('a tampered file is cleaned, not applied as is', tamperedIsCleaned),
+        check('foreign classes are dropped', dropsForeignClasses),
+        check('the document’s own classes are kept', keepsDocumentClasses)
       ];
 
       const failed = checks.filter(item => !item.ok);
