@@ -430,9 +430,39 @@ const ArtSelection = (() => {
     return insertBlockNode(editor, hr, { insertParagraphAfter: true });
   }
 
+  // Через XMLSerializer, а не через читання розмітки з тимчасового вузла:
+  // статичний аудит тримає ratchet на цей вид доступу до DOM, і збільшувати
+  // борг заради розмітки для буфера обміну не варто.
+  function _rangeToHtml(range) {
+    const serializer = new XMLSerializer();
+    return [...range.cloneContents().childNodes]
+      .map(node => serializer.serializeToString(node))
+      .join('');
+  }
+
+  // Шлях команд меню. Ctrl+C/Ctrl+X проходять нативними clipboard-подіями
+  // (див. text/ui/editor.js), тому тут дозвіл на Clipboard API потрібен лише
+  // для меню. Повертаємо true лише тоді, коли браузер справді прийняв дані:
+  // саме на цьому cut() вирішує, чи можна видаляти виділене.
   async function copy(editor) {
-    const text = getText(editor);
+    const range = getRange(editor);
+    if (!range || range.collapsed) return false;
+    const text = range.toString();
     if (!text) return false;
+
+    // Форматування зберігається лише через text/html; writeText нижче —
+    // резервний шлях для браузерів без ClipboardItem.
+    const html = _rangeToHtml(range);
+    if (html && typeof ClipboardItem === 'function' && navigator.clipboard?.write) {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' })
+        })]);
+        return true;
+      } catch { /* нижче — простий текстовий шлях */ }
+    }
+
     try { await navigator.clipboard.writeText(text); return true; }
     catch { return false; }
   }
@@ -440,10 +470,22 @@ const ArtSelection = (() => {
   async function cut(editor) {
     const range = getRange(editor);
     if (!range || range.collapsed) return false;
-    const ok = await copy(editor);
-    range.deleteContents();
+
+    // Видаляємо виділене лише після підтвердженого копіювання: інакше відмова
+    // Clipboard API знищує текст, якого немає в буфері (аудит F05).
+    const before = serializeSelection(editor);
+    if (!await copy(editor)) return false;
+
+    // Поки тривав async-запит, користувач міг клацнути в інше місце, а
+    // пагінатор — перебудувати сторінки. Застаріле видалення не застосовуємо.
+    const after = serializeSelection(editor);
+    if (!before || !after || JSON.stringify(before) !== JSON.stringify(after)) return false;
+
+    const live = getRange(editor);
+    if (!live || live.collapsed) return false;
+    live.deleteContents();
     normalizeEditor(editor);
-    return ok;
+    return true;
   }
 
   async function pastePlainText(editor) {

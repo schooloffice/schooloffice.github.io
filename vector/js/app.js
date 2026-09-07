@@ -382,6 +382,15 @@ window.VectorApp = window.VectorApp || {};
       showImportError(parsed.reason);
       return;
     }
+
+    // Питаємо аж тут, після валідації: пошкоджений файл не має ні затирати
+    // роботу, ні змушувати відповідати на діалог заради невдалого відкриття
+    // (аудит F08). Скасування лишає поточний проєкт і його історію недоторканими.
+    if (state.unsavedChanges) {
+      const okay = await ui.showConfirmModal('Відкрити інший проєкт?', 'Незбережені зміни буде втрачено.', '📂', 'Відкрити');
+      if (!okay) return;
+    }
+
     restorePayload(parsed.payload);
     state.undoStack.length = 0;
     state.redoStack.length = 0;
@@ -1148,6 +1157,14 @@ window.VectorApp = window.VectorApp || {};
     bindUi();
     bindCanvas();
     bindKeyboard();
+    // Захист від випадкового закриття вкладки. Це не гарантія: браузер може
+    // проігнорувати діалог, а аварійне завершення його взагалі не покаже —
+    // страховкою лишається чернетка.
+    window.addEventListener('beforeunload', (event) => {
+      if (!state.unsavedChanges) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
     ui.updateAll();
     // Асинхронне сховище не блокує показ редактора; відновлення саме оновить UI.
     window.ArtVector.draftRestored = tryRestoreAutosave();

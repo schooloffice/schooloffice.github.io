@@ -1735,6 +1735,46 @@
       doc.querySelector('#stage .stage-element.selected').dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, clientX: 200, clientY: 200 }));
       checks.push(check('non-table context menu hides table/chart-only commands', doc.querySelector('#contextMenu [data-action="edit-table"]').classList.contains('hidden') && doc.querySelector('#contextMenu [data-action="table-cell-format"]').classList.contains('hidden') && doc.querySelector('#contextMenu [data-action="table-track-size"]').classList.contains('hidden') && doc.querySelector('#contextMenu [data-action="table-merge-cells"]').classList.contains('hidden') && doc.querySelector('#contextMenu [data-action="table-split-cell"]').classList.contains('hidden') && doc.querySelector('#contextMenu [data-action="edit-chart"]').classList.contains('hidden')));
       doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+      // --- Відкриття не затирає незбережену роботу (аудит F08) ---
+      const projectInput = doc.querySelector('#projectFileInput');
+      const openModalOverlay = doc.querySelector('#modalOverlay');
+      const saveBadge = doc.querySelector('#saveBadge');
+      const openModalVisible = () => !openModalOverlay.classList.contains('hidden');
+
+      function feedProjectFile(payload) {
+        const transfer = new win.DataTransfer();
+        transfer.items.add(new win.File([JSON.stringify(payload)], 'project.json', { type: 'application/json' }));
+        projectInput.files = transfer.files;
+        projectInput.dispatchEvent(new win.Event('change', { bubbles: true }));
+      }
+
+      const incomingProject = { ...project, fileName: 'Вхідна презентація' };
+
+      clickAction('new-slide');
+      await wait(250);
+      const slidesDirtyBeforeOpen = /Є зміни/.test(saveBadge.textContent);
+      const slideCountBeforeOpen = doc.querySelectorAll('#slideList .slide-card').length;
+
+      feedProjectFile(incomingProject);
+      await waitFor(openModalVisible, 'open confirmation for unsaved slides', 6000);
+      checks.push(check('opening a project asks before discarding unsaved slides',
+        slidesDirtyBeforeOpen
+        && doc.querySelector('#fileName')?.textContent !== 'Вхідна презентація'));
+
+      doc.querySelector('#modalCancel').click();
+      await waitFor(() => !openModalVisible(), 'open confirmation closed', 6000);
+      checks.push(check('cancelling the open keeps the current presentation',
+        doc.querySelectorAll('#slideList .slide-card').length === slideCountBeforeOpen
+        && doc.querySelector('#fileName')?.textContent !== 'Вхідна презентація'
+        && /Є зміни/.test(saveBadge.textContent)));
+
+      feedProjectFile(incomingProject);
+      await waitFor(openModalVisible, 'open confirmation again', 6000);
+      doc.querySelector('#modalConfirm').click();
+      await waitFor(() => doc.querySelector('#fileName')?.textContent === 'Вхідна презентація', 'incoming presentation applied', 6000);
+      checks.push(check('confirming the open applies the new presentation', /Збережено/.test(saveBadge.textContent)));
+
       clickAction('new-project');
       doc.querySelector('#modalConfirm').click();
       await wait(600);

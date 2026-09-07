@@ -18,6 +18,7 @@ const ArtEditor = (() => {
 
     _editor.addEventListener('beforeinput', _handleBeforeInput);
     _editor.addEventListener('input', _handleInput);
+    _editor.addEventListener('paste', _handlePaste);
     _editor.addEventListener('keydown', _handleKeydown);
     _editor.addEventListener('click', _handleClick);
     _editor.addEventListener('contextmenu', _handleTableContextMenu);
@@ -247,6 +248,33 @@ const ArtEditor = (() => {
 
   function _handleBeforeInput() {
     ArtSelection.remember(_editor);
+  }
+
+  // Ctrl+V іде нативною подією, тому дозвіл Clipboard API не потрібен. Але
+  // нативне вставлення поклало б у документ сирий HTML із буфера, тож вміст
+  // перехоплюємо і проводимо через ArtSanitize (insertHTML чистить усередині).
+  function _handlePaste(e) {
+    const data = e.clipboardData;
+    if (!data) return;
+
+    const html = data.getData('text/html');
+    const text = data.getData('text/plain');
+    if (!html && !text) return;
+
+    e.preventDefault();
+    ArtSelection.remember(_editor);
+    const inserted = html
+      ? ArtSelection.insertHTML(_editor, html)
+      : ArtSelection.insertText(_editor, text);
+    if (!inserted) return;
+
+    // preventDefault знімає нативний input, тож dirty, репагінацію й історію
+    // запускаємо самі — тим самим шляхом, що й команди меню.
+    _editor.dispatchEvent(new Event('input', { bubbles: true }));
+    requestAnimationFrame(() => {
+      ArtHistory.pushNow();
+      ArtToolbar.updateState();
+    });
   }
 
   function _handleInput(e) {

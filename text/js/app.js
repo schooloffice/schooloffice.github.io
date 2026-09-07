@@ -172,18 +172,12 @@ window.TextApp.boot = () => {
         ArtModals.open('modalFind');
         document.getElementById('replaceInput')?.focus();
       },
-      a: () => ArtSelection.selectAll(editor),
-      c: () => ArtSelection.copy(editor),
-      x: async () => {
-        await ArtSelection.cut(editor);
-        editor.dispatchEvent(new Event('input', { bubbles: true }));
-        requestAnimationFrame(() => ArtHistory.pushNow());
-      },
-      v: async () => {
-        await ArtSelection.pastePlainText(editor);
-        editor.dispatchEvent(new Event('input', { bubbles: true }));
-        requestAnimationFrame(() => ArtHistory.pushNow());
-      }
+      a: () => ArtSelection.selectAll(editor)
+      // Ctrl+C / Ctrl+X / Ctrl+V свідомо не перехоплюються: нативні clipboard-події
+      // не залежать від дозволу Clipboard API, зберігають форматування і видаляють
+      // вирізане лише після успішного копіювання. Вставлення очищає HTML в
+      // обробнику 'paste' (text/ui/editor.js); меню Правка користується
+      // ArtSelection.copy/cut/pastePlainText.
     };
 
     if (!map[key]) return;

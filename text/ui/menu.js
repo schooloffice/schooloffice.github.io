@@ -59,9 +59,34 @@ const ArtMenu = (() => {
       case 'print': window.print(); break;
       case 'undo': ArtHistory.undo(); ArtToolbar.updateState(); break;
       case 'redo': ArtHistory.redo(); ArtToolbar.updateState(); break;
-      case 'cut': { const editor = document.getElementById('editor'); await ArtSelection.cut(editor); editor.dispatchEvent(new Event('input', { bubbles: true })); requestAnimationFrame(() => ArtHistory.pushNow()); break; }
-      case 'copy': await ArtSelection.copy(document.getElementById('editor')); break;
-      case 'paste': { const editor = document.getElementById('editor'); await ArtSelection.pastePlainText(editor); editor.dispatchEvent(new Event('input', { bubbles: true })); requestAnimationFrame(() => ArtHistory.pushNow()); break; }
+      // Меню користується Clipboard API, тому кожна з цих команд може бути
+      // відхилена браузером. Документ позначаємо зміненим і пишемо в історію
+      // лише після справжньої зміни, а відмову показуємо явно.
+      case 'cut': {
+        const editor = document.getElementById('editor');
+        if (await ArtSelection.cut(editor)) {
+          editor.dispatchEvent(new Event('input', { bubbles: true }));
+          requestAnimationFrame(() => ArtHistory.pushNow());
+        } else {
+          ArtModals.info('Не вдалося вирізати', 'Браузер не дав доступу до буфера обміну. Текст лишився на місці — скористайтеся Ctrl+X.');
+        }
+        break;
+      }
+      case 'copy':
+        if (!await ArtSelection.copy(document.getElementById('editor'))) {
+          ArtModals.info('Не вдалося скопіювати', 'Браузер не дав доступу до буфера обміну. Скористайтеся Ctrl+C.');
+        }
+        break;
+      case 'paste': {
+        const editor = document.getElementById('editor');
+        if (await ArtSelection.pastePlainText(editor)) {
+          editor.dispatchEvent(new Event('input', { bubbles: true }));
+          requestAnimationFrame(() => ArtHistory.pushNow());
+        } else {
+          ArtModals.info('Не вдалося вставити', 'Браузер не дав доступу до буфера обміну. Скористайтеся Ctrl+V.');
+        }
+        break;
+      }
       case 'select-all': ArtSelection.selectAll(document.getElementById('editor')); break;
       case 'find': ArtModals.open('modalFind'); break;
       case 'orient-portrait': ArtEditor.setOrientation('portrait'); break;

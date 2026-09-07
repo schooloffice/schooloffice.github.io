@@ -965,6 +965,96 @@
       win.art.state.set('pageNumbers', { enabled: false, position: 'right', skipFirst: false });
       await wait(300);
 
+      // ---- Буфер обміну (аудит F05) ----
+      // Вирізання не має знищувати текст, якого браузер не прийняв у буфер.
+      const realClipboard = win.navigator.clipboard;
+      function stubClipboard(impl) {
+        Object.defineProperty(win.navigator, 'clipboard', { value: impl, configurable: true });
+      }
+      function restoreClipboard() {
+        Object.defineProperty(win.navigator, 'clipboard', { value: realClipboard, configurable: true });
+      }
+      function selectWholeBlock(block) {
+        const range = win.document.createRange();
+        range.selectNodeContents(block);
+        const sel = win.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return range;
+      }
+
+      await resetDocument(win, doc);
+      let clipPage = pageContents(doc)[0];
+      clipPage.innerHTML = '<p>Вирізати цей рядок</p>';
+      selectWholeBlock(clipPage.firstElementChild);
+      stubClipboard({ writeText: () => Promise.reject(new Error('denied')), write: () => Promise.reject(new Error('denied')) });
+      const deniedCutResult = await win.art.selection.cut(editor);
+      const cutKeepsTextWhenDenied = deniedCutResult === false
+        && (clipPage.textContent || '').includes('Вирізати цей рядок');
+      const cutKeepsSelectionWhenDenied = (win.getSelection()?.toString() || '').includes('Вирізати цей рядок');
+
+      // Успішне копіювання — виділене зникає, а в буфер лягає і текст, і розмітка.
+      await resetDocument(win, doc);
+      clipPage = pageContents(doc)[0];
+      clipPage.innerHTML = '<p><strong>Жирний</strong> фрагмент</p>';
+      selectWholeBlock(clipPage.firstElementChild);
+      let written = null;
+      stubClipboard({
+        writeText: value => { written = { text: value }; return Promise.resolve(); },
+        write: items => { written = { items }; return Promise.resolve(); }
+      });
+      const okCutResult = await win.art.selection.cut(editor);
+      const cutRemovesTextWhenAllowed = okCutResult === true
+        && !(clipPage.textContent || '').includes('Жирний');
+      const cutPutsSomethingInClipboard = !!written;
+
+      // Поки триває async-запис, виділення могло переїхати. Застаріле видалення
+      // застосовувати не можна — інакше зникне не той фрагмент.
+      await resetDocument(win, doc);
+      clipPage = pageContents(doc)[0];
+      clipPage.innerHTML = '<p>Перший рядок</p><p>Другий рядок</p>';
+      selectWholeBlock(clipPage.firstElementChild);
+      const moveSelection = () => {
+        selectWholeBlock(clipPage.lastElementChild);
+        return Promise.resolve();
+      };
+      stubClipboard({ writeText: moveSelection, write: moveSelection });
+      const movedCutResult = await win.art.selection.cut(editor);
+      const cutIgnoresStaleSelection = movedCutResult === false
+        && (clipPage.textContent || '').includes('Перший рядок')
+        && (clipPage.textContent || '').includes('Другий рядок');
+      restoreClipboard();
+
+      // Ctrl+C/X/V мають лишатися нативними: інакше базова робота залежить від
+      // дозволу Clipboard API більше, ніж потрібно.
+      const clipboardKeysStayNative = ['c', 'x', 'v'].every(key => {
+        const event = new win.KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true });
+        editor.dispatchEvent(event);
+        return !event.defaultPrevented;
+      });
+
+      // Нативне вставлення поклало б у документ сирий HTML — обробник має його очистити.
+      await resetDocument(win, doc);
+      clipPage = pageContents(doc)[0];
+      clipPage.innerHTML = '<p>Початок</p>';
+      setCaretAtEnd(win, clipPage.firstElementChild);
+      const transfer = new win.DataTransfer();
+      transfer.setData('text/html', '<p onclick="alert(1)">Вставлено<script>window.__pwned = true;<\/script></p>');
+      transfer.setData('text/plain', 'Вставлено');
+      const pasteEvent = new win.Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(pasteEvent, 'clipboardData', { value: transfer });
+      editor.dispatchEvent(pasteEvent);
+      await wait(300);
+      const pasteInserted = (clipPage.textContent || '').includes('Вставлено');
+      // Обидві перевірки вимагають самого вставлення: інакше вони проходили б
+      // вхолосту на коді, який нічого не вставляє.
+      const pasteStrippedScript = pasteInserted && !clipPage.querySelector('script') && win.__pwned !== true;
+      const pasteStrippedHandlers = pasteInserted && !Array.from(clipPage.querySelectorAll('*'))
+        .some(node => Array.from(node.attributes).some(attr => /^on/i.test(attr.name)));
+      const pasteWasHandled = pasteEvent.defaultPrevented;
+
+      await resetDocument(win, doc);
+
       const checks = [
         ...baseChecks,
         check('long document creates multiple page nodes', longPages.length > 1),
@@ -1045,7 +1135,17 @@
         check('Undo restores page geometry and saved state', pageSetupUndoWorks),
         check('Redo restores changed page geometry', pageSetupRedoWorks),
         check('margins change how much fits on a page', marginsChangePageCapacity),
-        check('new document restores default page geometry', newDocumentResetsGeometry)
+        check('new document restores default page geometry', newDocumentResetsGeometry),
+        check('a refused clipboard leaves the cut text in place', cutKeepsTextWhenDenied),
+        check('a refused cut keeps the selection', cutKeepsSelectionWhenDenied),
+        check('an accepted cut removes the selection', cutRemovesTextWhenAllowed),
+        check('an accepted cut hands the content to the clipboard', cutPutsSomethingInClipboard),
+        check('cut does not apply a stale deletion after the selection moved', cutIgnoresStaleSelection),
+        check('Ctrl+C/X/V stay native', clipboardKeysStayNative),
+        check('paste inserts the clipboard content', pasteInserted),
+        check('paste is handled by the editor, not the browser', pasteWasHandled),
+        check('paste strips scripts', pasteStrippedScript),
+        check('paste strips inline event handlers', pasteStrippedHandlers)
       ];
 
       const failed = checks.filter(item => !item.ok);

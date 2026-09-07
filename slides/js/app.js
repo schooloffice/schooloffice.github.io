@@ -226,6 +226,14 @@ function initSlidesEditor() {
   renderAll();
   applyZoom();
   updateSnapUi();
+  // Захист від випадкового закриття вкладки. Це не гарантія: браузер може
+  // проігнорувати діалог, а аварійне завершення його взагалі не покаже —
+  // страховкою лишається чернетка.
+  window.addEventListener('beforeunload', (event) => {
+    if (!state.unsavedChanges) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
   // Вписуємо слайд після того, як робоча область отримала розміри.
   requestAnimationFrame(fitStageToWorkspace);
 }
@@ -1540,6 +1548,19 @@ async function onProjectFileSelected() {
     const text = await readFileAsText(file);
     const parsed = parsePresentationText(text);
     if (!parsed) throw new Error('invalid');
+
+    // Питаємо аж тут, після валідації: пошкоджений файл не має ні затирати
+    // роботу, ні змушувати відповідати на діалог заради невдалого відкриття
+    // (аудит F08). Скасування лишає презентацію, історію і статус як були.
+    if (state.unsavedChanges) {
+      const okay = await askConfirmation({
+        title: 'Відкрити інший файл?',
+        text: 'Незбережені зміни поточної презентації буде втрачено.',
+        confirmText: 'Відкрити'
+      });
+      if (!okay) return;
+    }
+
     invalidateAutosave({ cancelPending: true });
     applyPresentationData(parsed);
     resetHistory();
@@ -2400,6 +2421,23 @@ function showInfoModal(title, text) {
 
 function showConfirmModal({ title, text, confirmText = 'Продовжити', onConfirm }) {
   showConfirmModalUi(dom, { title, text, confirmText, onConfirm });
+}
+
+// Проміс-обгортка над модалкою підтвердження: onClose спрацьовує і на
+// підтвердженні, і на скасуванні, тож виклик завжди отримує однозначну
+// відповідь і може вирішити, чи продовжувати заміну документа.
+function askConfirmation({ title, text, confirmText }) {
+  return new Promise(resolve => {
+    let confirmed = false;
+    showModal({
+      title,
+      text,
+      confirmText,
+      icon: 'fa-solid fa-triangle-exclamation',
+      onConfirm: () => { confirmed = true; },
+      onClose: () => resolve(confirmed)
+    });
+  });
 }
 
 window.SlidesApp.boot = initSlidesEditor;

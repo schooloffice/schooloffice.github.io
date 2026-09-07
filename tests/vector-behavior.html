@@ -502,6 +502,58 @@
       });
       const lonelyCurveDropped = lonelyCurve?.objects?.length === 0;
 
+      // --- Відкриття не затирає незбережену роботу (аудит F08) ---
+      const ui = win.ArtVector.ui;
+      const projectInput = ui.elements.projectFileInput;
+
+      function feedProjectFile(text, name = 'project.json') {
+        const transfer = new win.DataTransfer();
+        transfer.items.add(new win.File([text], name, { type: 'application/json' }));
+        projectInput.files = transfer.files;
+        projectInput.dispatchEvent(new win.Event('change', { bubbles: true }));
+      }
+      function confirmVisible() {
+        return !ui.elements.modalOverlay.classList.contains('hidden');
+      }
+
+      const incomingProject = JSON.stringify({
+        version: 1,
+        objects: [{ type: 'rect', id: 'incoming', x: 5, y: 5, width: 20, height: 20 }]
+      });
+
+      // Робота є, файл валідний → спершу запит, документ поки недоторканий.
+      state.objects = [rectObject({ id: 'mine' })];
+      state.unsavedChanges = true;
+      editor.renderAll();
+      feedProjectFile(incomingProject);
+      await waitFor(confirmVisible, 'open confirmation for unsaved work');
+      const openAsksBeforeReplacing = state.objects.some(o => o.id === 'mine');
+
+      // Скасування лишає поточний проєкт на місці.
+      ui.elements.modalCancel.click();
+      await waitFor(() => !confirmVisible(), 'confirmation closed');
+      const cancelKeepsCurrentProject = state.objects.some(o => o.id === 'mine')
+        && state.unsavedChanges === true;
+
+      // Підтвердження застосовує новий проєкт.
+      feedProjectFile(incomingProject);
+      await waitFor(confirmVisible, 'open confirmation again');
+      ui.elements.modalConfirm.click();
+      await waitFor(() => state.objects.some(o => o.id === 'incoming'), 'incoming project applied');
+      const confirmAppliesNewProject = !state.objects.some(o => o.id === 'mine')
+        && state.unsavedChanges === false;
+
+      // Пошкоджений файл не має ні питати, ні чіпати роботу.
+      state.objects = [rectObject({ id: 'mine' })];
+      state.unsavedChanges = true;
+      editor.renderAll();
+      feedProjectFile('{ це не json');
+      await waitFor(confirmVisible, 'error modal for a broken file');
+      const brokenFileKeepsProject = state.objects.some(o => o.id === 'mine')
+        && ui.elements.modalCancel.classList.contains('hidden');
+      ui.elements.modalConfirm.click();
+      await waitFor(() => !confirmVisible(), 'error modal closed');
+
       const checks = [
         check('single click selects one shape', singleClickSelectsOne),
         check('shift-click adds a shape to the selection', shiftClickAdds),
@@ -564,7 +616,11 @@
         check('project save/open round-trips', roundTrips),
         check('legacy project without format still opens', legacyOpens),
         check('draft storage layer wired (IndexedDB + reconciliation)', storageReconciles),
-        check('draft uses versioned storage key', usesOwnStorageKey)
+        check('draft uses versioned storage key', usesOwnStorageKey),
+        check('opening a project asks before discarding unsaved work', openAsksBeforeReplacing),
+        check('cancelling the open keeps the current project', cancelKeepsCurrentProject),
+        check('confirming the open applies the new project', confirmAppliesNewProject),
+        check('a broken project file leaves the current work alone', brokenFileKeepsProject)
       ];
 
       result.className = 'pass';
