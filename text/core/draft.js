@@ -72,8 +72,10 @@ const ArtDraft = (() => {
       report({ state: _savedRevision === _revision ? 'saved' : 'pending' });
       return { ok: true, revision };
     } catch (error) {
-      report({ state: 'failed' });
-      return { ok: false, reason: 'write-failed', error };
+      // Конфлікт вкладок — не збій сховища: він має інший стан і інші слова.
+      const conflict = error?.name === 'DraftConflictError';
+      report({ state: conflict ? 'conflict' : 'failed', error });
+      return { ok: false, reason: conflict ? 'conflict' : 'write-failed', error };
     } finally {
       _writing = false;
     }
@@ -130,5 +132,11 @@ const ArtDraft = (() => {
     return { current: _revision, saved: _savedRevision };
   }
 
-  return { init, noteChange, flush, load, clear, revisions, SAVE_DELAY_MS };
+  // Явне рішення людини: ця вкладка перебирає чернетку на себе.
+  function takeOver() {
+    _storage?.takeOverDraft?.();
+    return flush();
+  }
+
+  return { init, noteChange, flush, load, clear, takeOver, revisions, SAVE_DELAY_MS };
 })();

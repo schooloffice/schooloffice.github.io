@@ -109,14 +109,32 @@ const ArtEditor = (() => {
   const DRAFT_STATUS_TEXT = {
     pending: 'Є зміни…',
     saved: 'Чернетку збережено',
-    failed: 'Не вдалося зберегти чернетку'
+    failed: 'Не вдалося зберегти чернетку',
+    conflict: 'Відкрито в іншій вкладці — чернетка не оновлюється'
   };
+
+  let _conflictAsked = false;
 
   function _showDraftStatus(status) {
     const el = document.getElementById('draftStatus');
-    if (!el) return;
-    el.textContent = DRAFT_STATUS_TEXT[status?.state] || '';
-    el.dataset.state = status?.state || '';
+    if (el) {
+      el.textContent = DRAFT_STATUS_TEXT[status?.state] || '';
+      el.dataset.state = status?.state || '';
+    }
+    if (status?.state === 'conflict') _offerDraftTakeOver();
+  }
+
+  // Мовчазне затирання чужої роботи — теж втрата, лише непомітна. Тож вибір
+  // робить людина, і питаємо один раз за сесію, а не на кожен запис.
+  function _offerDraftTakeOver() {
+    if (_conflictAsked) return;
+    _conflictAsked = true;
+    ArtModals.confirm(
+      'Цю роботу відкрито в іншій вкладці, і там чернетка новіша. Зберігати ' +
+      'чернетку саме з цієї вкладки? Робота в іншій вкладці лишиться на екрані, ' +
+      'але її чернетку буде замінено.',
+      () => ArtDraft.takeOver()
+    );
   }
 
   async function _offerDraftRestore() {

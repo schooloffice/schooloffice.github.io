@@ -1,4 +1,19 @@
 'use strict';
+
+// Конфлікт — не збій сховища, а зустріч двох вкладок. Окремий тип потрібен
+// саме тому, що редактор має сказати про нього іншими словами.
+class DraftConflictError extends Error {
+  constructor(otherSavedAt) {
+    super('Чернетку оновила інша вкладка');
+    this.name = 'DraftConflictError';
+    this.otherSavedAt = otherSavedAt;
+  }
+}
+
+function newSessionId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `s-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
 /* office-draft-storage.js — спільне сховище браузерних чернеток.
  *
  * До цього кожен редактор мав власну копію одного й того самого механізму:
@@ -14,9 +29,20 @@
  * завантаження завжди обирає НОВІШУ копію з обох сховищ.
  */
 
-function createDraftStorage({ dbName, storageKey }) {
+function createDraftStorage({ dbName, storageKey, sessionId = newSessionId() }) {
   const DB_NAME = String(dbName);
   const LS_KEY = String(storageKey);
+  // Кожна вкладка має власний ідентифікатор сесії. Він потрібен лише для
+  // одного: відрізнити «це писав я» від «це писала інша вкладка». Жодної
+  // автентифікації тут немає й бути не може.
+  const SESSION_ID = String(sessionId);
+  // Який саме запис ця вкладка бачила або зробила останнім. Порівнювати час
+  // не можна: два записи в межах однієї мілісекунди мають однаковий savedAt,
+  // і конфлікт лишився б непоміченим. Ідентичність запису від часу не
+  // залежить.
+  let lastSeenWriteId = null;
+  let writeCounter = 0;
+  let conflictOverridden = false;
   const DB_VERSION = 1;
   const STORE = 'drafts';
   const DRAFT_KEY = 'current';
@@ -171,9 +197,28 @@ function createDraftStorage({ dbName, storageKey }) {
 
   // Зберігає чернетку. Помилки (зокрема quota) ПРОКИДАЄ далі, щоб автозбереження
   // могло відреагувати, не ламаючи редактор.
+  //
+  // Якщо чернетку встигла оновити ІНША вкладка, запис не відбувається:
+  // мовчазне затирання чужої роботи — це та сама втрата, лише непомітна
+  // (аудит F17). Конфлікт прилітає окремою помилкою, щоб редактор міг
+  // сказати про нього людині, а не списати на збій сховища.
   function saveDraft(data) {
     return enqueue(async () => {
-      const record = { savedAt: Date.now(), payload: data };
+      if (!conflictOverridden) {
+        const existing = await readNewestRecord();
+        if (existing && existing.sessionId && existing.sessionId !== SESSION_ID
+            && existing.writeId !== lastSeenWriteId) {
+          throw new DraftConflictError(existing.savedAt);
+        }
+      }
+      writeCounter += 1;
+      const record = {
+        savedAt: Date.now(),
+        sessionId: SESSION_ID,
+        writeId: `${SESSION_ID}:${writeCounter}`,
+        payload: data
+      };
+      lastSeenWriteId = record.writeId;
       if (idbUsable) {
         try {
           await idbWrite(record);
@@ -187,14 +232,26 @@ function createDraftStorage({ dbName, storageKey }) {
     });
   }
 
+  async function readNewestRecord() {
+    const idbRecord = toRecord(await idbRead());
+    const localRecord = toRecord(localRead());
+    return chooseNewerDraftRecord(idbRecord, localRecord);
+  }
+
   // Повертає НОВІШУ збережену чернетку з обох сховищ (або null).
+  // Прочитане стає «баченим»: вкладка, яка відкрила чернетку, є її
+  // законним продовжувачем і не конфліктує сама з собою.
   function loadDraft() {
     return enqueue(async () => {
-      const idbRecord = toRecord(await idbRead());
-      const localRecord = toRecord(localRead());
-      const chosen = chooseNewerDraftRecord(idbRecord, localRecord);
+      const chosen = await readNewestRecord();
+      if (chosen) lastSeenWriteId = chosen.writeId ?? null;
       return chosen ? chosen.payload : null;
     });
+  }
+
+  // Явне рішення людини: писати попри те, що чернетку тримає інша вкладка.
+  function takeOverDraft() {
+    conflictOverridden = true;
   }
 
   // Прибирає чернетку з обох сховищ; пише tombstone, якщо IDB прибрати не вдалося.
@@ -218,7 +275,7 @@ function createDraftStorage({ dbName, storageKey }) {
     });
   }
 
-  return { saveDraft, loadDraft, clearDraft, chooseNewerDraftRecord };
+  return { saveDraft, loadDraft, clearDraft, takeOverDraft, chooseNewerDraftRecord, sessionId: SESSION_ID };
 }
 
-window.OfficeDraftStorage = { createDraftStorage };
+window.OfficeDraftStorage = { createDraftStorage, DraftConflictError, newSessionId };

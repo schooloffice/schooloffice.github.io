@@ -1356,6 +1356,53 @@
       win.URL.createObjectURL = realCreateObjectURL;
       win.art.modals.closeAll?.();
 
+      // ---- Дві вкладки над однією чернеткою (аудит F17) ----
+      // Дві сесії над одним сховищем — це і є дві вкладки: спільний шар не
+      // знає про вкладки, він знає про сесії.
+      const sharedKeys = { dbName: `probe_shared_${Date.now()}`, storageKey: `probe_shared_ls_${Date.now()}` };
+      const tabA = win.OfficeDraftStorage.createDraftStorage({ ...sharedKeys, sessionId: 'tab-A' });
+      const tabB = win.OfficeDraftStorage.createDraftStorage({ ...sharedKeys, sessionId: 'tab-B' });
+
+      const sessionsDiffer = tabA.sessionId !== tabB.sessionId;
+
+      await tabA.saveDraft({ from: 'A', n: 1 });
+
+      // B не бачила запису A — і не має його затирати.
+      let conflictError = null;
+      try {
+        await tabB.saveDraft({ from: 'B', n: 1 });
+      } catch (error) {
+        conflictError = error;
+      }
+      const secondTabIsRefused = conflictError?.name === 'DraftConflictError';
+      const otherWorkSurvived = (await tabA.loadDraft())?.from === 'A';
+
+      // Прочитавши чужу чернетку, вкладка стає її законним продовжувачем.
+      await tabB.loadDraft();
+      let afterReadError = null;
+      try {
+        await tabB.saveDraft({ from: 'B', n: 2 });
+      } catch (error) {
+        afterReadError = error;
+      }
+      const readingResolvesConflict = afterReadError === null
+        && (await tabA.loadDraft())?.from === 'B';
+
+      // Явне рішення людини: перебрати чернетку на себе попри конфлікт.
+      await tabA.saveDraft({ from: 'A', n: 3 });
+      let stillConflicts = null;
+      try {
+        await tabB.saveDraft({ from: 'B', n: 4 });
+      } catch (error) {
+        stillConflicts = error;
+      }
+      const conflictRepeatsWithoutDecision = stillConflicts?.name === 'DraftConflictError';
+      tabB.takeOverDraft();
+      await tabB.saveDraft({ from: 'B', n: 5 });
+      const takeOverLetsThisTabWrite = (await tabA.loadDraft())?.n === 5;
+
+      await tabA.clearDraft();
+
       // ---- Формати обміну: втрати названі, а не замовчані (аудит F06) ----
       const exchange = win.art.formats.exchange;
 
@@ -1527,7 +1574,13 @@
         check('the import report does not blame what survived', reportKeepsWhatSurvived),
         check('the import report names what the format cannot hold', reportNamesFormatLimits),
         check('a clean import still warns about the format', emptyReportStillWarns),
-        check('the summary points at the working file', summaryPointsToWorkingFile)
+        check('the summary points at the working file', summaryPointsToWorkingFile),
+        check('two tabs get different session ids', sessionsDiffer),
+        check('a second tab is refused, not silently merged', secondTabIsRefused),
+        check('the other tab’s work survives the refusal', otherWorkSurvived),
+        check('reading the draft makes this tab its rightful continuer', readingResolvesConflict),
+        check('the conflict repeats until a person decides', conflictRepeatsWithoutDecision),
+        check('an explicit take-over lets this tab write again', takeOverLetsThisTabWrite)
       ];
 
       const failed = checks.filter(item => !item.ok);
