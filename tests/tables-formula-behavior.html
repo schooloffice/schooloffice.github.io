@@ -339,6 +339,76 @@
       // Літерал #N/A має розбиратися парсером (трапляється в імпортованих книгах).
       checks.push(assertThrows('літерал #N/A', () => evaluateFormula('#N/A'), '#N/A'));
 
+      // ---- Кеш перерахунку (аудит F10) ----
+      // Рахуємо саме кількість викликів evaluator, а не мілісекунди: поріг у
+      // часі нестабільний на різних машинах, а кількість обчислень — ні.
+      // Лічильник ставимо на глобальне ім'я, тому він бачить і вкладені виклики.
+      setGridSize(60, 10);
+      const realEvaluateFormula = window.evaluateFormula;
+      let evaluatorCalls = 0;
+      window.evaluateFormula = function countingEvaluateFormula(expr) {
+        evaluatorCalls++;
+        return realEvaluateFormula.call(this, expr);
+      };
+
+      function countCalls(expr) {
+        evaluatorCalls = 0;
+        const value = window.evaluateFormula(expr);
+        return { value, calls: evaluatorCalls };
+      }
+
+      function buildDoublingChain(lastRow) {
+        const data = { A1: '1' };
+        for (let r = 2; r <= lastRow; r++) data['A' + r] = `=A${r - 1}+A${r - 1}`;
+        return data;
+      }
+
+      // Кожна ланка посилається на попередню двічі. Без кешу це 2^(n-1)
+      // обчислень: для 16 клітинок аудит зафіксував 32 768 викликів.
+      cellData = buildDoublingChain(16);
+      const chain16 = countCalls('A16');
+      cellData = buildDoublingChain(30);
+      const chain30 = countCalls('A30');
+
+      checks.push(assertEqual('doubling chain of 16 still computes 2^15', chain16.value, 32768));
+      checks.push(assertEqual('doubling chain of 16 stays linear', chain16.calls <= 20, true));
+      checks.push(assertEqual('doubling chain of 30 still computes 2^29', chain30.value, 536870912));
+      checks.push(assertEqual('doubling chain of 30 stays linear', chain30.calls <= 40, true));
+      // Головне: подвоєння довжини ланцюжка не подвоює вартість у степені.
+      checks.push(assertEqual('chain cost grows with length, not exponentially',
+        chain30.calls - chain16.calls <= 20, true));
+
+      // Кеш живе один цикл: наступний виклик має побачити змінені дані.
+      cellData = { A1: '2', A2: '=A1*3' };
+      const beforeEdit = window.evaluateFormula('A2');
+      cellData.A1 = '5';
+      const afterEdit = window.evaluateFormula('A2');
+      checks.push(assertEqual('cached value before the edit', beforeEdit, 6));
+      checks.push(assertEqual('cache does not survive a data change', afterEdit, 15));
+
+      // Цикл має давати передбачувану помилку, а не глибину рекурсії.
+      cellData = { A1: '=B1', B1: '=A1' };
+      checks.push(assertThrows('two-cell cycle reports #CIRC!',
+        () => window.evaluateFormula('A1'), '#CIRC!'));
+      cellData = { A1: '=A1' };
+      checks.push(assertThrows('self-reference reports #CIRC!',
+        () => window.evaluateFormula('A1'), '#CIRC!'));
+
+      window.evaluateFormula = realEvaluateFormula;
+
+      // ---- Межі діапазону (аудит F10) ----
+      // Аркуш не буває більшим за 500×200, тож усе понад 100 000 клітинок —
+      // це вихід за межі таблиці, а не довгий, але дійсний діапазон.
+      cellData = { A1: '1' };
+      checks.push(assertThrows('oversized range reports #REF! instead of freezing',
+        () => evaluateFormula('SUM(A1:ZZ99999)'), '#REF!'));
+      checks.push(assertEqual('range at the sheet limit is still allowed',
+        rangeToValues(0, 1, 199, 500).length, 100000));
+      checks.push(assertThrows('range one row past the limit is rejected',
+        () => rangeToValues(0, 1, 199, 501), '#REF!'));
+      checks.push(assertThrows('oversized grid range is rejected too',
+        () => rangeToGrid(0, 1, 199, 501), '#REF!'));
+
       result.className = 'pass';
       result.textContent = checks.join('\n') + '\n\nPASSED';
       document.body.dataset.tablesFormula = 'passed';

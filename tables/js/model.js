@@ -5,6 +5,10 @@ const DEFAULT_ROWS = 60;
 const DEFAULT_COL_COUNT = 30; // A..AD
 const MAX_CALC_DEPTH = 60;
 const MAX_CELL_LEN = 200;
+// Аркуш не буває більшим за 500×200 (див. setGridSize), тож діапазон, який
+// покриває більше клітинок, за визначенням виходить за межі таблиці. Перевірка
+// потрібна до перебору: =SUM(A1:ZZ999999) інакше блокує головний потік.
+const MAX_RANGE_CELLS = 500 * 200;
 
 let ROWS = DEFAULT_ROWS;
 let COL_COUNT = DEFAULT_COL_COUNT;

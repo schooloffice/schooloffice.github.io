@@ -179,6 +179,10 @@ function evaluateFormula(expr) {
     throw formulaError(FORMULA_ERRORS.CIRC);
   }
 
+  // Кеш перерахунку вкладений: якщо цикл уже відкрив recalculateAll, він тут
+  // лише поглиблюється, тож увесь прохід сітки ділить один кеш. Окремий виклик
+  // (панель формул, умовне форматування, фільтр) відкриває власний короткий цикл.
+  beginCalculation();
   try {
     const src = String(expr || '').trim();
     if (src === '') { calcDepth--; return 0; }
@@ -192,6 +196,8 @@ function evaluateFormula(expr) {
     calcDepth = 0;
     if (e && (e.isFormulaError || isFormulaErrorCode(e.message))) throw e;
     throw formulaError(FORMULA_ERRORS.VALUE);
+  } finally {
+    endCalculation();
   }
 }
 

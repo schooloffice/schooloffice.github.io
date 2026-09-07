@@ -9,6 +9,18 @@ function applyCellType(td, value) {
 }
 
 function recalculateAll() {
+  // Один цикл перерахунку на весь прохід: клітинка, на яку посилається
+  // півсітки, рахується один раз, а не заново для кожного посилання.
+  // Дані під час проходу не змінюються — записується лише те, що видно.
+  beginCalculation();
+  try {
+    recalculateGrid();
+  } finally {
+    endCalculation();
+  }
+}
+
+function recalculateGrid() {
   for (let r = 1; r <= ROWS; r++) {
     for (let c = 0; c < COL_COUNT; c++) {
       const id = getCellId(c, r);
