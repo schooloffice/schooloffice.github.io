@@ -491,7 +491,7 @@ async function parseXlsxBytes(bytes, fallbackName) {
   if (!sheets.length) throw new Error('Не вдалося прочитати жодного аркуша');
 
   return {
-    payload: { type: 'art-tables-workbook', version: 2, name: fallbackName, activeSheet: 0, sheets },
+    payload: { type: 'office-plus-tables', version: 2, name: fallbackName, activeSheet: 0, sheets },
     report
   };
 }

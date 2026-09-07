@@ -12,6 +12,59 @@ const CHART_PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#
 // { rows: [{ label, values: [number|null, ...] }], seriesLabels: [...], hasNumericFirstColumn }
 let chartSource = null;
 
+// Що саме визначає діаграму: аркуш, діапазон і тип. У файл іде саме це, а не
+// витягнуті числа (аудит, розділ 5): інакше відкрита наступного уроку діаграма
+// показувала б старі значення, хоча клітинки вже змінилися. Діаграма має
+// лишатися поданням даних книги, а не їхнім знімком.
+let chartDefinition = null;
+
+const CHART_TYPES = ['bar', 'line', 'pie', 'scatter'];
+
+function rememberChartDefinition() {
+  const b = getBounds();
+  chartDefinition = {
+    sheet: activeSheet,
+    range: { cMin: b.cMin, rMin: b.rMin, cMax: b.cMax, rMax: b.rMax },
+    type: chartType
+  };
+}
+
+function getChartDefinition() {
+  return chartDefinition ? JSON.parse(JSON.stringify(chartDefinition)) : null;
+}
+
+// Недовірений файл: усе, що не лягає в межі книги, відкидаємо цілком —
+// половинчаста діаграма гірша за її відсутність.
+function normalizeChartDefinition(raw, sheetCount) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (!CHART_TYPES.includes(raw.type)) return null;
+
+  const sheet = Number(raw.sheet);
+  if (!Number.isInteger(sheet) || sheet < 0 || sheet >= sheetCount) return null;
+
+  const range = raw.range;
+  if (!range || typeof range !== 'object') return null;
+  const bounds = ['cMin', 'rMin', 'cMax', 'rMax'].map(key => Number(range[key]));
+  if (bounds.some(value => !Number.isInteger(value) || value < 0 || value > 10000)) return null;
+  const [cMin, rMin, cMax, rMax] = bounds;
+  if (cMax < cMin || rMax < rMin) return null;
+
+  return { sheet, range: { cMin, rMin, cMax, rMax }, type: raw.type };
+}
+
+function setChartDefinition(raw) {
+  chartDefinition = normalizeChartDefinition(raw, sheets.length) || null;
+  return chartDefinition;
+}
+
+// Чи будувати діаграму зі збереженого визначення, а не з поточного виділення.
+// Виділений діапазон означає, що учень хоче нову діаграму саме з нього.
+function shouldUseSavedChart() {
+  if (!chartDefinition || chartDefinition.sheet !== activeSheet) return false;
+  const b = getBounds();
+  return b.cMin === b.cMax && b.rMin === b.rMax;
+}
+
 function chartCellValue(col, row) {
   try {
     return getCellValueByIndex(col, row);
@@ -79,6 +132,15 @@ function extractChartSource() {
 
 function makeChart() {
   recalculateAll();
+
+  // Збережена діаграма повертається такою, якою її залишили: з тим самим
+  // діапазоном і типом, але з поточними значеннями клітинок.
+  if (shouldUseSavedChart()) {
+    selStart = { c: chartDefinition.range.cMin, r: chartDefinition.range.rMin };
+    selEnd = { c: chartDefinition.range.cMax, r: chartDefinition.range.rMax };
+    chartType = chartDefinition.type;
+  }
+
   const source = extractChartSource();
 
   if (!source.rows.length) {
@@ -87,6 +149,7 @@ function makeChart() {
   }
 
   chartSource = source;
+  rememberChartDefinition();
   openModal('chartModal');
   updateChartTypeButtons();
   renderChartFromSource();
@@ -206,6 +269,8 @@ function updateChartTypeButtons() {
 
 function setChartType(t) {
   chartType = t;
+  // Тип — частина визначення діаграми, тож зміна має пережити збереження.
+  if (chartDefinition) chartDefinition.type = t;
   updateChartTypeButtons();
   renderChartFromSource();
 }
@@ -213,6 +278,9 @@ function setChartType(t) {
 window.TablesCharts = {
   makeChart,
   setChartType,
+  getChartDefinition,
+  setChartDefinition,
+  normalizeChartDefinition,
   extractChartSource,
   buildCategoryConfig,
   buildScatterConfig,

@@ -368,6 +368,53 @@
       checks.push(['storage: бейдж говорить саме про чернетку, а не про файл',
         /чернетк/i.test(badgeAfterRecovery)]);
 
+      // ---- Діаграма переживає збереження книги (аудит, розділ 5) ----
+      // Раніше у файл ішли лише клітинки: тип і діапазон діаграми учень
+      // мусив відновлювати вручну наступного уроку.
+      setCell('A1', 'Товар');
+      setCell('B1', 'Ціна');
+      setCell('A2', 'Ручка');
+      setCell('B2', '15');
+      setCell('A3', 'Зошит');
+      setCell('B3', '10');
+      selectRange('A1', 'B3');
+      win.TablesCharts.makeChart();
+      win.TablesCharts.setChartType('line');
+      await wait(200);
+
+      const definition = win.TablesCharts.getChartDefinition();
+      const definitionIsRange = !!definition
+        && definition.type === 'line'
+        && definition.range.cMax >= definition.range.cMin
+        && definition.range.rMax > definition.range.rMin;
+      const definitionHasNoSnapshot = !!definition
+        && !('rows' in definition) && !('values' in definition);
+
+      // Книга, збережена у файл, несе визначення діаграми.
+      const savedPayload = win.TablesWorkbookFile.buildWorkbookPayload
+        ? win.TablesWorkbookFile.buildWorkbookPayload()
+        : null;
+
+      // Недовірене визначення не має потрапляти в стан.
+      const foreignType = win.TablesCharts.normalizeChartDefinition({ type: 'пиріг', sheet: 0, range: { cMin: 0, rMin: 1, cMax: 1, rMax: 2 } }, 1);
+      const missingSheet = win.TablesCharts.normalizeChartDefinition({ type: 'bar', sheet: 9, range: { cMin: 0, rMin: 1, cMax: 1, rMax: 2 } }, 1);
+      const invertedRange = win.TablesCharts.normalizeChartDefinition({ type: 'bar', sheet: 0, range: { cMin: 5, rMin: 1, cMax: 1, rMax: 2 } }, 1);
+      const goodDefinition = win.TablesCharts.normalizeChartDefinition({ type: 'pie', sheet: 0, range: { cMin: 0, rMin: 1, cMax: 1, rMax: 3 } }, 1);
+
+      win.TablesUi?.closeModal?.('chartModal');
+      doc.getElementById('chartModal')?.classList.remove('active');
+
+      checks.push(['діаграма: визначення описує діапазон і тип', definitionIsRange]);
+      checks.push(['діаграма: у визначенні немає знімка чисел', definitionHasNoSnapshot]);
+      checks.push(['діаграма: чужий тип відхиляється', foreignType === null]);
+      checks.push(['діаграма: посилання на неіснуючий аркуш відхиляється', missingSheet === null]);
+      checks.push(['діаграма: перевернутий діапазон відхиляється', invertedRange === null]);
+      checks.push(['діаграма: коректне визначення приймається', !!goodDefinition && goodDefinition.type === 'pie']);
+      if (savedPayload) {
+        checks.push(['діаграма: книга несе визначення', !!savedPayload.chart && savedPayload.chart.type === 'line']);
+        checks.push(['книга: новий ідентифікатор формату', savedPayload.type === 'office-plus-tables']);
+      }
+
       const failures = checks.filter(([, ok]) => !ok).map(([name]) => name);
       result.className = failures.length ? 'fail' : 'pass';
       result.textContent = checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} ${name}`).join('\n') +

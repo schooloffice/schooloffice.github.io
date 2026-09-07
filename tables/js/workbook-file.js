@@ -4,6 +4,10 @@
 // в accept і відкривається як раніше — перейменування не має робити
 // торішню роботу недоступною.
 const WORKBOOK_EXT = 'tablytsia';
+// Ідентифікатор усередині файла. Старий (з часів назви Арт Офіс) читаємо й
+// далі: збережена торік книга має відкриватися.
+const WORKBOOK_TYPE = 'office-plus-tables';
+const KNOWN_WORKBOOK_TYPES = [WORKBOOK_TYPE, 'art-tables-workbook'];
 const WORKBOOK_MAX_SHEETS = 50;
 const WORKBOOK_MAX_TEXT_CHARS = 5 * 1024 * 1024;
 const WORKBOOK_MAX_NAME_LEN = 100;
@@ -122,7 +126,7 @@ function validateWorkbookSheet(value, usedNames, index) {
 
 function validateWorkbookPayload(payload) {
   workbookObject(payload, 'Файл');
-  if (payload.type && payload.type !== 'art-tables-workbook') throw new Error('Це не файл ПЛЮС Таблиць');
+  if (payload.type && !KNOWN_WORKBOOK_TYPES.includes(payload.type)) throw new Error('Це не файл ПЛЮС Таблиць');
   if (payload.version != null && ![1, 2].includes(Number(payload.version))) throw new Error('Непідтримувана версія файлу');
 
   const usedNames = new Set();
@@ -148,19 +152,29 @@ function validateWorkbookPayload(payload) {
   return {
     name: String(payload.name || DEFAULT_WORKBOOK_NAME).slice(0, WORKBOOK_MAX_NAME_LEN),
     activeSheet: Number.isInteger(active) ? Math.max(0, Math.min(validatedSheets.length - 1, active)) : 0,
-    sheets: validatedSheets
+    sheets: validatedSheets,
+    chart: window.TablesCharts?.normalizeChartDefinition?.(payload.chart, validatedSheets.length) || null
+  };
+}
+
+// Складання книги відокремлене від завантаження: так вміст файла можна
+// перевірити, не скидаючи його в теку завантажень.
+function buildWorkbookPayload() {
+  syncActiveSheetFromGlobals();
+  return {
+    type: WORKBOOK_TYPE,
+    version: 2,
+    name: workbookName,
+    activeSheet,
+    sheets,
+    // Визначення діаграми, а не її знімок: наступного уроку вона покаже
+    // поточні значення клітинок.
+    chart: window.TablesCharts?.getChartDefinition?.() || null
   };
 }
 
 function exportWorkbook() {
-  syncActiveSheetFromGlobals();
-  const payload = {
-    type: 'art-tables-workbook',
-    version: 2,
-    name: workbookName,
-    activeSheet,
-    sheets
-  };
+  const payload = buildWorkbookPayload();
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -194,6 +208,7 @@ function importWorkbookText(text) {
 
     sheets = payload.sheets;
     activeSheet = payload.activeSheet;
+    window.TablesCharts?.setChartDefinition?.(payload.chart);
     rowFilter = null;
     loadGlobalsFromSheet(activeSheet);
 
@@ -210,6 +225,7 @@ function importWorkbookText(text) {
 }
 
 window.TablesWorkbookFile = {
+  buildWorkbookPayload,
   exportWorkbook,
   importWorkbookText,
   triggerWorkbookImport,
