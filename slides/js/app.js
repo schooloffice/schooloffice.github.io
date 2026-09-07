@@ -292,6 +292,22 @@ async function hydrateFromDraft() {
   const saved = normalizePresentation(raw, { trusted: true });
   draftHydrationActive = false;
   if (!saved) return;
+
+  // За одним комп’ютером працює багато учнів, тож чужу незавершену роботу
+  // не показуємо як свою: людина вирішує сама (аудит F17).
+  const restore = await askConfirmation({
+    title: 'Відновити попередню роботу?',
+    text: 'На цьому комп’ютері лишилася незавершена презентація. Відновити її чи почати нову?',
+    confirmText: 'Відновити'
+  });
+  if (!restore) {
+    // «Почати нову» прибирає стару чернетку: інакше наступний учень
+    // побачив би те саме питання про чужу роботу.
+    await clearDraft().catch(() => {});
+    return;
+  }
+  // Поки тривало питання, учень міг почати працювати — його робота важливіша.
+  if (state.unsavedChanges) return;
   applyPresentationData(saved);
   resetHistory();
   // Відновлена чернетка — врятована робота, а не збережений файл: вона лишається

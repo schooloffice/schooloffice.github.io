@@ -125,9 +125,20 @@ function paintSaveBadge(kind, text) {
   badge.style.color = style.color;
 }
 
+// Чи є в книзі робота, якої немає в жодному файлі. Чернетка в localStorage
+// сюди не зараховується: вона живе лише в цьому браузері.
+let workbookHasUnsavedFile = false;
+
+function markWorkbookSavedToFile() { workbookHasUnsavedFile = false; }
+function hasUnsavedWorkbookFile() { return workbookHasUnsavedFile; }
+
 function setDirty(flag = true, label = 'Є зміни…') {
-  if (flag) paintSaveBadge('dirty', label);
-  else setSaveBadge();
+  if (flag) {
+    workbookHasUnsavedFile = true;
+    paintSaveBadge('dirty', label);
+  } else {
+    setSaveBadge();
+  }
 }
 
 const PERSIST_FAILURE_LABELS = {

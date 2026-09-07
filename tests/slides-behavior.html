@@ -1791,8 +1791,32 @@
       const reloadedDoc = frame.contentDocument;
       const reloadedWin = frame.contentWindow;
       await waitFor(() => typeof reloadedWin.SlidesApp?.boot === 'function', 'reloaded boot');
+
+      // За одним комп'ютером працює багато учнів, тож чернетка більше не
+      // застосовується мовчки: спершу питання, і лише потім відновлення.
+      const reloadedOverlay = reloadedDoc.getElementById('modalOverlay');
+      await waitFor(() => !reloadedOverlay.classList.contains('hidden'), 'restore prompt after reload', 6000);
+      checks.push(check('a draft is offered, not applied silently',
+        reloadedDoc.querySelector('#fileName')?.textContent !== draftMarker));
+
+      reloadedDoc.getElementById('modalConfirm').click();
       await waitFor(() => reloadedDoc.querySelector('#fileName')?.textContent === draftMarker, 'draft restored after reload', 6000);
       checks.push(check('draft restores after reload (hydration)', reloadedDoc.querySelector('#fileName')?.textContent === draftMarker));
+
+      // «Почати нову» має прибрати стару чернетку: інакше наступний учень за
+      // тим самим комп'ютером знову побачив би питання про чужу роботу.
+      await loadFrame('about:blank');
+      await clearDraft();
+      await saveDraft({ schemaVersion: 1, fileName: 'Чужа-' + Date.now(), slides: [{ id: 's1', background: '#ffffff', elements: [{ type: 'text', content: 'Текст', x: 100, y: 100, w: 200, h: 80 }] }], currentSlideId: 's1' });
+      await loadFrame('../slides/index.html?decline=1');
+      const declineDoc = frame.contentDocument;
+      const declineWin = frame.contentWindow;
+      await waitFor(() => typeof declineWin.SlidesApp?.boot === 'function', 'boot before decline');
+      const declineOverlay = declineDoc.getElementById('modalOverlay');
+      await waitFor(() => !declineOverlay.classList.contains('hidden'), 'restore prompt before decline', 6000);
+      declineDoc.getElementById('modalCancel').click();
+      await wait(600);
+      checks.push(check('declining the restore clears the draft', await loadDraft() === null));
 
       result.className = 'pass';
       result.textContent = checks.join('\n') + '\n\nPASSED';

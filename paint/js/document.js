@@ -121,6 +121,20 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       try {
         const draft = await window.ArtMalyunky.paintStorage.loadDraft();
         if (!draft) return;
+
+        // За одним комп'ютером працює багато учнів, тож чужу незавершену
+        // роботу не показуємо як свою: людина вирішує сама (аудит F17).
+        const restore = await ui.showConfirmModal(
+          'Відновити попередню роботу?',
+          'На цьому комп’ютері лишилася незавершена робота. Відновити її чи почати нову?',
+          '🖼️', 'Відновити'
+        );
+        if (!restore) {
+          // «Почати нову» прибирає стару чернетку: інакше наступний учень
+          // побачив би те саме питання про чужу роботу.
+          await window.ArtMalyunky.paintStorage.clearDraft().catch(() => {});
+          return;
+        }
         state.fileName = draft.fileName || constants.DEFAULT_FILE_NAME;
         state.currentTool = draft.currentTool || 'brush';
         state.currentBrush = draft.currentBrush || 'pencil';

@@ -281,6 +281,17 @@ function initTablesEditor() {
   setSaveBadge();
   updateSelectionStats();
 
+  // Попередження перед закриттям. Таблиця живе в браузерній чернетці, тож
+  // для цього учня вона переживе перезавантаження — але не переїзд на інший
+  // комп’ютер і не наступного учня. Файл лишається єдиним надійним виходом.
+  // Це не гарантія: браузер може діалог проігнорувати, а аварія його
+  // взагалі не покаже.
+  window.addEventListener('beforeunload', (e) => {
+    if (!hasUnsavedWorkbookFile()) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
+
   // ---- Storage overflow/warning events ----
   window.addEventListener('storage-overflow', (e) => {
     const mb = (e.detail.bytes / 1024 / 1024).toFixed(1);

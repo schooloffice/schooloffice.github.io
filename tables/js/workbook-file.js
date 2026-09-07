@@ -175,6 +175,7 @@ function buildWorkbookPayload() {
 
 function exportWorkbook() {
   const payload = buildWorkbookPayload();
+  markWorkbookSavedToFile();
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
   const url = URL.createObjectURL(blob);
