@@ -51,10 +51,10 @@
               class="fa-solid fa-shapes fa-fw"></i> Приклади схем…</span></button>
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="save-project" role="menuitem"><span><i
-              class="fa-solid fa-file-arrow-down fa-fw"></i> Зберегти проєкт JSON</span><span
-            class="shortcut">Ctrl+Shift+S</span></button>
+              class="fa-solid fa-file-arrow-down fa-fw"></i> Зберегти схему</span><span
+            class="shortcut">Ctrl+S</span></button>
         <button class="menu-item" data-action="export-png" role="menuitem"><span><i class="fa-solid fa-image fa-fw"></i>
-            Зберегти як PNG</span><span class="shortcut">Ctrl+S</span></button>
+            Експорт у PNG</span></button>
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="print" role="menuitem"><span><i class="fa-solid fa-print fa-fw"></i>
             Друк…</span><span class="shortcut">Ctrl+P</span></button>
@@ -149,7 +149,7 @@
         <i class="fa-solid fa-folder-open"></i>
       </button>
       <button id="save-project-button" class="tb-btn" type="button" data-action="save-project" data-office-command="save" aria-label="Зберегти проєкт"
-        title="Зберегти проєкт (Ctrl+Shift+S)">
+        title="Зберегти схему (Ctrl+S)">
         <i class="fa-solid fa-floppy-disk"></i>
       </button>
     </div>
@@ -207,7 +207,7 @@
     <button id="clear-button" class="visually-hidden" type="button" aria-label="Очистити полотно"
       title="Очистити полотно"></button>
     <button id="save-button" class="visually-hidden" type="button" aria-label="Зберегти зображення"
-      title="Зберегти зображення (Ctrl+S)"></button>
+      title="Експорт у PNG"></button>
   </div>
 
   <div class="app-shell">
@@ -286,8 +286,7 @@
       <span>Подвійний клік: редагувати текст</span>
     </div>
     <div class="status-right" data-office-status-slot="secondary">
-      <span>Ctrl+S: PNG</span>
-      <span>Ctrl+Shift+S: JSON</span>
+      <span>Ctrl+S: зберегти схему</span>
       <span>G: сітка</span>
     </div>
   </footer>

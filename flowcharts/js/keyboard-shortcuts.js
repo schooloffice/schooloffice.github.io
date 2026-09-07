@@ -53,11 +53,6 @@
         runOfficeCommand?.('redo') || redo?.();
         return;
       }
-      if (mod && event.shiftKey && key === 's') {
-        event.preventDefault();
-        runOfficeCommand?.('save') || downloadProjectJson?.();
-        return;
-      }
       if (mod && key === 'o') {
         event.preventDefault();
         runOfficeCommand?.('open') || openProjectFilePicker?.();
@@ -65,7 +60,7 @@
       }
       if (mod && key === 's') {
         event.preventDefault();
-        openSaveTitlePrompt?.();
+        runOfficeCommand?.('save') || downloadProjectJson?.();
         return;
       }
       if (!mod && key === 'r' && state?.selectedConnId) {

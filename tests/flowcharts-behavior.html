@@ -1236,13 +1236,52 @@
       return checks;
     }
 
+    // Ctrl+S має зберігати робочий файл схеми, а не експортувати PNG: учень
+    // тисне звичну клавішу і має отримати файл, який відкривається назад
+    // (аудит F15). Слухаємо, який саме файл пропонує браузер.
+    function runSaveContractChecks(win, doc) {
+      const checks = [];
+      const downloads = [];
+      const realClick = win.HTMLAnchorElement.prototype.click;
+      win.HTMLAnchorElement.prototype.click = function click(...args) {
+        if (this.hasAttribute('download')) {
+          downloads.push(this.getAttribute('download') || '');
+          return undefined;
+        }
+        return realClick.apply(this, args);
+      };
+
+      try {
+        doc.dispatchEvent(new win.KeyboardEvent('keydown', {
+          key: 's', ctrlKey: true, bubbles: true, cancelable: true
+        }));
+        const saved = downloads[downloads.length - 1] || '';
+        checks.push({ name: 'Ctrl+S зберігає робочий файл схеми', ok: saved.endsWith('.shema'), detail: saved || 'нічого не збережено' });
+        checks.push({ name: 'Ctrl+S не експортує PNG', ok: !saved.endsWith('.png'), detail: saved });
+
+        // Діалог назви належить експорту PNG і не має відкриватися на Ctrl+S.
+        const titleModal = doc.getElementById('save-title-modal');
+        const titleModalOpen = !!titleModal && !titleModal.classList.contains('hidden')
+          && titleModal.classList.contains('active');
+        checks.push({ name: 'Ctrl+S не відкриває діалог назви для PNG', ok: !titleModalOpen });
+      } finally {
+        win.HTMLAnchorElement.prototype.click = realClick;
+      }
+
+      // Підказки не мають обіцяти старий виняток.
+      const hints = (doc.body.textContent || '');
+      checks.push({ name: 'підказки більше не обіцяють Ctrl+S = PNG', ok: !/Ctrl\+S:\s*PNG/i.test(hints) });
+      return checks;
+    }
+
     async function run() {
       const frame = await loadFrame();
       const win = frame.contentWindow;
       const doc = frame.contentDocument;
       const checks = [
         ...(await runEditorChecks(win, doc)),
-        ...runModuleChecks(win, doc)
+        ...runModuleChecks(win, doc),
+        ...runSaveContractChecks(win, doc)
       ];
 
       const failures = checks.filter(check => !check.ok);
