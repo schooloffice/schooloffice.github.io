@@ -28,6 +28,7 @@
   <script src="../tables/js/grid.js"></script>
   <script src="../tables/js/clipboard.js"></script>
   <script src="../tables/js/cell-format-ui.js"></script>
+  <script src="../tables/js/sorting.js"></script>
   <script>
     const result = document.getElementById('result');
 
@@ -408,6 +409,85 @@
         () => rangeToValues(0, 1, 199, 501), '#REF!'));
       checks.push(assertThrows('oversized grid range is rejected too',
         () => rangeToGrid(0, 1, 199, 501), '#REF!'));
+
+      // ---- Сортування (аудит F11) ----
+      // Хвіст sortSelection малює сітку й пише статус — тут це не перевіряється,
+      // тому DOM-залежні виклики глушимо й дивимося саме на модель книги.
+      window.rebuildGrid = () => {};
+      window.recalculateAll = () => {};
+      window.persistStateToStorage = () => {};
+      window.setSaveBadge = () => {};
+      window.saveToHistory = () => {};
+      window.showInfoModal = () => {};
+
+      function sortBook(data, styles, bounds, desc) {
+        cellData = { ...data };
+        cellStyles = { ...(styles || {}) };
+        selStart = { c: bounds.cMin, r: bounds.rMin };
+        selEnd = { c: bounds.cMax, r: bounds.rMax };
+        sortSelection(!!desc);
+        return cellData;
+      }
+
+      const wholeBlock = { cMin: 0, cMax: 1, rMin: 1, rMax: 2 };
+
+      // Приклад із аудиту: підсумок має лишитися при своєму рядку.
+      const audit = sortBook({ A1: '2', B1: '=A1*10', A2: '1', B2: '=A2*10' }, null, wholeBlock);
+      checks.push(assertEqual('sorted rows put the smaller key first', audit.A1, '1'));
+      checks.push(assertEqual('formula follows its own row (row 1)', audit.B1, '=A1*10'));
+      checks.push(assertEqual('formula follows its own row (row 2)', audit.B2, '=A2*10'));
+      checks.push(assertEqual('totals still match their rows (row 1)', evaluateFormula('B1'), 10));
+      checks.push(assertEqual('totals still match their rows (row 2)', evaluateFormula('B2'), 20));
+
+      // Абсолютне посилання переїзд рядка не зачіпає.
+      const absolute = sortBook({ A1: '2', B1: '=$A$1*10', A2: '1', B2: '=$A$1*10' }, null, wholeBlock);
+      checks.push(assertEqual('absolute reference survives the move', absolute.B2, '=$A$1*10'));
+
+      // Змішане посилання: рядок зафіксований, стовпець ні — рядок не зсувається.
+      const mixed = sortBook({ A1: '2', B1: '=A$1*10', A2: '1', B2: '=A2*10' }, null, wholeBlock);
+      checks.push(assertEqual('mixed reference keeps its absolute row', mixed.B2, '=A$1*10'));
+      checks.push(assertEqual('relative reference beside it still shifts', mixed.B1, '=A1*10'));
+
+      // Ключ береться з обчисленого значення формули, а не з її тексту.
+      const computed = sortBook({ A1: '=2+3', B1: 'п’ять', A2: '4', B2: 'чотири' }, null, wholeBlock);
+      checks.push(assertEqual('formula cell sorts by its computed value', computed.B1, 'чотири'));
+
+      // Дати, відсотки й валюта лежать у моделі числами — ключ має бути числом,
+      // інакше сортування знову піде за відформатованим текстом.
+      checks.push(assertEqual('date serial gives a numeric key',
+        typeof (cellData = { A1: '46000' }, sortKeyForCell('A1')), 'number'));
+      checks.push(assertEqual('text gives a string key',
+        typeof (cellData = { A1: '06.06.2026' }, sortKeyForCell('A1')), 'string'));
+
+      // Порожні й помилкові клітинки — завжди в кінці, незалежно від напрямку.
+      const withGaps = sortBook({ A1: '', A2: '5', A3: '1' }, null, { cMin: 0, cMax: 0, rMin: 1, rMax: 3 });
+      checks.push(assertEqual('empty cell goes last ascending', withGaps.A3, undefined));
+      checks.push(assertEqual('smallest value first ascending', withGaps.A1, '1'));
+
+      const withGapsDesc = sortBook({ A1: '', A2: '5', A3: '1' }, null, { cMin: 0, cMax: 0, rMin: 1, rMax: 3 }, true);
+      checks.push(assertEqual('empty cell stays last descending', withGapsDesc.A3, undefined));
+      checks.push(assertEqual('largest value first descending', withGapsDesc.A1, '5'));
+
+      const withError = sortBook({ A1: '=1/0', A2: '5', A3: '1' }, null, { cMin: 0, cMax: 0, rMin: 1, rMax: 3 });
+      checks.push(assertEqual('formula error goes last', withError.A3, '=1/0'));
+
+      // Рівні ключі зберігають початковий порядок рядків.
+      const stable = sortBook(
+        { A1: '1', B1: 'перший', A2: '1', B2: 'другий', A3: '1', B3: 'третій' },
+        null,
+        { cMin: 0, cMax: 1, rMin: 1, rMax: 3 }
+      );
+      checks.push(assertEqual('equal keys keep their original order',
+        [stable.B1, stable.B2, stable.B3].join(','), 'перший,другий,третій'));
+
+      // Стилі переїжджають разом зі своїм рядком.
+      const styled = sortBook(
+        { A1: '2', A2: '1' },
+        { A1: 'style-num-int', A2: 'style-num-percent' },
+        { cMin: 0, cMax: 0, rMin: 1, rMax: 2 }
+      );
+      checks.push(assertEqual('cell style travels with its row', cellStyles.A1, 'style-num-percent'));
+      checks.push(assertEqual('sorted values line up with the styles', styled.A1, '1'));
 
       result.className = 'pass';
       result.textContent = checks.join('\n') + '\n\nPASSED';
