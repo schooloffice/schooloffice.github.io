@@ -233,7 +233,7 @@ function initTablesEditor() {
 
       // Обмеження розміру файлу: 5 МБ
       if (file.size > 5 * 1024 * 1024) {
-        showInfoModal('❌ Файл .arttab завеликий (максимум 5 МБ).');
+        showInfoModal(`❌ Файл .${WORKBOOK_EXT} завеликий (максимум 5 МБ).`);
         workbookInput.value = '';
         return;
       }

@@ -1127,6 +1127,38 @@ if (Test-Path $officeUiPath) {
   Assert-True ($officeUi -match '!panel\.contains\(document\.activeElement\)') "office-ui.js: modal focus sync must avoid refocusing when focus is already inside the modal"
 }
 
+# Розширення робочих файлів перейменовано разом із пакетом (Арт Офіс → Офіс
+# ПЛЮС). Старі розширення мусять лишатися в accept: перейменування, після
+# якого торішня робота не відкривається, — це втрата роботи, а не косметика.
+$workingFileFormats = @(
+  @{ File = 'tables/index.html'; Input = 'workbookFileInput'; Current = '.tablytsia'; Legacy = @('.arttab') },
+  @{ File = 'slides/index.html'; Input = 'projectFileInput'; Current = '.slaydy'; Legacy = @('.artslides', '.json') },
+  @{ File = 'vector/index.html'; Input = 'projectFileInput'; Current = '.vektor'; Legacy = @('.json') },
+  @{ File = 'paint/index.html'; Input = 'projectFileInput'; Current = '.malyunok'; Legacy = @() }
+)
+
+foreach ($format in $workingFileFormats) {
+  $formatPath = Join-Path $Root $format.File
+  if (-not (Test-Path $formatPath)) { continue }
+  $formatHtml = Get-Content -Raw -Encoding UTF8 $formatPath
+  $inputMatch = [regex]::Match($formatHtml, "<input[^>]*id=""$($format.Input)""[^>]*>")
+  Assert-True $inputMatch.Success "$($format.File): missing file input $($format.Input)"
+  if (-not $inputMatch.Success) { continue }
+  $accept = $inputMatch.Value
+  Assert-True ($accept -like "*$($format.Current)*") "$($format.File): $($format.Input) must accept the current working format $($format.Current)"
+  foreach ($legacy in $format.Legacy) {
+    Assert-True ($accept -like "*$legacy*") "$($format.File): $($format.Input) must keep accepting $legacy so work saved before the rename still opens"
+  }
+}
+
+# Схеми будують input у коді, а не в HTML.
+$flowchartsEditorPath = Join-Path $Root 'flowcharts/js/editor.js'
+if (Test-Path $flowchartsEditorPath) {
+  $flowchartsEditor = Get-Content -Raw -Encoding UTF8 $flowchartsEditorPath
+  Assert-True ($flowchartsEditor -match "projectFileInput\.accept = '[^']*\.shema") "flowcharts/js/editor.js: project input must accept the current working format .shema"
+  Assert-True ($flowchartsEditor -match "projectFileInput\.accept = '[^']*\.json") "flowcharts/js/editor.js: project input must keep accepting .json so work saved before the rename still opens"
+}
+
 # Поки офлайн відкладено, sw.js лишається за старою адресою лише як перехідний worker,
 # який знімає офлайн-кеш попередніх релізів. Обслуговувати ресурси з Cache API
 # він більше не має права, інакше старий код повертатиметься після оновлення.

@@ -1,4 +1,9 @@
 // ---- Workbook file I/O ----
+// Робочий файл книги. Розширення назване за вмістом, як .malyunok: учень
+// бачить, який це файл, без згадки назви пакета. Старий .arttab лишається
+// в accept і відкривається як раніше — перейменування не має робити
+// торішню роботу недоступною.
+const WORKBOOK_EXT = 'tablytsia';
 const WORKBOOK_MAX_SHEETS = 50;
 const WORKBOOK_MAX_TEXT_CHARS = 5 * 1024 * 1024;
 const WORKBOOK_MAX_NAME_LEN = 100;
@@ -161,7 +166,7 @@ function exportWorkbook() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${normalizeFileName(workbookName)}.arttab`;
+  a.download = `${normalizeFileName(workbookName)}.${WORKBOOK_EXT}`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -179,7 +184,7 @@ function triggerWorkbookImport() {
 
 function importWorkbookText(text) {
   try {
-    if (String(text || '').length > WORKBOOK_MAX_TEXT_CHARS) throw new Error('Файл .arttab завеликий (максимум 5 МБ)');
+    if (String(text || '').length > WORKBOOK_MAX_TEXT_CHARS) throw new Error(`Файл .${WORKBOOK_EXT} завеликий (максимум 5 МБ)`);
     const payload = validateWorkbookPayload(JSON.parse(text));
 
     saveToHistory();

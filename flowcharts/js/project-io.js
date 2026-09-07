@@ -7,6 +7,11 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
+  // Робочий файл схеми. Розширення назване за вмістом, як .malyunok:
+  // учень бачить, який це файл, без згадки назви пакета. Старі .json
+  // лишаються читабельними — при відкритті перевіряється вміст, а не ім'я.
+  const PROJECT_EXT = 'shema';
+
   function createProjectBridge(ctx) {
     const {
       core,
@@ -49,7 +54,7 @@
       const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.download = `${filename}.json`;
+      link.download = `${filename}.${PROJECT_EXT}`;
       link.href = url;
       document.body.appendChild(link);
       link.click();

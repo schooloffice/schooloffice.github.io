@@ -11,7 +11,16 @@ window.ArtVector = window.ArtVector || {};
 (() => {
   const { utils, constants } = window.ArtVector;
 
-  const PROJECT_FORMAT = 'art-vector-project';
+  const PROJECT_FORMAT = 'office-plus-vector';
+  // Файли, збережені до перейменування пакета (Арт Офіс). Читаємо їх і далі:
+  // перейменування, після якого торішня робота не відкривається, — це та сама
+  // втрата роботи, яку продукт має не допускати.
+  const LEGACY_PROJECT_FORMATS = ['art-vector-project'];
+
+  function isKnownProjectFormat(value) {
+    return value === PROJECT_FORMAT || LEGACY_PROJECT_FORMATS.includes(value);
+  }
+
   const PROJECT_VERSION = 1;
 
   const LIMITS = {
@@ -192,7 +201,7 @@ window.ArtVector = window.ArtVector || {};
   // перевищення лімітів файла — це відмова, щоб учень бачив причину.
   function normalizeProject(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-    if (raw.format !== undefined && raw.format !== PROJECT_FORMAT) return null;
+    if (raw.format !== undefined && !isKnownProjectFormat(raw.format)) return null;
     if (raw.version !== undefined && !(Number.isInteger(raw.version) && raw.version <= PROJECT_VERSION)) return null;
 
     const rawObjects = raw.objects === undefined ? [] : raw.objects;
@@ -257,6 +266,7 @@ window.ArtVector = window.ArtVector || {};
 
   window.ArtVector.projectIo = {
     PROJECT_FORMAT,
+    LEGACY_PROJECT_FORMATS,
     PROJECT_VERSION,
     LIMITS,
     OBJECT_TYPES,

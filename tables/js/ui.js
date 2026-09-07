@@ -308,8 +308,8 @@ function dispatchUiAction(action) {
     case 'zoom-115': setZoom(115); break;
     case 'zoom-130': setZoom(130); break;
     case 'example': askConfirm('Завантажити навчальний приклад? Поточні дані буде перезаписано.', loadExample, 'Завантажити'); break;
-    case 'shortcuts': showInfoModal('Клавіатурні скорочення', `Ctrl+S — зберегти .arttab
-Ctrl+O — відкрити .arttab
+    case 'shortcuts': showInfoModal('Клавіатурні скорочення', `Ctrl+S — зберегти .tablytsia
+Ctrl+O — відкрити .tablytsia
 Ctrl+N — нова таблиця
 Ctrl+P — друк
 Ctrl+Z / Ctrl+Y — скасувати / повернути
@@ -329,6 +329,6 @@ F4 — тип посилання у формулі: A1 → $A$1 → A$1 → $A1`
 • вирівнювання за типом даних
 • сортування діапазону, формати чисел
 • кольори тексту й заливки, діаграми
-• збереження у формат .arttab`); break;
+• збереження у формат .tablytsia`); break;
   }
 }

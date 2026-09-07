@@ -5,6 +5,12 @@ import { normalizeTable, TABLE_LIMITS } from './table-element.js';
 
 const DEFAULT_PRESENTATION_NAME = 'моя презентація';
 
+// Робочий файл презентації. Розширення назване за вмістом, як .malyunok:
+// учень бачить, який це файл, без згадки назви пакета. Старі
+// .artslides.json лишаються в accept і відкриваються як раніше —
+// перейменування не має робити торішню роботу недоступною.
+const PROJECT_EXT = 'slaydy';
+
 function clampCoord(value, fallback) {
   if (!Number.isFinite(value)) return fallback;
   return clamp(value, -LIMITS.MAX_COORD, LIMITS.MAX_COORD);
@@ -263,7 +269,7 @@ export function slugify(value) {
 
 export function savePresentationFile(presentation) {
   const payload = { ...presentation, schemaVersion: SCHEMA_VERSION, textModelVersion: TEXT_MODEL_VERSION };
-  const fileName = `${slugify(presentation.fileName)}.artslides.json`;
+  const fileName = `${slugify(presentation.fileName)}.${PROJECT_EXT}`;
   downloadTextFile(fileName, JSON.stringify(payload, null, 2));
 }
 

@@ -12,9 +12,9 @@
  */
 
 const ArtDocument = (() => {
-  const FORMAT = 'art-text';
+  const FORMAT = 'office-plus-text';
   const SCHEMA_VERSION = 1;
-  const FILE_EXTENSION = 'artext';
+  const FILE_EXTENSION = 'tekst';
 
   // Ті самі межі, що й в імпорті обміну (ui/editor.js): файл у межах розміру
   // все одно може розгорнутися в документ, який редактор не витягне.

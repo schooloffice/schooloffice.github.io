@@ -144,7 +144,7 @@
       const doc = frame.contentDocument;
       const win = frame.contentWindow;
       // НЕ завантажувати реальні файли під час тесту: дія «Зберегти файл» інакше
-      // тригерить <a download> і скидає .artslides.json у теку Downloads.
+      // тригерить <a download> і скидає файл презентації у теку Downloads.
       const realAnchorClick = win.HTMLAnchorElement.prototype.click;
       win.HTMLAnchorElement.prototype.click = function click(...args) {
         if (this.hasAttribute('download')) return undefined;

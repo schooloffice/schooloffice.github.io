@@ -7,6 +7,9 @@ window.ArtVector.constants = {
   PANEL_STATE_KEY: 'art_vector_panel_v1',
   MAX_UNDO: 60,
   DEFAULT_FILE_NAME: 'векторний_малюнок',
+  // Робочий файл вектора. Розширення назване за вмістом, як .malyunok:
+  // учень бачить, який це файл, без згадки назви пакета.
+  PROJECT_EXT: 'vektor',
   DEFAULT_CANVAS_WIDTH: 1200,
   DEFAULT_CANVAS_HEIGHT: 700,
   GRID_SIZE: 20,

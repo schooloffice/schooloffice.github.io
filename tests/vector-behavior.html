@@ -219,6 +219,16 @@
       // Старі файли (без format) мусять і далі відкриватися.
       const legacyOpens = !!projectIo.normalizeProject(JSON.parse(saved.replace('"format"', '"formatWas"')));
 
+      // Файли, збережені до перейменування пакета, теж мають відкриватися:
+      // інакше перейменування саме стало б втратою роботи.
+      // Ідентифікатор називаємо явно, а не через список: перевірка по списку
+      // проходила б вхолосту, якби список колись спорожнів.
+      const beforeRename = JSON.parse(saved);
+      beforeRename.format = 'art-vector-project';
+      const renamedFormatOpens = !!projectIo.normalizeProject(beforeRename);
+      const newFormatIsWritten = JSON.parse(saved).format === 'office-plus-vector';
+      const foreignFormatStillRefused = projectIo.normalizeProject({ format: 'чужий-формат', objects: [] }) === null;
+
       // --- Чернетка через IndexedDB-шар ---
       const storageWired = typeof vectorStorage?.saveDraft === 'function'
         && typeof vectorStorage?.loadDraft === 'function'
@@ -631,6 +641,9 @@
         check('import reports a specific failure reason', reportsReasons),
         check('project save/open round-trips', roundTrips),
         check('legacy project without format still opens', legacyOpens),
+        check('a project saved under the old package name still opens', renamedFormatOpens),
+        check('new saves use the renamed format id', newFormatIsWritten),
+        check('a genuinely foreign format is still refused', foreignFormatStillRefused),
         check('draft storage layer wired (IndexedDB + reconciliation)', storageReconciles),
         check('draft uses versioned storage key', usesOwnStorageKey),
         check('opening a project asks before discarding unsaved work', openAsksBeforeReplacing),

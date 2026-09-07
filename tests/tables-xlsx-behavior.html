@@ -261,7 +261,7 @@
 
       // ---- Шлюз валідації ----
       // Розібраний .xlsx іде в стан застосунку лише через ту саму перевірку,
-      // що й .arttab. Тут переконуємось, що розібране справді її проходить.
+      // що й робочий файл книги. Тут переконуємось, що розібране справді її проходить.
       const gated = window.TablesWorkbookFile.validateWorkbookPayload(payload);
       checks.push(assertEqual('шлюз валідації: аркуш уцілів', gated.sheets[0].name, 'Оцінки'));
       checks.push(assertEqual('шлюз валідації: дані уціліли', gated.sheets[0].cellData.B6, '=SUM(B2:B4)'));

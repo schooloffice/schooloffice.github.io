@@ -27,7 +27,7 @@
 - `slides/js/app.js` — coordinator для `SlidesApp.boot`, shell-adapter, command dispatch, stage UI та взаємодій.
 - `slides/js/chart-controller.js` — вставлення й редагування діаграм через callbacks coordinator-а.
 - `slides/js/chart-element.js` — модель, нормалізація, bounded data parser і спільний SVG-рендер діаграм.
-- `slides/js/project.js` — нормалізація презентації та елементів, збереження `.artslides.json`, парсинг відкритих файлів.
+- `slides/js/project.js` — нормалізація презентації та елементів, збереження `.slaydy` (старі `.artslides.json` і далі відкриваються), парсинг відкритих файлів.
 - `slides/js/element-rendering.js` — спільні visual text styles і SVG-геометрія фігур stage/export.
 - `slides/js/image-geometry.js` — спільна crop-геометрія stage та export.
 - `slides/js/object-commands.js` — чисті правила групування, вирівнювання та розподілу.

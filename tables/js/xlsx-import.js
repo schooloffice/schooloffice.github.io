@@ -7,7 +7,7 @@
 // не мовчить: підрахунок потрапляє у звіт після імпорту.
 //
 // Результат перед застосуванням проходить ту саму validateWorkbookPayload,
-// що й .arttab, — недовірений файл не має власного шляху в стан застосунку.
+// що й робочий файл книги, — недовірений файл не має власного шляху в стан застосунку.
 
 const XLSX_MAX_FILE_BYTES = 10 * 1024 * 1024;
 
@@ -512,7 +512,7 @@ async function importXlsxFile(file) {
     const baseName = String(file.name || '').replace(/\.xlsx$/i, '') || DEFAULT_WORKBOOK_NAME;
     const { payload, report } = await parseXlsxBytes(bytes, baseName);
 
-    // Той самий шлюз валідації, що й для .arttab.
+    // Той самий шлюз валідації, що й для робочого файла книги.
     const validated = validateWorkbookPayload(payload);
 
     saveToHistory();

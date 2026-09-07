@@ -127,7 +127,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
   const projectFileInput = document.createElement('input');
   projectFileInput.id = 'project-file-input';
   projectFileInput.type = 'file';
-  projectFileInput.accept = '.json,application/json';
+  projectFileInput.accept = '.shema,.json,application/json';
   projectFileInput.hidden = true;
   document.body.appendChild(projectFileInput);
 

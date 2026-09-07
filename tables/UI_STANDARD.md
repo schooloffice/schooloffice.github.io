@@ -51,7 +51,7 @@
 - `tables/js/charts.js` — діаграми для виділених діапазонів і перемикання типів.
 - `tables/js/ui.js` — DOM/UI-шар редактора: меню, модалки, палітри, dispatch UI actions.
 - `tables/js/sorting.js` — сортування виділених діапазонів.
-- `tables/js/workbook-file.js` — експорт, імпорт і відкриття локального `.arttab` workbook.
+- `tables/js/workbook-file.js` — експорт, імпорт і відкриття локального `.tablytsia` workbook (старий `.arttab` і далі відкривається).
 - `tables/js/view-options.js` — zoom, theme/view-параметри редактора.
 - `tables/js/cell-format-ui.js` — стан toolbar, статус виділення і форматоване відображення значень.
 - `tables/js/calculation.js` — перерахунок клітинок, відображення результатів формул і помилок.

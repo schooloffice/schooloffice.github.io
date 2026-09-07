@@ -1130,7 +1130,7 @@
       const parsed = new win.DOMParser().parseFromString(`<div>${payload.content}</div>`, 'text/html');
       const modelRoot = parsed.body.firstElementChild;
 
-      const schemaIsVersioned = payload.format === 'art-text' && payload.version === artDoc.SCHEMA_VERSION;
+      const schemaIsVersioned = payload.format === artDoc.FORMAT && payload.version === artDoc.SCHEMA_VERSION;
       const dropsPageWrappers = !modelRoot.querySelector('.page, .page-content');
       const rejoinsSplitTable = splitPages > 1 && domTables > 1 && modelRoot.querySelectorAll('table').length === 1;
       const keepsEveryRow = modelRoot.querySelectorAll('table tr').length === domDataRows;
@@ -1163,13 +1163,13 @@
 
       // Недовірений файл: усе, що не наш формат, відхиляється до застосування.
       const rejectsForeignFormat = artDoc.validate({ format: 'інший', version: 1, content: '' }).reason === 'wrong-format';
-      const rejectsNewerVersion = artDoc.validate({ format: 'art-text', version: artDoc.SCHEMA_VERSION + 1, content: '' }).reason === 'newer-version';
+      const rejectsNewerVersion = artDoc.validate({ format: artDoc.FORMAT, version: artDoc.SCHEMA_VERSION + 1, content: '' }).reason === 'newer-version';
       const rejectsOversized = artDoc.validate({
-        format: 'art-text', version: 1, content: 'я'.repeat(artDoc.MAX_CONTENT_CHARS + 1)
+        format: artDoc.FORMAT, version: 1, content: 'я'.repeat(artDoc.MAX_CONTENT_CHARS + 1)
       }).reason === 'too-large';
 
       const tampered = artDoc.validate({
-        format: 'art-text',
+        format: artDoc.FORMAT,
         version: 1,
         content: '<p class="menubar">текст</p><figure class="art-image-block img-align-left"><img src="' + pixel + '"></figure><script>window.__pwnedDoc = true;<\/script>'
       });

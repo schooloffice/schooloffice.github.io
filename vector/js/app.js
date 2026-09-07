@@ -40,7 +40,7 @@ window.VectorApp = window.VectorApp || {};
   }
 
   // Знімати позначку незбереженої роботи має право лише те, що справді дає
-  // користувачеві повний проєкт: збереження або відкриття файла .json.
+  // користувачеві повний проєкт: збереження або відкриття файла проєкту.
   // Спрощені експорти (SVG, PNG) для цього не годяться — див. exportSvg.
   function markSaved(label = 'Збережено ✓') {
     state.unsavedChanges = false;
@@ -349,7 +349,7 @@ window.VectorApp = window.VectorApp || {};
 
   function saveProject() {
     const payload = JSON.stringify(editor.buildProjectPayload(), null, 2);
-    utils.downloadText(payload, `${state.fileName || constants.DEFAULT_FILE_NAME}.json`);
+    utils.downloadText(payload, `${state.fileName || constants.DEFAULT_FILE_NAME}.${constants.PROJECT_EXT}`);
     markSaved(HANDED_TO_BROWSER);
   }
 
