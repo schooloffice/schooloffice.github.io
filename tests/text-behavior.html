@@ -1053,6 +1053,34 @@
         .some(node => Array.from(node.attributes).some(attr => /^on/i.test(attr.name)));
       const pasteWasHandled = pasteEvent.defaultPrevented;
 
+      // ---- Очищення HTML (аудит F13) ----
+      const sanitize = win.art.sanitize;
+
+      // Позиціювання поверх інтерфейсу — не оформлення документа.
+      const overlay = sanitize.clean('<p style="position:fixed;inset:0;z-index:999999;color:#c00">текст</p>');
+      const stripsPositioning = !/position/i.test(overlay) && !/z-index/i.test(overlay);
+      const keepsUsefulStyling = /color/i.test(overlay) && overlay.includes('текст');
+
+      // url() і подібні значення не потрапляють навіть у дозволену властивість.
+      const urlValue = sanitize.clean('<p style="background-color:url(http://example.com/x)">а</p>');
+      const dropsUrlValues = !/url\s*\(/i.test(urlValue);
+
+      // Звичайне оформлення документа має вціліти.
+      const ordinary = sanitize.clean('<table><tr><td style="text-align:center;border:1px solid #000">1</td></tr></table>');
+      const keepsTables = /<td[^>]*>/i.test(ordinary) && /text-align/i.test(ordinary) && /border/i.test(ordinary);
+
+      // Без DOMPurify HTML у документ не потрапляє: лише текст.
+      const realDomPurify = win.DOMPurify;
+      // eslint-disable-next-line no-undef
+      delete win.DOMPurify;
+      const withoutSanitizer = sanitize.clean('<p>перший</p><script>window.__pwnedText = true;<\/script><a href="java&#10;script:void(0)">лінк</a>');
+      win.DOMPurify = realDomPurify;
+      const fallbackDropsMarkup = !/<a\b/i.test(withoutSanitizer)
+        && !/<script/i.test(withoutSanitizer)
+        && !/javascript/i.test(withoutSanitizer)
+        && win.__pwnedText !== true;
+      const fallbackKeepsText = withoutSanitizer.includes('перший') && withoutSanitizer.includes('лінк');
+
       await resetDocument(win, doc);
 
       const checks = [
@@ -1145,7 +1173,13 @@
         check('paste inserts the clipboard content', pasteInserted),
         check('paste is handled by the editor, not the browser', pasteWasHandled),
         check('paste strips scripts', pasteStrippedScript),
-        check('paste strips inline event handlers', pasteStrippedHandlers)
+        check('paste strips inline event handlers', pasteStrippedHandlers),
+        check('sanitizer strips positioning that could cover the UI', stripsPositioning),
+        check('sanitizer keeps ordinary document styling', keepsUsefulStyling),
+        check('sanitizer drops url() values even in allowed properties', dropsUrlValues),
+        check('sanitizer keeps tables, alignment and borders', keepsTables),
+        check('without DOMPurify no markup reaches the document', fallbackDropsMarkup),
+        check('without DOMPurify the text still arrives', fallbackKeepsText)
       ];
 
       const failed = checks.filter(item => !item.ok);

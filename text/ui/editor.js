@@ -90,17 +90,35 @@ const ArtEditor = (() => {
     _announce('Новий документ');
   }
 
+  // Text не мав жодного контролю розміру імпорту, на відміну від решти
+  // редакторів (аудит F13). Межі свідомо різні: .docx стиснений, тож той самий
+  // обсяг тексту важить менше за .txt.
+  const IMPORT_MAX_BYTES = { txt: 4 * 1024 * 1024, rtf: 8 * 1024 * 1024, docx: 10 * 1024 * 1024 };
+  // Межа для результату розбору: стиснений файл у межах ліміту все одно може
+  // розгорнутися в документ, який редактор не витягне.
+  const IMPORT_MAX_HTML_CHARS = 4 * 1024 * 1024;
+
   async function _handleFileOpen(e) {
     const file = e.target.files[0];
     if (!file) return;
     e.target.value = '';
     const ext = file.name.split('.').pop().toLowerCase();
+    const maxBytes = IMPORT_MAX_BYTES[ext];
+    if (maxBytes && file.size > maxBytes) {
+      return ArtModals.info('Файл завеликий',
+        `Максимальний розмір .${ext} — ${Math.round(maxBytes / 1024 / 1024)} МБ.`);
+    }
     try {
       let result;
       if (ext === 'txt') result = await ArtTxt.importTxt(file);
       else if (ext === 'rtf') result = await ArtRtf.importRtf(file);
       else if (ext === 'docx') result = await ArtDocx.importDocx(file);
       else return ArtModals.info('Непідтримуваний формат', `Файл .${ext} не підтримується.`);
+
+      if (String(result.html || '').length > IMPORT_MAX_HTML_CHARS) {
+        return ArtModals.info('Документ завеликий',
+          'Після розбору файл виявився надто великим для редактора. Поточний документ лишився без змін.');
+      }
 
       clearFindHighlights();
       clearSelectedImage();
