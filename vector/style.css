@@ -737,8 +737,78 @@ button:focus-visible,
 
 @media (max-width: 760px) {
   .app-header { padding: 0 10px; }
-  #fileName { max-width: 150px; }
+  .header-left, .header-right, .file-name-wrap { gap: 6px; }
+  #saveBadge { display: none; }
+  #fileName { max-width: 92px; }
+  .menubar { width: 100%; min-width: 0; gap: 0; padding-inline: 4px; }
+  .menu-item-wrap { flex: 1 1 0; min-width: 0; }
+  .menu-title { width: 100%; padding-inline: 4px; }
+  .menu-item-wrap:last-child .menu-dropdown { right: 0; left: auto; }
   .color-target-label { display: none; }
   .color-target { padding: 0 8px; }
   .chip-grid-2, .panel-actions-grid, .color-targets { grid-template-columns: 1fr; }
+
+  .editor-body,
+  body.panel-collapsed .editor-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 64px;
+  }
+
+  .workspace {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .tool-rail {
+    grid-column: 1;
+    grid-row: 2;
+    flex-direction: row;
+    align-items: stretch;
+    padding: 4px 6px;
+    border-top: 1px solid var(--line);
+    border-right: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .tool-rail::-webkit-scrollbar { display: none; }
+  .rail-group { flex-direction: row; }
+  .rail-tools { flex: 0 0 auto; }
+  .rail-panel-toggle {
+    position: sticky;
+    right: 0;
+    margin-top: 0;
+    margin-left: auto;
+    padding-top: 0;
+    padding-left: 6px;
+    border-top: 0;
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .rail-btn,
+  .rail-tool {
+    width: 54px;
+    min-width: 54px;
+    min-height: 54px;
+  }
+
+  .properties-panel {
+    position: fixed;
+    z-index: 60;
+    left: 8px;
+    right: 8px;
+    bottom: calc(var(--status-h) + 70px);
+    grid-column: auto;
+    grid-row: auto;
+    width: auto;
+    max-height: min(62vh, 520px);
+    border: 1px solid var(--line-strong);
+    border-radius: 14px;
+    box-shadow: 0 18px 45px rgba(15, 23, 42, .28);
+  }
+}
+
+@media (max-width: 480px) {
+  .app-logo { display: none; }
 }

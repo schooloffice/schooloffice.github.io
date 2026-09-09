@@ -1,6 +1,28 @@
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
+export function createNode(tagName, {
+  id = '',
+  className = '',
+  text = null,
+  attributes = {},
+  properties = {},
+  dataset = {}
+} = {}, ...children) {
+  const node = document.createElement(tagName);
+  if (id) node.id = id;
+  if (className) node.className = className;
+  if (text !== null) node.textContent = String(text);
+  Object.entries(attributes).forEach(([name, value]) => node.setAttribute(name, String(value)));
+  Object.entries(properties).forEach(([name, value]) => { node[name] = value; });
+  Object.entries(dataset).forEach(([name, value]) => { node.dataset[name] = String(value); });
+  children.flat(Infinity).forEach(child => {
+    if (child === null || child === undefined || child === false) return;
+    node.appendChild(child instanceof Node ? child : document.createTextNode(String(child)));
+  });
+  return node;
+}
+
 export function uid() {
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:;">
   <title>ПЛЮС Таблиці — Табличний редактор</title>
 <link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css">
   <script src="../vendor/chartjs/chart.umd.js"></script>
@@ -36,10 +36,14 @@
         <button class="menu-item" data-action="open-workbook"><span><i class="fa-solid fa-folder-open fa-fw"></i> Відкрити .arttab</span></button>
         <button class="menu-item" data-action="save-workbook"><span><i class="fa-solid fa-floppy-disk fa-fw"></i> Зберегти .arttab</span><span class="shortcut">Ctrl+S</span></button>
         <div class="menu-sep"></div>
+        <button class="menu-item" data-action="import-xlsx"><span><i class="fa-solid fa-file-excel fa-fw"></i> Відкрити XLSX</span></button>
+        <button class="menu-item" data-action="export-xlsx"><span><i class="fa-solid fa-file-export fa-fw"></i> Експорт XLSX</span></button>
         <button class="menu-item" data-action="import-csv"><span><i class="fa-solid fa-file-import fa-fw"></i> Імпорт CSV</span></button>
         <button class="menu-item" data-action="export-csv"><span><i class="fa-solid fa-file-csv fa-fw"></i> Експорт CSV</span></button>
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="print"><span><i class="fa-solid fa-print fa-fw"></i> Друк</span><span class="shortcut">Ctrl+P</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" type="button" data-office-end-session><span><i class="fa-solid fa-person-walking-arrow-right fa-fw"></i> Завершити роботу на цьому ПК</span></button>
       </div>
     </div>
 
@@ -217,7 +221,7 @@
   </div>
 
   <div class="formula-bar-wrap">
-    <div class="name-box" id="activeCellRef">A1</div>
+    <input class="name-box" id="activeCellRef" value="A1" aria-label="Адреса активної клітинки">
     <label class="fx-label" for="formulaBar">fx</label>
     <input id="formulaBar" type="text" placeholder="Введіть число або формулу, наприклад: =SUM(A1:A5) або =ROUND(B2/3,2)" maxlength="200">
   </div>
@@ -253,6 +257,7 @@
 
   <input id="csvFileInput" type="file" accept=".csv,text/csv" class="hidden">
   <input id="workbookFileInput" type="file" accept=".arttab,.json,application/json" class="hidden">
+  <input id="xlsxFileInput" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden">
 
   <div id="msgModal" class="modal-overlay">
     <div class="modal-content">
@@ -364,6 +369,7 @@
 
   <script src="js/addressing.js"></script>
   <script src="js/model.js"></script>
+  <script src="../office-storage.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/formula-parser.js"></script>
   <script src="js/formula-references.js"></script>
@@ -373,6 +379,7 @@
   <script src="js/state.js"></script>
   <script src="js/column-sizing.js"></script>
   <script src="js/formula-bar.js"></script>
+  <script src="js/grid-viewport.js"></script>
   <script src="js/grid.js"></script>
   <script src="js/clipboard.js"></script>
   <script src="js/selection-actions.js"></script>
@@ -384,6 +391,7 @@
   <script src="js/sorting.js"></script>
   <script src="js/filter.js"></script>
   <script src="js/workbook-file.js"></script>
+  <script src="js/xlsx-file.js"></script>
   <script src="js/view-options.js"></script>
   <script src="js/cell-format-ui.js"></script>
   <script src="js/conditional-formatting.js"></script>

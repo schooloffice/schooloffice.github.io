@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office PLUS Responsive Smoke</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+    iframe { position: fixed; left: 0; top: 0; border: 0; opacity: .01; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <h1>Office PLUS Responsive Smoke</h1>
+  <pre id="result">Running...</pre>
+  <script>
+    const result = document.getElementById('result');
+    const viewports = [
+      { width: 390, height: 844 },
+      { width: 768, height: 1024 },
+      { width: 1366, height: 768 }
+    ];
+    const services = ['text', 'slides', 'paint', 'vector', 'flowcharts'];
+    const lines = [];
+
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const check = (name, ok) => {
+      if (!ok) throw new Error(name);
+      lines.push(`PASS ${name}`);
+    };
+
+    async function waitFor(predicate, label, timeout = 8000) {
+      const start = performance.now();
+      while (performance.now() - start < timeout) {
+        if (predicate()) return;
+        await wait(50);
+      }
+      throw new Error(label);
+    }
+
+    async function loadEditor(service, viewport) {
+      const frame = document.createElement('iframe');
+      frame.width = viewport.width;
+      frame.height = viewport.height;
+      frame.style.width = `${viewport.width}px`;
+      frame.style.height = `${viewport.height}px`;
+      document.body.appendChild(frame);
+      const loaded = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${service} ${viewport.width}x${viewport.height}: load timeout`)), 8000);
+        frame.addEventListener('load', () => {
+          clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
+      frame.src = `../${service}/index.html?responsive=${viewport.width}x${viewport.height}`;
+      await loaded;
+      await waitFor(() => frame.contentDocument?.body?.classList.contains('office-app'), `${service}: app shell unavailable`);
+      await wait(180);
+      return frame;
+    }
+
+    function workspaceFor(doc, service) {
+      if (service === 'text') return doc.querySelector('.editor-scroll');
+      if (service === 'slides') return doc.querySelector('#workspace');
+      return doc.querySelector('.workspace');
+    }
+
+    async function checkToolbar(doc, service, viewport) {
+      const toolbar = doc.querySelector('.office-toolbar.toolbar');
+      check(`${service} ${viewport.width}: toolbar enhanced`, toolbar?.dataset.officeScrollEnhanced === 'true');
+      if (viewport.width !== 390) return;
+      check(`${service} mobile: toolbar overflows horizontally`, toolbar.scrollWidth > toolbar.clientWidth + 2);
+      check(`${service} mobile: overflow gradient is visible`, toolbar.classList.contains('can-scroll-right'));
+      toolbar.scrollLeft = 0;
+      toolbar.dispatchEvent(new WheelEvent('wheel', { deltaY: 150, bubbles: true, cancelable: true }));
+      await wait(250);
+      check(`${service} mobile: wheel scrolls toolbar`, toolbar.scrollLeft > 0);
+
+      toolbar.scrollLeft = 0;
+      await wait(350);
+      const lastTool = [...toolbar.querySelectorAll('button:not([hidden]), select:not([hidden]), input:not([hidden])')]
+        .filter(tool => tool.getClientRects().length > 0)
+        .at(-1);
+      lastTool.classList.remove('active');
+      lastTool.classList.add('active');
+      await wait(450);
+      const toolbarRect = toolbar.getBoundingClientRect();
+      const toolRect = lastTool.getBoundingClientRect();
+      const toolRevealed = toolRect.width > 0 && toolRect.left >= toolbarRect.left - 2 && toolRect.right <= toolbarRect.right + 2;
+      const toolDetails = toolRevealed ? '' : ` (${lastTool.getAttribute('data-action') || lastTool.id || lastTool.tagName}; scroll ${Math.round(toolbar.scrollLeft)}/${Math.round(toolbar.scrollWidth - toolbar.clientWidth)}; rect ${Math.round(toolRect.left)}..${Math.round(toolRect.right)})`;
+      check(`${service} mobile: active tool is revealed${toolDetails}`, toolRevealed);
+    }
+
+    async function checkDrawingDrawer(doc, service, viewport) {
+      if (viewport.width !== 390) return;
+      const body = doc.body;
+      const editorBody = doc.querySelector('.editor-body');
+      const workspace = doc.querySelector('.workspace');
+      const rail = doc.querySelector('.tool-rail');
+      const panel = doc.querySelector('.properties-panel');
+      const toggle = doc.querySelector('#panelToggleBtn');
+      check(`${service} mobile: properties closed initially`, body.classList.contains('panel-collapsed') && panel.getAttribute('aria-hidden') === 'true');
+      check(`${service} mobile: tool rail is horizontal`, getComputedStyle(rail).flexDirection === 'row');
+      check(`${service} mobile: canvas uses full row`, workspace.getBoundingClientRect().width >= editorBody.getBoundingClientRect().width - 4);
+      toggle.click();
+      await waitFor(() => !body.classList.contains('panel-collapsed'), `${service}: drawer did not open`);
+      check(`${service} mobile: properties opens as overlay`, getComputedStyle(panel).position === 'fixed' && panel.getAttribute('aria-hidden') === 'false');
+      check(`${service} mobile: drawer does not squeeze canvas`, workspace.getBoundingClientRect().width >= editorBody.getBoundingClientRect().width - 4);
+    }
+
+    function checkFlowcharts(doc, viewport) {
+      if (viewport.width !== 390) return;
+      const sidebar = doc.querySelector('.left-sidebar');
+      const shapes = doc.querySelector('.shape-list');
+      const workspace = doc.querySelector('.workspace');
+      check('flowcharts mobile: palette is compact', sidebar.getBoundingClientRect().height <= 120);
+      check('flowcharts mobile: blocks are horizontal', getComputedStyle(shapes).flexDirection === 'row');
+      check('flowcharts mobile: canvas is immediately available', workspace.getBoundingClientRect().height >= 240 && workspace.getBoundingClientRect().top < 500);
+    }
+
+    async function run() {
+      for (const viewport of viewports) {
+        for (const service of services) {
+          const frame = await loadEditor(service, viewport);
+          try {
+            const doc = frame.contentDocument;
+            const workspace = workspaceFor(doc, service);
+            check(`${service} ${viewport.width}x${viewport.height}: workspace usable`, workspace && workspace.getBoundingClientRect().width >= 120 && workspace.getBoundingClientRect().height >= 140);
+            const overflowSources = [...doc.body.querySelectorAll('*')]
+              .filter(node => node.getBoundingClientRect().right > viewport.width + 2)
+              .slice(0, 4)
+              .map(node => `${node.id ? `#${node.id}` : `.${node.className}`}:${Math.round(node.getBoundingClientRect().right)}`)
+              .join(', ');
+            const pageFits = doc.documentElement.scrollWidth <= viewport.width + 2;
+            const overflowDetails = pageFits ? '' : ` (${doc.documentElement.scrollWidth}px; ${overflowSources})`;
+            check(`${service} ${viewport.width}x${viewport.height}: no page overflow${overflowDetails}`, pageFits);
+            if (service === 'text' || service === 'slides') await checkToolbar(doc, service, viewport);
+            if (service === 'paint' || service === 'vector') await checkDrawingDrawer(doc, service, viewport);
+            if (service === 'flowcharts') checkFlowcharts(doc, viewport);
+          } finally {
+            frame.remove();
+          }
+        }
+      }
+      result.className = 'pass';
+      result.textContent = `${lines.join('\n')}\n\nPASSED`;
+      document.body.dataset.responsive = 'passed';
+    }
+
+    run().catch(error => {
+      result.className = 'fail';
+      result.textContent = `${lines.join('\n')}\n\n${String(error?.stack || error)}`;
+      document.body.dataset.responsive = 'failed';
+    });
+  </script>
+</body>
+</html>

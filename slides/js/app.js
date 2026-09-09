@@ -30,7 +30,7 @@ import { clearDraft, loadDraft, saveDraft } from './storage.js';
 import { createChartController } from './chart-controller.js';
 import { createTableController } from './table-controller.js';
 import { createBasicSlideElements, createDefaultPresentation, createImageElement, createShapeElement, createSlide, createTemplateDefinition, createTextElement } from './templates.js';
-import { $, $$, clamp, debounce, deepClone, getTextFromContentEditable, readFileAsDataURL, readFileAsText, uid } from './utils.js';
+import { $, $$, clamp, createNode, debounce, deepClone, getTextFromContentEditable, readFileAsDataURL, readFileAsText, uid } from './utils.js';
 
 window.SlidesApp = window.SlidesApp || {};
 
@@ -280,7 +280,7 @@ async function hydrateFromDraft() {
     draftHydrationActive = false;
     return;
   }
-  // Чернетка — власні дані редактора, тож довірена (зокрема зовнішні image URL).
+  // Старі чернетки проходять ту саму allowlist-нормалізацію зображень, що й файли.
   const saved = normalizePresentation(raw, { trusted: true });
   draftHydrationActive = false;
   if (!saved) return;
@@ -357,7 +357,7 @@ function describeElement(element) {
 }
 
 function renderTextControls() {
-  dom.fontFamilySelect.innerHTML = '';
+  dom.fontFamilySelect.replaceChildren();
   FONT_FAMILIES.forEach(font => {
     const option = document.createElement('option');
     option.value = font.key;
@@ -373,7 +373,7 @@ function getActiveTheme() {
 }
 
 function renderColorPalette() {
-  dom.colorPalette.innerHTML = '';
+  dom.colorPalette.replaceChildren();
   getActiveTheme().palette.forEach(color => {
     const button = document.createElement('button');
     button.type = 'button';
@@ -402,28 +402,33 @@ function applyTheme(themeKey) {
 }
 
 function showThemePicker() {
-  const cards = THEMES.map(theme => {
-    const dots = theme.palette.slice(2, 8).map(color => `<span class="theme-dot" style="background:${color}"></span>`).join('');
-    const active = theme.key === state.theme ? ' active' : '';
-    return `<button type="button" class="theme-card${active}" data-theme="${theme.key}" aria-pressed="${theme.key === state.theme}">
-        <span class="theme-preview" style="background:${theme.background}">${dots}</span>
-        <span class="theme-name">${theme.name}</span>
-      </button>`;
-  }).join('');
+  const grid = createNode('div', { className: 'theme-grid' });
+  THEMES.forEach(theme => {
+    const active = theme.key === state.theme;
+    const preview = createNode('span', { className: 'theme-preview' });
+    preview.style.background = theme.background;
+    theme.palette.slice(2, 8).forEach(color => {
+      const dot = createNode('span', { className: 'theme-dot' });
+      dot.style.background = color;
+      preview.appendChild(dot);
+    });
+    const card = createNode('button', {
+      className: `theme-card${active ? ' active' : ''}`,
+      attributes: { type: 'button', 'aria-pressed': active },
+      dataset: { theme: theme.key }
+    }, preview, createNode('span', { className: 'theme-name', text: theme.name }));
+    card.addEventListener('click', () => {
+      applyTheme(card.dataset.theme);
+      closeModal();
+    });
+    grid.appendChild(card);
+  });
   showModal({
     title: 'Тема оформлення',
     text: 'Зміна теми оновлює фон усіх слайдів і палітру кольорів. Вміст слайдів не змінюється.',
-    body: `<div class="theme-grid">${cards}</div>`,
+    bodyNode: grid,
     confirmText: 'Закрити',
-    showCancel: false,
-    onMount: () => {
-      $$('.theme-card').forEach(card => {
-        card.addEventListener('click', () => {
-          applyTheme(card.dataset.theme);
-          closeModal();
-        });
-      });
-    }
+    showCancel: false
   });
 }
 
@@ -444,31 +449,38 @@ function applyLayout(layoutKey) {
 
 function showLayoutPicker() {
   const slide = getCurrentSlide();
-  const cards = LAYOUTS.map(layout => {
-    const slots = layout.slots.map(slot => {
+  const grid = createNode('div', { className: 'layout-grid' });
+  LAYOUTS.forEach(layout => {
+    const preview = createNode('span', { className: 'layout-preview' });
+    layout.slots.forEach(slot => {
       const type = slot.type === 'image' ? ' image' : (slot.type === 'title' ? ' title' : '');
-      return `<span class="layout-slot${type}" style="left:${slot.x / STAGE_WIDTH * 100}%;top:${slot.y / STAGE_HEIGHT * 100}%;width:${slot.w / STAGE_WIDTH * 100}%;height:${slot.h / STAGE_HEIGHT * 100}%"></span>`;
-    }).join('');
-    const active = slide && slide.layout === layout.key ? ' active' : '';
-    return `<button type="button" class="layout-card${active}" data-layout="${layout.key}" aria-pressed="${slide && slide.layout === layout.key}">
-        <span class="layout-preview">${slots}</span>
-        <span class="layout-name">${layout.name}</span>
-      </button>`;
-  }).join('');
+      const slotNode = createNode('span', { className: `layout-slot${type}` });
+      Object.assign(slotNode.style, {
+        left: `${slot.x / STAGE_WIDTH * 100}%`,
+        top: `${slot.y / STAGE_HEIGHT * 100}%`,
+        width: `${slot.w / STAGE_WIDTH * 100}%`,
+        height: `${slot.h / STAGE_HEIGHT * 100}%`
+      });
+      preview.appendChild(slotNode);
+    });
+    const active = !!slide && slide.layout === layout.key;
+    const card = createNode('button', {
+      className: `layout-card${active ? ' active' : ''}`,
+      attributes: { type: 'button', 'aria-pressed': active },
+      dataset: { layout: layout.key }
+    }, preview, createNode('span', { className: 'layout-name', text: layout.name }));
+    card.addEventListener('click', () => {
+      applyLayout(card.dataset.layout);
+      closeModal();
+    });
+    grid.appendChild(card);
+  });
   showModal({
     title: 'Макет слайда',
     text: 'Застосовується до поточного слайда. Заповнений вміст зберігається — оновлюються лише порожні слоти.',
-    body: `<div class="layout-grid">${cards}</div>`,
+    bodyNode: grid,
     confirmText: 'Закрити',
-    showCancel: false,
-    onMount: () => {
-      $$('.layout-card').forEach(card => {
-        card.addEventListener('click', () => {
-          applyLayout(card.dataset.layout);
-          closeModal();
-        });
-      });
-    }
+    showCancel: false
   });
 }
 
@@ -483,32 +495,27 @@ function applySlideTransition(type, duration, applyToAll = false) {
 
 function showSlideTransitionModal() {
   const transition = getCurrentSlide()?.transition || { type: 'none', duration: 'normal' };
+  const typeField = createNode('select', { id: 'transitionType' },
+    createNode('option', { text: 'Без переходу', properties: { value: 'none' } }),
+    createNode('option', { text: 'Поява', properties: { value: 'fade' } }),
+    createNode('option', { text: 'Зсув ліворуч', properties: { value: 'slide-left' } }),
+    createNode('option', { text: 'Наближення', properties: { value: 'zoom' } })
+  );
+  const durationField = createNode('select', { id: 'transitionDuration' },
+    createNode('option', { text: 'Швидко', properties: { value: 'fast' } }),
+    createNode('option', { text: 'Звичайно', properties: { value: 'normal' } }),
+    createNode('option', { text: 'Повільно', properties: { value: 'slow' } })
+  );
+  const applyAllField = createNode('input', { id: 'transitionApplyAll', attributes: { type: 'checkbox' } });
+  const bodyNode = createNode('div', { className: 'transition-form' },
+    createNode('label', {}, 'Ефект', typeField),
+    createNode('label', {}, 'Швидкість', durationField),
+    createNode('label', { className: 'transition-apply-all' }, applyAllField, ' Застосувати до всіх слайдів')
+  );
   showModal({
     title: 'Перехід між слайдами',
     text: 'Перехід відтворюється лише під час показу. PDF, друк і вміст слайдів не змінюються.',
-    body: `
-      <div class="transition-form">
-        <label>Ефект
-          <select id="transitionType">
-            <option value="none">Без переходу</option>
-            <option value="fade">Поява</option>
-            <option value="slide-left">Зсув ліворуч</option>
-            <option value="zoom">Наближення</option>
-          </select>
-        </label>
-        <label>Швидкість
-          <select id="transitionDuration">
-            <option value="fast">Швидко</option>
-            <option value="normal">Звичайно</option>
-            <option value="slow">Повільно</option>
-          </select>
-        </label>
-        <label class="transition-apply-all">
-          <input id="transitionApplyAll" type="checkbox">
-          Застосувати до всіх слайдів
-        </label>
-      </div>
-    `,
+    bodyNode,
     confirmText: 'Застосувати',
     onMount: () => {
       $('#transitionType').value = transition.type;
@@ -527,10 +534,6 @@ function showSlideTransitionModal() {
 function activateImagePlaceholder(elementId) {
   selectElement(elementId);
   promptImageReplace();
-}
-
-function escapeHtmlAttr(value) {
-  return String(value).replace(/[&"<>]/g, char => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' }[char]));
 }
 
 function setElementLink(elementId, link) {
@@ -565,23 +568,32 @@ function showLinkModal() {
   }
   const link = element.link || null;
   const urlValue = link?.kind === 'url' ? link.href : '';
-  const slideOptions = state.slides.map((slide, index) => {
-    const selected = link?.kind === 'slide' && link.slideId === slide.id ? ' selected' : '';
-    return `<option value="${escapeHtmlAttr(slide.id)}"${selected}>Слайд ${index + 1}</option>`;
-  }).join('');
+  const noneField = createNode('input', { attributes: { type: 'radio', name: 'linkKind' }, properties: { value: 'none', checked: !link } });
+  const urlKindField = createNode('input', { attributes: { type: 'radio', name: 'linkKind' }, properties: { value: 'url', checked: link?.kind === 'url' } });
+  const urlField = createNode('input', {
+    id: 'linkUrlField',
+    className: 'input-like',
+    attributes: { type: 'text', placeholder: 'https://...' },
+    properties: { value: urlValue }
+  });
+  const slideKindField = createNode('input', { attributes: { type: 'radio', name: 'linkKind' }, properties: { value: 'slide', checked: link?.kind === 'slide' } });
+  const slideField = createNode('select', { id: 'linkSlideField', className: 'input-like' });
+  state.slides.forEach((slide, index) => slideField.appendChild(createNode('option', {
+    text: `Слайд ${index + 1}`,
+    properties: { value: slide.id, selected: link?.kind === 'slide' && link.slideId === slide.id }
+  })));
+  const bodyNode = createNode('div', { className: 'form-stack' },
+    createNode('label', { className: 'radio-row' }, noneField, ' Без посилання'),
+    createNode('label', { className: 'radio-row' }, urlKindField, ' На сайт'),
+    urlField,
+    createNode('label', { className: 'radio-row' }, slideKindField, ' На слайд'),
+    slideField,
+    createNode('div', { id: 'linkError', className: 'form-error hidden', attributes: { role: 'alert' } })
+  );
   showModal({
     title: 'Гіперпосилання',
     text: 'Посилання на сайт (https) або перехід на слайд. Працює в режимі показу.',
-    body: `
-      <div class="form-stack">
-        <label class="radio-row"><input type="radio" name="linkKind" value="none"${!link ? ' checked' : ''}> Без посилання</label>
-        <label class="radio-row"><input type="radio" name="linkKind" value="url"${link?.kind === 'url' ? ' checked' : ''}> На сайт</label>
-        <input id="linkUrlField" class="input-like" type="text" placeholder="https://..." value="${escapeHtmlAttr(urlValue)}">
-        <label class="radio-row"><input type="radio" name="linkKind" value="slide"${link?.kind === 'slide' ? ' checked' : ''}> На слайд</label>
-        <select id="linkSlideField" class="input-like">${slideOptions}</select>
-        <div id="linkError" class="form-error hidden" role="alert"></div>
-      </div>
-    `,
+    bodyNode,
     confirmText: 'Зберегти',
     cancelText: 'Скасувати',
     onConfirm: () => {
@@ -1085,7 +1097,7 @@ function getAvailableColorModes() {
 }
 
 function renderColorModeButtons() {
-  dom.colorModeButtons.innerHTML = '';
+  dom.colorModeButtons.replaceChildren();
   const modes = getAvailableColorModes();
   if (!modes.some(mode => mode.key === state.currentColorTarget)) {
     state.currentColorTarget = modes[0]?.key || 'background';
@@ -1652,7 +1664,7 @@ function promptImageInsert() {
   pendingImageOperation = { mode: 'insert', elementId: null, alt: '' };
   showImageSourceModal({
     title: 'Додати зображення',
-    text: 'Оберіть файл із пристрою або вставте посилання на зображення.',
+    text: 'Оберіть локальний файл зображення з пристрою.',
     confirmText: 'Додати'
   });
 }
@@ -1673,123 +1685,38 @@ function promptImageReplace() {
 }
 
 function showImageSourceModal({ title, text, confirmText, alt = '' }) {
+  const pickButton = createNode('button', {
+    id: 'pickImageFile',
+    className: 'link-button',
+    attributes: { type: 'button' }
+  }, createNode('i', { className: 'fa-solid fa-image' }), ' Обрати файл');
+  const altField = createNode('input', {
+    id: 'imageAltField',
+    className: 'input-like',
+    attributes: { type: 'text', placeholder: 'Опис зображення (alt) — для доступності' },
+    properties: { value: alt }
+  });
+  const bodyNode = createNode('div', { className: 'form-stack' },
+    pickButton,
+    altField,
+    createNode('div', { className: 'helper-text', text: 'Зображення додаються лише з цього пристрою та вбудовуються в презентацію для надійної роботи офлайн.' })
+  );
+  const chooseFile = () => {
+    pendingImageOperation.alt = altField.value.trim();
+    openImagePicker({ keepOperation: true });
+  };
+  pickButton.addEventListener('click', chooseFile);
   showModal({
     title,
     text,
-    body: `
-      <div class="form-stack">
-        <button id="pickImageFile" class="link-button" type="button"><i class="fa-solid fa-image"></i> Обрати файл</button>
-        <input id="imageUrlField" class="input-like" type="text" placeholder="https://...">
-        <input id="imageAltField" class="input-like" type="text" placeholder="Опис зображення (alt) — для доступності">
-        <div class="helper-text">Для учнів і вчителів найнадійніше працює завантаження файлу з комп’ютера.</div>
-        <div id="imageSourceError" class="form-error hidden" role="alert"></div>
-      </div>
-    `,
+    bodyNode,
     confirmText,
     cancelText: 'Скасувати',
-    // Закриття/заміна модалки інвалідує незавершений HTTPS-fetch, тож його
-    // пізнє завершення не застосує/не замінить зображення й не закриє іншу модалку.
-    onClose: invalidateImageEmbed,
-    onMount: () => {
-      $('#imageAltField').value = alt;
-      $('#pickImageFile').addEventListener('click', () => {
-        pendingImageOperation.alt = $('#imageAltField').value.trim();
-        openImagePicker({ keepOperation: true });
-      });
-    },
-    // Повертаємо false при порожньому/невалідному джерелі — модалка лишається
-    // відкритою з інлайн-поясненням, тож уведені URL та alt не втрачаються.
     onConfirm: () => {
-      const url = $('#imageUrlField').value.trim();
-      const alt = $('#imageAltField').value.trim();
-      if (!url) {
-        showImageSourceError('Вставте посилання на зображення або оберіть файл із пристрою.');
-        return false;
-      }
-      if (url.startsWith('data:')) {
-        if (!applyImageSource(url, alt)) {
-          showImageSourceError('Некоректний data:image URL або зображення завелике.');
-          return false;
-        }
-        return;
-      }
-      if (!/^https:\/\//i.test(url)) {
-        showImageSourceError('Підтримуються файл, HTTPS-посилання або data:image URL.');
-        return false;
-      }
-      // HTTPS вбудовуємо як data: одразу: модель зберігає лише data:, тож
-      // зображення переживає перезбереження й працює офлайн (зовнішні URL
-      // нейтралізуються при імпорті). Поки триває fetch — модалка відкрита.
-      embedAndApplyImageUrl(url, alt);
+      chooseFile();
       return false;
     }
   });
-}
-
-function showImageSourceError(message) {
-  const box = $('#imageSourceError');
-  if (!box) return;
-  box.classList.remove('form-busy');
-  box.textContent = message || '';
-  box.classList.toggle('hidden', !message);
-}
-
-function setImageSourceBusy(busy, message = '') {
-  const box = $('#imageSourceError');
-  if (box) {
-    box.classList.toggle('form-busy', busy);
-    box.textContent = busy ? message : '';
-    box.classList.toggle('hidden', !busy);
-  }
-  if (dom.modalConfirm) dom.modalConfirm.disabled = busy;
-}
-
-// Кожне HTTPS-завантаження отримує власний токен і AbortController. Інвалідація
-// (закриття/заміна модалки) збільшує лічильник і перериває fetch, тож запит, що
-// завершився ПІСЛЯ скасування, не пройде перевірку токена й нічого не змінить.
-let imageEmbedSeq = 0;
-let imageEmbedAbort = null;
-
-function invalidateImageEmbed() {
-  imageEmbedSeq += 1;
-  imageEmbedAbort?.abort();
-  imageEmbedAbort = null;
-  if (dom.modalConfirm) dom.modalConfirm.disabled = false;
-}
-
-async function embedAndApplyImageUrl(url, alt) {
-  const token = ++imageEmbedSeq;
-  imageEmbedAbort?.abort();
-  const controller = new AbortController();
-  imageEmbedAbort = controller;
-  // Знімок операції на момент старту — глобальний pendingImageOperation може
-  // змінитися (інша вставка/заміна) поки триває fetch.
-  const operation = { ...pendingImageOperation };
-  setImageSourceBusy(true, 'Завантаження зображення…');
-  try {
-    const dataUrl = await fetchImageAsDataURL(url, controller.signal);
-    if (token !== imageEmbedSeq) return;            // скасовано/заміщено під час fetch
-    setImageSourceBusy(false);
-    if (!applyImageSource(dataUrl, alt, operation)) {
-      showImageSourceError('Зображення завелике для вбудовування. Спробуйте менший файл.');
-      return;
-    }
-    closeModal();
-  } catch {
-    if (token !== imageEmbedSeq) return;            // скасовано — UI вже належить іншому стану
-    setImageSourceBusy(false);
-    showImageSourceError('Не вдалося завантажити зображення за посиланням (його може блокувати CORS). Збережіть файл і додайте з пристрою.');
-  }
-}
-
-// Завантажуємо зображення за HTTPS і кодуємо в data: URL для вбудовування.
-async function fetchImageAsDataURL(url, signal) {
-  const response = await fetch(url, { mode: 'cors', signal });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const blob = await response.blob();
-  if (!blob.type.startsWith('image/')) throw new Error('not an image');
-  if (blob.size > LIMITS.MAX_IMAGE_FILE_BYTES) throw new Error('too large');
-  return readFileAsDataURL(blob);
 }
 
 async function onImageFileSelected() {
@@ -1818,7 +1745,7 @@ async function onImageFileSelected() {
 // це поточний pendingImageOperation; для асинхронного HTTPS — зафіксований на старті.
 function applyImageSource(src, alt = '', operation = pendingImageOperation) {
   if (!isSupportedImageSource(src)) {
-    setStatusRight('Зображення не додано: використайте файл, HTTPS-посилання або коректний data:image URL');
+    setStatusRight('Зображення не додано: використайте локальний файл зображення');
     return false;
   }
   // На цей рівень джерело доходить уже як data: (HTTPS вбудовано раніше),
@@ -1834,8 +1761,7 @@ function applyImageSource(src, alt = '', operation = pendingImageOperation) {
 
 function isSupportedImageSource(src) {
   if (typeof src !== 'string' || !src) return false;
-  // Лише data:image — HTTPS вбудовується в data: ще до цього кроку (embedAndApplyImageUrl),
-  // тож сирий зовнішній URL не потрапляє в модель і не ламає офлайн/безпеку.
+  // FileReader створює data:image локально; зовнішні URL сюди не допускаються.
   return src.startsWith('data:image/') && src.length <= LIMITS.MAX_DATA_URL_LENGTH;
 }
 
@@ -1873,15 +1799,19 @@ function editImageAlt() {
     showInfoModal('Опис зображення', 'Виберіть зображення, щоб задати текстовий опис (alt).');
     return;
   }
+  const altField = createNode('input', {
+    id: 'altEditField',
+    className: 'input-like',
+    attributes: { type: 'text', placeholder: 'Напр.: Схема кругообігу води' },
+    properties: { value: element.alt || '' }
+  });
   showModal({
     title: 'Опис зображення (alt)',
     text: 'Короткий текстовий опис для доступності та озвучення зчитувачем екрана.',
-    body: '<input id="altEditField" class="input-like" type="text" placeholder="Напр.: Схема кругообігу води">',
+    bodyNode: altField,
     confirmText: 'Зберегти',
     onMount: () => {
-      const field = $('#altEditField');
-      field.value = element.alt || '';
-      field.focus();
+      altField.focus();
     },
     onConfirm: () => {
       pushHistory();
@@ -2299,8 +2229,8 @@ function stopPresentation() {
   dom.presentOverlay.classList.remove('presenter-mode');
   dom.presentOverlay.setAttribute('aria-hidden', 'true');
   dom.presenterPanel.classList.add('hidden');
-  dom.presentStageWrap.innerHTML = '';
-  dom.presentNextPreview.innerHTML = '';
+  dom.presentStageWrap.replaceChildren();
+  dom.presentNextPreview.replaceChildren();
 }
 
 function showPreviousPresentationSlide() {
@@ -2320,7 +2250,7 @@ function showNextPresentationSlide() {
 }
 
 function renderPresentationSlide() {
-  dom.presentStageWrap.innerHTML = '';
+  dom.presentStageWrap.replaceChildren();
   const slide = state.slides[state.presentationIndex];
   if (!slide) return;
   const snapshot = createSlideSnapshot(slide);
@@ -2335,7 +2265,7 @@ function renderPresentationSlide() {
   dom.presentNotes.classList.toggle('hidden', !(presentNotesVisible && notes));
   dom.presenterNotes.textContent = notes || 'Для цього слайда нотаток немає.';
   dom.presentSlideCounter.textContent = `Слайд ${state.presentationIndex + 1} із ${state.slides.length}`;
-  dom.presentNextPreview.innerHTML = '';
+  dom.presentNextPreview.replaceChildren();
   const nextSlide = state.slides[state.presentationIndex + 1];
   if (nextSlide) {
     dom.presentNextPreview.appendChild(createThumbSnapshot(nextSlide));
@@ -2346,35 +2276,33 @@ function renderPresentationSlide() {
 
 
 function showTemplatesPicker() {
+  const templates = [
+    ['title', 'Титульний слайд', 'Великий заголовок і підпис автора'],
+    ['text-image', 'Текст + фото', 'Заголовок, список і місце для ілюстрації'],
+    ['three-blocks', '3 блоки', 'Порівняння трьох ідей або понять']
+  ];
+  const bodyNode = createNode('div', { className: 'template-list' });
+  templates.forEach(([key, title, text]) => {
+    const button = createNode('button', {
+      className: 'template-btn',
+      attributes: { type: 'button' },
+      dataset: { template: key }
+    },
+    createNode('span', { className: 'template-title', text: title }),
+    createNode('span', { className: 'template-text', text })
+    );
+    button.addEventListener('click', () => {
+      applyTemplate(button.dataset.template);
+      closeModal();
+    });
+    bodyNode.appendChild(button);
+  });
   showModal({
     title: 'Готові шаблони',
     text: 'Шаблон замінює весь вміст поточного слайда готовим прикладом.',
-    body: `
-      <div class="template-list">
-        <button class="template-btn" data-template="title" type="button">
-          <span class="template-title">Титульний слайд</span>
-          <span class="template-text">Великий заголовок і підпис автора</span>
-        </button>
-        <button class="template-btn" data-template="text-image" type="button">
-          <span class="template-title">Текст + фото</span>
-          <span class="template-text">Заголовок, список і місце для ілюстрації</span>
-        </button>
-        <button class="template-btn" data-template="three-blocks" type="button">
-          <span class="template-title">3 блоки</span>
-          <span class="template-text">Порівняння трьох ідей або понять</span>
-        </button>
-      </div>
-    `,
+    bodyNode,
     confirmText: 'Закрити',
-    showCancel: false,
-    onMount: () => {
-      $$('.template-btn', dom.modalBody).forEach(button => {
-        button.addEventListener('click', () => {
-          applyTemplate(button.dataset.template);
-          closeModal();
-        });
-      });
-    }
+    showCancel: false
   });
 }
 
@@ -2386,8 +2314,8 @@ function showShortcuts() {
   showInfoModal('Клавіатурні скорочення', 'Ctrl+N — нова презентація\nCtrl+O — відкрити\nCtrl+S — зберегти файл\nCtrl+Z / Ctrl+Y — скасувати / повернути\nCtrl+C / Ctrl+V — копіювати / вставити об’єкт\nCtrl+D — дублювати\nDelete — видалити\nСтрілки — рух об’єкта\nF5 — показ');
 }
 
-function showModal({ title, text = '', body = '', confirmText = 'Гаразд', cancelText = 'Скасувати', icon = 'fa-solid fa-circle-info', onConfirm = null, onMount = null, onClose = null, showCancel = true }) {
-  showModalUi(dom, { title, text, body, confirmText, cancelText, icon, onConfirm, onMount, onClose, showCancel });
+function showModal({ title, text = '', bodyNode = null, confirmText = 'Гаразд', cancelText = 'Скасувати', icon = 'fa-solid fa-circle-info', onConfirm = null, onMount = null, onClose = null, showCancel = true }) {
+  showModalUi(dom, { title, text, bodyNode, confirmText, cancelText, icon, onConfirm, onMount, onClose, showCancel });
 }
 
 function closeModal() {

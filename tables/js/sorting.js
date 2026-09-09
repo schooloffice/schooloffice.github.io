@@ -24,7 +24,7 @@ function sortSelection(desc = false) {
       rowData.push(cellData[id] ?? '');
       rowStyles.push(cellStyles[id] ?? '');
     }
-    const keyValue = cellInp[r]?.[b.cMin]?.value ?? rowData[0] ?? '';
+    const keyValue = getCalculatedCellValue(getCellId(b.cMin, r));
     rows.push({ keyValue, rowData, rowStyles });
   }
 

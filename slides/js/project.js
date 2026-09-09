@@ -30,12 +30,11 @@ function normalizeCrop(crop) {
   return { l, t, r, b };
 }
 
-// Джерело зображення приймаємо лише як data:image обмеженого розміру. Зовнішні
-// (http/https) URL у недовіреному файлі нейтралізуємо: вони розкривають IP,
-// залежать від CORS і ламають офлайн (P0). Власну чернетку (trusted) лишаємо як є.
-function sanitizeImageSrc(src, trusted) {
+// Джерело зображення приймаємо лише як локально створений data:image обмеженого
+// розміру. Зовнішні URL нейтралізуємо і для файлів, і для старих чернеток: вони
+// розкривають IP/метадані та ламають офлайн.
+function sanitizeImageSrc(src) {
   if (typeof src !== 'string' || !src) return '';
-  if (trusted) return src;
   if (src.startsWith('data:image/') && src.length <= LIMITS.MAX_DATA_URL_LENGTH) return src;
   return '';
 }
@@ -154,7 +153,7 @@ export function normalizeElement(element, index, { trusted = false } = {}) {
   if (supportsText) {
     content = hasTextContent ? clampText(element.content) : (placeholder || '');
   } else if (type === 'image') {
-    content = sanitizeImageSrc(element?.content, trusted);
+    content = sanitizeImageSrc(element?.content);
   } else {
     content = '';
   }

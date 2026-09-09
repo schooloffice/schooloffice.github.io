@@ -17,6 +17,7 @@
   <pre id="result">Running...</pre>
   <iframe id="slidesFrame"></iframe>
 
+  <script src="../office-storage.js"></script>
   <script type="module">
     import { normalizePresentation, parsePresentationText, slugify } from '../slides/js/project.js';
     import { LIMITS, SCHEMA_VERSION, TEXT_MODEL_VERSION } from '../slides/js/constants.js';
@@ -63,6 +64,7 @@
       // Storage-перевірки ДО запуску застосунку в iframe (немає гонки з
       // autosave). Залишаємо сховище чистим для детермінованого старту.
       let idbRoundTrips = false;
+      let queuedWritesKeepNewest = false;
       let clearDraftWorks = false;
       let imageDraftRoundTrips = false;
       let quotaFailurePropagates = false;
@@ -71,11 +73,21 @@
       let legacyDraftLoads = false;
       let clearWritesTombstone = false;
       let equalTimestampTombstoneWins = false;
+      let structuredStorageErrorEmitted = false;
+      const storageErrors = [];
+      const captureStorageError = event => storageErrors.push(event.detail);
+      addEventListener('office:storage-error', captureStorageError);
       try {
         await clearDraft();
         await saveDraft({ probe: 'idb-roundtrip' });
         const back = await loadDraft();
         idbRoundTrips = !!back && back.probe === 'idb-roundtrip';
+
+        await clearDraft();
+        const olderWrite = saveDraft({ probe: 'older-write' });
+        const newerWrite = saveDraft({ probe: 'newer-write' });
+        await Promise.all([olderWrite, newerWrite]);
+        queuedWritesKeepNewest = (await loadDraft())?.probe === 'newer-write';
 
         await clearDraft();
         clearDraftWorks = (await loadDraft()) === null;
@@ -116,13 +128,13 @@
           Object.defineProperty(IDBObjectStore.prototype, 'put', putDescriptor);
           Object.defineProperty(Storage.prototype, 'setItem', setItemDescriptor);
         }
+        structuredStorageErrorEmitted = storageErrors.some(detail => detail?.app === 'slides' && detail?.operation?.startsWith('save'));
         await saveDraft({ probe: 'after-quota-failure' });
         storageRecoversAfterFailure = (await loadDraft())?.probe === 'after-quota-failure';
         await clearDraft();
 
-        // Формат запису: новий загорнутий {savedAt,payload} і legacy незагорнута
-        // чернетка обидва коректно читаються (реконсиляція/зворотна сумісність).
-        localStorage.setItem('art_slides_v1', JSON.stringify({ savedAt: 5, payload: { probe: 'wrapped' } }));
+        // Новіший legacy wrapper і незагорнута чернетка обидва мігруються.
+        localStorage.setItem('art_slides_v1', JSON.stringify({ savedAt: Date.now() + 1000, payload: { probe: 'wrapped' } }));
         wrappedDraftLoads = (await loadDraft())?.probe === 'wrapped';
         await clearDraft();
         localStorage.setItem('art_slides_v1', JSON.stringify({ probe: 'legacy', slides: [] }));
@@ -136,13 +148,29 @@
         const afterClear = await loadDraft();
         const lsRaw = localStorage.getItem('art_slides_v1');
         const lsRec = lsRaw ? JSON.parse(lsRaw) : null;
-        clearWritesTombstone = clearedReturn === true && afterClear === null && !!lsRec && lsRec.payload === null && typeof lsRec.savedAt === 'number';
+        clearWritesTombstone = clearedReturn === true
+          && afterClear === null
+          && lsRec?.schemaVersion === 1
+          && lsRec.payload === null
+          && typeof lsRec.savedAt === 'number'
+          && typeof lsRec.revision === 'number';
       } catch {}
+      removeEventListener('office:storage-error', captureStorageError);
 
       await loadFrame('../slides/index.html');
 
       const doc = frame.contentDocument;
       const win = frame.contentWindow;
+      const selectImageDataUrl = (dataUrl, name = 'image.png') => {
+        const [, base64 = ''] = dataUrl.split(',', 2);
+        const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+        const transfer = new win.DataTransfer();
+        transfer.items.add(new win.File([bytes], name, { type: 'image/png' }));
+        doc.querySelector('#pickImageFile')?.click();
+        const input = doc.querySelector('#imageFileInput');
+        input.files = transfer.files;
+        input.dispatchEvent(new win.Event('change', { bubbles: true }));
+      };
       // НЕ завантажувати реальні файли під час тесту: дія «Зберегти файл» інакше
       // тригерить <a download> і скидає .artslides.json у теку Downloads.
       const realAnchorClick = win.HTMLAnchorElement.prototype.click;
@@ -153,6 +181,12 @@
       await waitFor(() => typeof win.SlidesApp?.boot === 'function', 'SlidesApp boot exported');
       await waitFor(() => doc.querySelectorAll('#slideList .slide-card').length >= 1, 'slide list rendered');
       await waitFor(() => doc.querySelectorAll('#stage .stage-element').length >= 1, 'stage elements rendered');
+      await waitFor(() => doc.querySelector('[data-office-storage-status]'), 'shared storage status rendered');
+      doc.querySelector('[data-office-end-session]').click();
+      await waitFor(() => doc.querySelector('.office-storage-confirm.active'), 'end-session confirmation opens');
+      const endSessionWarningIsClear = doc.querySelector('.office-storage-confirm')?.textContent.includes('Спочатку завантажте потрібний файл');
+      doc.querySelector('.office-storage-confirm button')?.click();
+      await waitFor(() => !doc.querySelector('.office-storage-confirm'), 'end-session confirmation cancels');
       const project = {
         fileName: 'Шкільна презентація',
         slides: [{
@@ -192,6 +226,9 @@
         check('stage elements rendered', doc.querySelectorAll('#stage .stage-element').length >= 1),
         check('image transparency field defaults to zero percent', doc.querySelector('#imageOpacityInput').value === '0'),
         check('standard commands exported', ['new', 'open', 'save', 'undo', 'redo'].every(command => !!doc.querySelector(`[data-office-command="${command}"]`))),
+        check('shared storage status uses a known label', ['Збережено локально', 'Зберігається…', 'Не вдалося зберегти — завантажте файл'].includes(doc.querySelector('[data-office-storage-status]')?.textContent)),
+        check('end-session command is available', doc.querySelectorAll('[data-office-end-session]').length === 1),
+        check('end-session warns to download the file first', endSessionWarningIsClear),
         check('project normalize keeps file name', normalized?.fileName === 'Шкільна презентація'),
         check('project normalize keeps elements', normalized?.slides?.[0]?.elements?.length === 1),
         check('project parse works', parsed?.slides?.[0]?.id === 's1'),
@@ -209,9 +246,11 @@
           return Math.abs(b.left - 140) < 0.001 && Math.abs(b.right - 300) < 0.001 && Math.abs(b.top - 60) < 0.001 && Math.abs(b.bottom - 300) < 0.001;
         })()),
         check('IndexedDB draft round-trips', idbRoundTrips),
+        check('queued draft writes keep the newest snapshot', queuedWritesKeepNewest),
         check('clear-draft removes the draft', clearDraftWorks),
         check('large image draft (data-url) round-trips', imageDraftRoundTrips),
         check('quota failure propagates without breaking the editor', quotaFailurePropagates),
+        check('storage failure emits office:storage-error detail', structuredStorageErrorEmitted),
         check('draft storage recovers after quota failure', storageRecoversAfterFailure),
         check('wrapped draft record loads', wrappedDraftLoads),
         check('legacy unwrapped draft still loads', legacyDraftLoads),
@@ -247,7 +286,7 @@
       checks.push(check('import resets non-numeric line height', firstEl(slidesOf([{ type: 'text', content: 'a', style: { lineHeight: 'big' } }])).style.lineHeight === 1.15));
       checks.push(check('import keeps valid list type', firstEl(slidesOf([{ type: 'text', content: 'a', style: { listType: 'bullet' } }])).style.listType === 'bullet'));
       checks.push(check('import allowlists unknown list type', firstEl(slidesOf([{ type: 'text', content: 'a', style: { listType: 'script' } }])).style.listType === 'none'));
-      checks.push(check('trusted import keeps external image url', normalizePresentation(slidesOf([{ type: 'image', content: 'https://ok.example/x.png' }]), { trusted: true }).slides[0].elements[0].content === 'https://ok.example/x.png'));
+      checks.push(check('trusted draft also neutralizes external image url', normalizePresentation(slidesOf([{ type: 'image', content: 'https://ok.example/x.png' }]), { trusted: true }).slides[0].elements[0].content === ''));
       checks.push(check('import truncates over-long text', firstEl(slidesOf([{ type: 'text', content: 'x'.repeat(LIMITS.MAX_TEXT_LENGTH + 5000) }])).content.length === LIMITS.MAX_TEXT_LENGTH));
       checks.push(check('import clamps wild coordinates', (() => {
         const el = firstEl(slidesOf([{ type: 'text', content: 'a', x: 1e12, y: -1e12, w: 1e15, h: 5 }]));
@@ -895,9 +934,8 @@
       checks.push(check('image tools hidden without image selection', doc.querySelector('#imageToolGroup').classList.contains('hidden')));
       clickAction('insert-image');
       await waitFor(() => !doc.querySelector('#modalOverlay').classList.contains('hidden'), 'insert image modal');
-      doc.querySelector('#imageUrlField').value = imageOne;
       doc.querySelector('#imageAltField').value = 'Перше зображення';
-      doc.querySelector('#modalConfirm').click();
+      selectImageDataUrl(imageOne, 'first.png');
       await waitFor(() => doc.querySelector('#stage .image-element')?.getAttribute('src') === imageOne, 'image inserted from data url');
       const imageGeometry = (() => {
         const wrap = doc.querySelector('#stage .image-element').closest('.stage-element');
@@ -938,9 +976,8 @@
       clickAction('replace-image');
       await waitFor(() => doc.querySelector('#modalTitle').textContent === 'Замінити зображення', 'replace image modal');
       checks.push(check('replace modal preserves current alt', doc.querySelector('#imageAltField').value === 'Перше зображення'));
-      doc.querySelector('#imageUrlField').value = imageTwo;
       doc.querySelector('#imageAltField').value = 'Друге зображення';
-      doc.querySelector('#modalConfirm').click();
+      selectImageDataUrl(imageTwo, 'second.png');
       await waitFor(() => doc.querySelector('#stage .image-element')?.getAttribute('src') === imageTwo, 'image replaced');
       const replacedWrap = doc.querySelector('#stage .image-element').closest('.stage-element');
       checks.push(check('replace keeps image geometry and layer', [replacedWrap.style.left, replacedWrap.style.top, replacedWrap.style.width, replacedWrap.style.height, replacedWrap.style.transform, replacedWrap.style.zIndex].join('|') === imageGeometry));
@@ -955,37 +992,12 @@
       checks.push(check('image replace participates in Redo', doc.querySelector('#stage .image-element').alt === 'Друге зображення'));
 
       clickAction('replace-image');
-      await waitFor(() => doc.querySelector('#modalTitle').textContent === 'Замінити зображення', 'invalid replace modal');
-      doc.querySelector('#imageUrlField').value = 'javascript:alert(1)';
-      doc.querySelector('#modalConfirm').click();
-      checks.push(check('replace rejects unsupported image source', doc.querySelector('#stage .image-element').getAttribute('src') === imageTwo));
-      checks.push(check('invalid source keeps modal open', !doc.querySelector('#modalOverlay').classList.contains('hidden')));
-      checks.push(check('invalid source shows inline error', !doc.querySelector('#imageSourceError').classList.contains('hidden') && doc.querySelector('#imageSourceError').textContent.length > 0));
-      doc.querySelector('#imageUrlField').value = '';
-      doc.querySelector('#modalConfirm').click();
-      checks.push(check('empty source keeps modal open with error', !doc.querySelector('#modalOverlay').classList.contains('hidden') && doc.querySelector('#imageSourceError').textContent.length > 0));
+      await waitFor(() => doc.querySelector('#modalTitle').textContent === 'Замінити зображення', 'local-only replace modal');
+      checks.push(check('image modal has no external URL field', !doc.querySelector('#imageUrlField')));
+      checks.push(check('image modal explains local offline-safe source', doc.querySelector('#modalBody').textContent.includes('лише з цього пристрою')));
+      checks.push(check('local-only modal leaves current image unchanged', doc.querySelector('#stage .image-element').getAttribute('src') === imageTwo));
       doc.querySelector('#modalCancel').click();
-      await waitFor(() => doc.querySelector('#modalOverlay').classList.contains('hidden'), 'invalid replace modal closed via cancel');
-
-      // Race: HTTPS-завантаження стартує, користувач скасовує, а fetch завершується
-      // ВЖЕ після скасування — операція не має застосуватися чи переоткрити модалку.
-      const imagesBeforeCancel = doc.querySelectorAll('#stage .image-element').length;
-      let resolvePendingFetch = null;
-      const realFetch = win.fetch;
-      win.fetch = () => new Promise(resolve => { resolvePendingFetch = resolve; });
-      clickAction('insert-image');
-      await waitFor(() => doc.querySelector('#modalTitle').textContent === 'Додати зображення', 'cancel-race insert modal');
-      doc.querySelector('#imageUrlField').value = 'https://example.com/pic.png';
-      doc.querySelector('#modalConfirm').click();
-      await waitFor(() => doc.querySelector('#modalConfirm').disabled === true, 'embed marks confirm busy');
-      doc.querySelector('#modalCancel').click();
-      await waitFor(() => doc.querySelector('#modalOverlay').classList.contains('hidden'), 'cancel closes modal mid-embed');
-      const tinyPng = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
-      resolvePendingFetch(new win.Response(new win.Blob([tinyPng], { type: 'image/png' }), { status: 200 }));
-      await wait(150);
-      checks.push(check('cancelled HTTPS load does not insert image', doc.querySelectorAll('#stage .image-element').length === imagesBeforeCancel));
-      checks.push(check('cancelled HTTPS load does not reopen modal', doc.querySelector('#modalOverlay').classList.contains('hidden')));
-      win.fetch = realFetch;
+      await waitFor(() => doc.querySelector('#modalOverlay').classList.contains('hidden'), 'local-only replace modal closed via cancel');
 
       const imagesBeforeInvalidFile = doc.querySelectorAll('#stage .image-element').length;
       clickAction('insert-image');
@@ -1125,8 +1137,7 @@
       // Заповнення image-placeholder подвійним кліком → реальне зображення (isPlaceholder знято).
       doc.querySelector('#stage .image-placeholder').dispatchEvent(new win.MouseEvent('dblclick', { bubbles: true }));
       await waitFor(() => doc.querySelector('#modalTitle')?.textContent === 'Замінити зображення', 'image placeholder opens fill dialog');
-      doc.querySelector('#imageUrlField').value = 'data:image/png;base64,QQ==';
-      doc.querySelector('#modalConfirm').click();
+      selectImageDataUrl('data:image/png;base64,QQ==', 'placeholder.png');
       await waitFor(() => doc.querySelector('#stage .image-element'), 'image placeholder filled with real image');
       checks.push(check('filling image placeholder yields a real image', !!doc.querySelector('#stage .image-element') && !doc.querySelector('#stage .image-placeholder')));
       await waitFor(() => !doc.querySelector('#imageToolGroup').classList.contains('hidden'), 'filled image shows image toolbar');

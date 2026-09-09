@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Text Storage Behavior Smoke</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 1rem; }
+    iframe { width: 1100px; height: 760px; border: 1px solid #cbd5e1; }
+    pre { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <pre id="result">Running...</pre>
+  <iframe id="frame" src="../text/index.html"></iframe>
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('frame');
+
+    function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+    function waitFor(predicate, label, timeout = 8000) {
+      const started = performance.now();
+      return new Promise((resolve, reject) => {
+        function tick() {
+          let ok = false;
+          try { ok = !!predicate(); } catch { ok = false; }
+          if (ok) return resolve();
+          if (performance.now() - started > timeout) return reject(new Error(`Timed out waiting for ${label}`));
+          setTimeout(tick, 50);
+        }
+        tick();
+      });
+    }
+    function check(label, ok) { return { label, ok: !!ok }; }
+    function pageContent(doc) { return doc.querySelector('#editor .page-content'); }
+
+    async function loadFrame() {
+      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+      const win = frame.contentWindow;
+      await waitFor(() => win.TextApp?.ready, 'Text ready promise');
+      await win.TextApp.ready;
+      return { win, doc: frame.contentDocument };
+    }
+
+    async function setInputFile(win, input, file) {
+      const transfer = new win.DataTransfer();
+      transfer.items.add(file);
+      input.files = transfer.files;
+      input.dispatchEvent(new win.Event('change', { bubbles: true }));
+      await wait(100);
+    }
+
+    async function run() {
+      let context = await loadFrame();
+      let { win, doc } = context;
+      const checks = [];
+      const store = win.OfficeStorage.createDraftStore({ app: 'text', key: 'text', fallbackKey: 'office_draft_text_v1' });
+      await store.clear();
+
+      checks.push(check('Text exposes draft serialization methods',
+        ['getDraftPayload', 'restoreDraft', 'clearDocument'].every(name => typeof win.art.editor[name] === 'function')));
+      const initialPayload = win.art.editor.getDraftPayload();
+      checks.push(check('draft payload has the versioned Text shape',
+        initialPayload.version === 1
+        && typeof initialPayload.fileName === 'string'
+        && typeof initialPayload.fileFormat === 'string'
+        && typeof initialPayload.document?.margins === 'object'
+        && typeof initialPayload.html === 'string'));
+
+      win.art.editor.restoreDraft({
+        version: 1,
+        fileName: 'Відновлено',
+        fileFormat: 'artdoc',
+        document: { orientation: 'landscape', pageSize: 'a5', margins: { top: 1, right: 2, bottom: 3, left: 4 } },
+        html: '<p id="restored">Безпечно</p><img src="x" onerror="window.__draftXss=1"><script>window.__draftXss=2<\/script>'
+      });
+      checks.push(check('restore sanitizes HTML and restores document settings',
+        (doc.querySelector('#editor')?.textContent || '').includes('Безпечно')
+        && !doc.querySelector('#editor script, #editor [onerror]')
+        && !win.__draftXss
+        && win.art.state.get('orientation') === 'landscape'
+        && win.art.state.get('pageSize') === 'a5'
+        && win.art.state.get('margins').left === 4));
+      checks.push(check('restore does not create an undo action and marks the draft dirty',
+        !win.art.history.canUndo() && win.art.state.isDirty()));
+
+      win.art.editor.clearDocument();
+      await wait(100);
+      checks.push(check('clearDocument creates a clean empty document',
+        !win.art.state.isDirty() && !(pageContent(doc).textContent || '').trim()));
+
+      for (let index = 0; index < 100; index += 1) {
+        pageContent(doc).innerHTML = `<p>history-${index}</p>`;
+        win.art.history.pushNow();
+      }
+      const entryStats = win.art.history.getStats();
+      checks.push(check('history keeps at most 80 snapshots', entryStats.entries <= 80));
+
+      for (let index = 0; index < 38; index += 1) {
+        pageContent(doc).textContent = `${index}-${'x'.repeat(350000)}`;
+        win.art.history.pushNow();
+      }
+      const byteStats = win.art.history.getStats();
+      checks.push(check('history stays within the 24 MiB memory budget',
+        byteStats.bytes <= byteStats.maxBytes && byteStats.entries <= byteStats.maxEntries));
+
+      win.art.editor.clearDocument();
+      await store.clear();
+      pageContent(doc).innerHTML = '<p id="autosaved">Автозбережена чернетка</p>';
+      doc.getElementById('editor').dispatchEvent(new win.Event('input', { bubbles: true, inputType: 'insertText' }));
+      await wait(450);
+      await win.art.storage.flush();
+      const autosaved = await store.load();
+      checks.push(check('input is autosaved through the shared store after 300 ms',
+        autosaved?.version === 1 && autosaved.html.includes('Автозбережена чернетка')));
+
+      frame.src = '../text/index.html?restore-race=1';
+      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+      win = frame.contentWindow;
+      doc = frame.contentDocument;
+      await waitFor(() => doc.querySelector('.office-storage-confirm.active'), 'restore prompt');
+      pageContent(doc).innerHTML = '<p id="opened-after-boot">Новий відкритий документ</p>';
+      doc.getElementById('editor').dispatchEvent(new win.Event('input', { bubbles: true, inputType: 'insertFromDrop' }));
+      doc.querySelector('.office-storage-confirm .office-storage-actions button:last-child').click();
+      await waitFor(() => win.TextApp?.ready, 'Text ready after skipped restore');
+      await win.TextApp.ready;
+      checks.push(check('late draft restore cannot overwrite a document changed after boot',
+        !!doc.getElementById('opened-after-boot') && !doc.getElementById('autosaved')));
+      await win.art.storage.clear();
+
+      const originalReadAsText = win.FileReader.prototype.readAsText;
+      let textReads = 0;
+      win.FileReader.prototype.readAsText = function (...args) {
+        textReads += 1;
+        return originalReadAsText.apply(this, args);
+      };
+      const largeText = new win.File([new Uint8Array((5 * 1024 * 1024) + 1)], 'large.txt', { type: 'text/plain' });
+      await setInputFile(win, doc.getElementById('fileInput'), largeText);
+      checks.push(check('oversized text import is rejected before FileReader',
+        textReads === 0 && doc.getElementById('modalInfoText').textContent.includes('Максимальний розмір')));
+      win.FileReader.prototype.readAsText = originalReadAsText;
+      win.art.modals.close('modalInfo');
+
+      const originalReadAsDataURL = win.FileReader.prototype.readAsDataURL;
+      let imageReads = 0;
+      win.FileReader.prototype.readAsDataURL = function (...args) {
+        imageReads += 1;
+        return originalReadAsDataURL.apply(this, args);
+      };
+      const largeImage = new win.File([new Uint8Array((8 * 1024 * 1024) + 1)], 'large.png', { type: 'image/png' });
+      await setInputFile(win, doc.getElementById('imageInput'), largeImage);
+      checks.push(check('oversized image is rejected before decoding or FileReader',
+        imageReads === 0 && doc.getElementById('modalInfoText').textContent.includes('8 MiB')));
+      win.FileReader.prototype.readAsDataURL = originalReadAsDataURL;
+      win.art.modals.close('modalInfo');
+
+      const originalConvert = win.mammoth.convertToHtml;
+      win.mammoth.convertToHtml = async () => ({ value: '<p>DOCX</p>' + '<img src="data:image/png;base64,AA==">'.repeat(101), messages: [] });
+      let docxRejected = false;
+      try {
+        await win.art.formats.docx.importDocx(new win.File([new Uint8Array([1])], 'many-images.docx', {
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        }));
+      } catch (error) {
+        docxRejected = String(error.message).includes('забагато зображень');
+      } finally {
+        win.mammoth.convertToHtml = originalConvert;
+      }
+      checks.push(check('converted DOCX enforces the embedded-image limit', docxRejected));
+
+      const failed = checks.filter(item => !item.ok);
+      result.textContent = checks.map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}`)
+        .concat(failed.length ? [`FAILED: ${failed.map(item => item.label).join('; ')}`] : ['PASSED'])
+        .join('\n');
+      document.body.dataset.textStorage = failed.length ? 'failed' : 'passed';
+      if (failed.length) throw new Error(failed.map(item => item.label).join('; '));
+    }
+
+    run().catch(error => {
+      document.body.dataset.textStorage = 'failed';
+      result.textContent += `\n${error?.stack || error}`;
+    });
+  </script>
+</body>
+</html>

@@ -1368,10 +1368,6 @@ ol.shape-text-element {
   text-align: center;
 }
 
-.form-error.form-busy {
-  color: var(--slate-3);
-}
-
 .link-button {
   border: 1px dashed var(--border-strong);
   background: var(--surface-soft);

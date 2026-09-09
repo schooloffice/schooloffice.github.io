@@ -15,8 +15,8 @@ function createShellCommands() {
 }
 
 // ---- Init ----
-function initTablesEditor() {
-  // Стан завантажується в logic.js при старті з localStorage (зберігається між сесіями)
+async function initTablesEditor() {
+  await loadStateFromStorage();
 
   // bigger default grid (але без втрати даних)
   if (ROWS < 60 || COL_COUNT < 30) {
@@ -27,6 +27,14 @@ function initTablesEditor() {
   gridWrap = document.getElementById('gridWrap');
   insertColBtn = document.getElementById('insertColBtn');
   insertRowBtn = document.getElementById('insertRowBtn');
+
+  TablesGridViewport.configure({
+    container: gridWrap,
+    onChange: view => {
+      rebuildGrid(view);
+      recalculateAll();
+    }
+  });
 
   rebuildGrid();
   recalculateAll();
@@ -46,6 +54,7 @@ function initTablesEditor() {
       if (v.length > 200) e.target.value = v.substring(0, 200);
       cellData[activeId] = e.target.value;
       setDirty(true);
+      persistStateToStorage();
       // mirror to cell if currently editing
       const inp = cellInp[active.r]?.[active.c];
       if (inp && document.activeElement === inp) inp.value = e.target.value;
@@ -55,7 +64,7 @@ function initTablesEditor() {
       if (e.key === 'Enter') {
         e.preventDefault();
         recalculateAll();
-        persistStateToStorage();
+        flushStateToStorage();
         setSaveBadge();
         saveToHistory();
         const inp = cellInp[active.r]?.[active.c];
@@ -64,6 +73,21 @@ function initTablesEditor() {
     });
   }
 
+  const nameBox = document.getElementById('activeCellRef');
+  nameBox?.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    const parsed = parseCellId(nameBox.value);
+    if (!parsed || parsed.r < 1 || parsed.r > ROWS || parsed.cIdx < 0 || parsed.cIdx >= COL_COUNT) {
+      nameBox.value = activeId;
+      announce('Адреса клітинки поза межами аркуша');
+      return;
+    }
+    selStart = selEnd = { c: parsed.cIdx, r: parsed.r };
+    setActive(parsed.cIdx, parsed.r, getCellId(parsed.cIdx, parsed.r));
+    focusGridCell(parsed.cIdx, parsed.r);
+  });
+
   // global mouse
   document.addEventListener('mouseup', () => {
     isSelecting = false;
@@ -71,6 +95,9 @@ function initTablesEditor() {
     if (isResizing) {
       isResizing = false;
       resizeCol = null;
+      rebuildGrid(TablesGridViewport.range(ROWS, COL_COUNT));
+      recalculateAll();
+      flushStateToStorage();
       saveToHistory();
     }
   });
@@ -253,6 +280,15 @@ function initTablesEditor() {
       const reader = new FileReader();
       reader.onload = () => importWorkbookText(String(reader.result || ''));
       reader.readAsText(file);
+    });
+  }
+
+  const xlsxInput = document.getElementById('xlsxFileInput');
+  if (xlsxInput) {
+    xlsxInput.addEventListener('change', async () => {
+      const file = xlsxInput.files?.[0];
+      if (file) await window.TablesXlsxFile?.importFile?.(file);
+      xlsxInput.value = '';
     });
   }
 

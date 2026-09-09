@@ -3,14 +3,13 @@ function applyStyleToSelection(fn) {
   const b = getBounds();
   for (let r = b.rMin; r <= b.rMax; r++) {
     for (let c = b.cMin; c <= b.cMax; c++) {
-      const td = cellTd[r]?.[c];
-      if (td) {
-        fn(td);
-        const id = getCellId(c, r);
-        const styleStr = extractStyleStringFromTd(td);
-        if (styleStr) cellStyles[id] = styleStr;
-        else delete cellStyles[id];
-      }
+      const id = getCellId(c, r);
+      const td = cellTd[r]?.[c] || document.createElement('td');
+      if (!cellTd[r]?.[c]) styleStringToClassList(cellStyles[id]).forEach(cls => td.classList.add(cls));
+      fn(td);
+      const styleStr = extractStyleStringFromTd(td);
+      if (styleStr) cellStyles[id] = styleStr;
+      else delete cellStyles[id];
     }
   }
 
@@ -58,9 +57,7 @@ function autoFitColumns() {
     if (th) maxWidth = Math.max(maxWidth, ctx.measureText(th.innerText || '').width);
 
     for (let r = 1; r <= ROWS; r++) {
-      const inp = cellInp[r]?.[cIdx];
-      if (!inp) continue;
-      const text = String(inp.value || '');
+      const text = String(getCalculatedCellValue(getCellId(cIdx, r)) || '');
       if (!text) continue;
       maxWidth = Math.max(maxWidth, ctx.measureText(text).width);
     }

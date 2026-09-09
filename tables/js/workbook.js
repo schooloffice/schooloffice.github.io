@@ -35,10 +35,9 @@ function exportCSV() {
       // Експортуємо обчислене значення, а не формулу
       let val;
       if (String(raw).startsWith('=')) {
-        const inp = cellInp[r]?.[c];
-        val = inp ? inp.value : raw; // обчислений результат з DOM
+        val = getCalculatedCellValue(id);
       } else {
-        val = raw;
+        val = protectCSVText(raw);
       }
       row.push(escapeCSV(String(val ?? ''), delim));
     }
@@ -58,6 +57,11 @@ function exportCSV() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 500);
+}
+
+function protectCSVText(value) {
+  const text = String(value ?? '');
+  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
 }
 
 function escapeCSV(val, delim) {

@@ -2,6 +2,22 @@
 /* ui/editor.js — full refactor: pages, image resize, safe tables */
 
 const ArtEditor = (() => {
+  const MAX_TEXT_FILE_BYTES = 5 * 1024 * 1024;
+  const MAX_DOCX_FILE_BYTES = 20 * 1024 * 1024;
+  const MAX_IMAGE_FILE_BYTES = 8 * 1024 * 1024;
+  const MAX_IMAGE_PIXELS = 16_777_216;
+  const DOCUMENT_MIME_TYPES = {
+    txt: new Set(['', 'text/plain']),
+    rtf: new Set(['', 'application/rtf', 'text/rtf', 'text/richtext', 'application/x-rtf']),
+    docx: new Set(['', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/octet-stream'])
+  };
+  const IMAGE_MIME_BY_EXTENSION = {
+    png: new Set(['', 'image/png']),
+    jpg: new Set(['', 'image/jpeg']),
+    jpeg: new Set(['', 'image/jpeg']),
+    gif: new Set(['', 'image/gif']),
+    webp: new Set(['', 'image/webp'])
+  };
   let _editor = null;
   let _announcer = null;
   let _findState = { query: '', index: -1, matches: [] };
@@ -11,6 +27,7 @@ const ArtEditor = (() => {
   let _selectedImage = null;
   let _resizeState = null;
   let _historyTimer = 0;
+  let _documentRevision = 0;
 
   function init(editorEl, announcerEl) {
     _editor = editorEl;
@@ -55,6 +72,11 @@ const ArtEditor = (() => {
     });
     ArtState.on('change:orientation', _applyOrientation);
     ArtState.on('change:zoom', _applyZoom);
+    ArtState.on('change', change => {
+      if (['fileName', 'fileFormat', 'orientation', 'pageSize', 'margins'].includes(change?.key)) {
+        _documentRevision += 1;
+      }
+    });
 
     document.getElementById('fileInput')?.addEventListener('change', _handleFileOpen);
     document.getElementById('imageInput')?.addEventListener('change', _handleImageInsert);
@@ -75,6 +97,7 @@ const ArtEditor = (() => {
   }
 
   function newDoc() {
+    _documentRevision += 1;
     clearFindHighlights();
     clearSelectedImage();
     ArtState.resetDocument?.();
@@ -94,7 +117,9 @@ const ArtEditor = (() => {
     if (!file) return;
     e.target.value = '';
     const ext = file.name.split('.').pop().toLowerCase();
+    _documentRevision += 1;
     try {
+      _validateDocumentFile(file, ext);
       let result;
       if (ext === 'txt') result = await ArtTxt.importTxt(file);
       else if (ext === 'rtf') result = await ArtRtf.importRtf(file);
@@ -235,14 +260,20 @@ const ArtEditor = (() => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
-    const reader = new FileReader();
-    reader.onload = () => {
+    try {
+      _validateImageFile(file);
+      const dimensions = await _readImageDimensions(file);
+      if (!dimensions.width || !dimensions.height || dimensions.width * dimensions.height > MAX_IMAGE_PIXELS) {
+        throw new Error('Зображення має забагато пікселів. Максимум — 16 777 216 пікселів.');
+      }
+      const dataUrl = await _readFileAsDataUrl(file);
       ArtSelection.restoreLast(_editor);
-      ArtToolbar.run(() => ArtSelection.insertImage(_editor, String(reader.result), file.name.replace(/\.[^.]+$/, '')));
+      ArtToolbar.run(() => ArtSelection.insertImage(_editor, dataUrl, file.name.replace(/\.[^.]+$/, '')));
       _queueRepaginate(false);
       _announce(`Зображення ${file.name} вставлено`);
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      ArtModals.info('Зображення не вставлено', error.message || String(error));
+    }
   }
 
   function _handleBeforeInput() {
@@ -252,6 +283,7 @@ const ArtEditor = (() => {
   function _handleInput(e) {
     if (_layoutLock) return;
 
+    _documentRevision += 1;
     ArtState.setDirty(true);
     ArtSelection.remember(_editor);
     _queueRepaginate(true);
@@ -1687,6 +1719,119 @@ const ArtEditor = (() => {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  function _validateDocumentFile(file, extension) {
+    const allowedMimes = DOCUMENT_MIME_TYPES[extension];
+    if (!allowedMimes) throw new Error(`Файл .${extension || '?'} не підтримується.`);
+    if (!allowedMimes.has(String(file.type || '').toLowerCase())) {
+      throw new Error('Тип файлу не відповідає його розширенню.');
+    }
+    const maxBytes = extension === 'docx' ? MAX_DOCX_FILE_BYTES : MAX_TEXT_FILE_BYTES;
+    if (file.size > maxBytes) {
+      const limitMiB = Math.round(maxBytes / 1024 / 1024);
+      throw new Error(`Файл завеликий. Максимальний розмір для .${extension} — ${limitMiB} MiB.`);
+    }
+  }
+
+  function _validateImageFile(file) {
+    const extension = String(file.name || '').split('.').pop().toLowerCase();
+    const allowedMimes = IMAGE_MIME_BY_EXTENSION[extension];
+    if (!allowedMimes || !allowedMimes.has(String(file.type || '').toLowerCase())) {
+      throw new Error('Підтримуються лише PNG, JPEG, GIF і WebP із коректним типом файлу.');
+    }
+    if (file.size > MAX_IMAGE_FILE_BYTES) {
+      throw new Error('Зображення завелике. Максимальний розмір — 8 MiB.');
+    }
+  }
+
+  async function _readImageDimensions(file) {
+    if (typeof createImageBitmap === 'function') {
+      try {
+        const bitmap = await createImageBitmap(file);
+        const dimensions = { width: bitmap.width, height: bitmap.height };
+        bitmap.close?.();
+        return dimensions;
+      } catch {
+        // Старі браузери та окремі формати переходять до локального Image fallback.
+      }
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      return await new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+        image.onerror = () => reject(new Error('Не вдалося декодувати зображення.'));
+        image.src = objectUrl;
+      });
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  function _readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Не вдалося прочитати зображення.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function getDraftPayload() {
+    const documentState = ArtState.documentSnapshot?.() || {};
+    return {
+      version: 1,
+      fileName: String(ArtState.get('fileName') || 'Без назви'),
+      fileFormat: String(ArtState.get('fileFormat') || 'artdoc'),
+      document: {
+        orientation: documentState.orientation || 'portrait',
+        margins: { ...(documentState.margins || {}) },
+        pageSize: documentState.pageSize || 'a4'
+      },
+      html: String(_getExportHTML())
+    };
+  }
+
+  function restoreDraft(payload) {
+    if (!payload || payload.version !== 1 || typeof payload.html !== 'string') {
+      throw new Error('unsupported-text-draft');
+    }
+    const documentState = payload.document || {};
+    const orientation = ['portrait', 'landscape'].includes(documentState.orientation)
+      ? documentState.orientation : 'portrait';
+    const pageSize = ['a4', 'a5', 'letter'].includes(documentState.pageSize)
+      ? documentState.pageSize : 'a4';
+    const margins = Object.fromEntries(['top', 'right', 'bottom', 'left'].map(side => {
+      const value = Number(documentState.margins?.[side]);
+      return [side, Number.isFinite(value) && value >= 0 && value <= 10 ? value : undefined];
+    }).filter(([, value]) => value !== undefined));
+
+    clearFindHighlights();
+    clearSelectedImage();
+    ArtHistory.suspend(() => {
+      ArtState.restoreDocument({ orientation, pageSize, margins });
+      _setDocumentHTML(ArtSanitize.clean(payload.html));
+      ArtState.set('fileName', String(payload.fileName || 'Без назви').slice(0, 160));
+      ArtState.set('fileFormat', String(payload.fileFormat || 'artdoc').slice(0, 20));
+    });
+    ArtHistory.init(_editor);
+    ArtState.setDirty(true);
+    _documentRevision += 1;
+    _updateFileName();
+    _syncView();
+    ArtSelection.focusEditor(_editor);
+    _announce('Локальну чернетку відновлено');
+    return true;
+  }
+
+  function clearDocument() {
+    newDoc();
+  }
+
+  function getDocumentRevision() {
+    return _documentRevision;
+  }
+
   function _stripExt(name) { return name.replace(/\.[^.]+$/, '') || name; }
 
   function _announce(msg) {
@@ -1698,6 +1843,8 @@ const ArtEditor = (() => {
   return {
     init, newDoc, saveAs, setOrientation, setZoom, hasSelectedImage, setSelectedImageLayout,
     insertTable, tableAction, toggleTableMenu, hideTableMenu, refreshLayout, openImageDialog, findNext, clearFindHighlights, editFileName,
+    getDraftPayload, restoreDraft, clearDocument, getDocumentRevision,
+    MAX_TEXT_FILE_BYTES, MAX_DOCX_FILE_BYTES, MAX_IMAGE_FILE_BYTES, MAX_IMAGE_PIXELS,
     // Логічний (не сторінковий) HTML документа — те, що йде у файл.
     // Відкрито для поведінкових тестів експорту.
     getExportHTML: _getExportHTML

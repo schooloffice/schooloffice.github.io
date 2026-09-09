@@ -8,6 +8,18 @@ function applyCellType(td, value) {
   td.classList.add(isNumber ? 'cell-type-number' : 'cell-type-text');
 }
 
+function getCalculatedCellValue(id) {
+  const raw = cellData[id];
+  if (raw === undefined || raw === null || raw === '') return '';
+  if (!String(raw).startsWith('=')) return raw;
+  try {
+    calcDepth = 0;
+    return evaluateFormula(String(raw).substring(1));
+  } catch (error) {
+    return error?.message || '#VALUE!';
+  }
+}
+
 function recalculateAll() {
   for (let r = 1; r <= ROWS; r++) {
     for (let c = 0; c < COL_COUNT; c++) {
@@ -63,5 +75,6 @@ function recalculateAll() {
 }
 
 window.TablesCalculation = {
+  getCalculatedCellValue,
   recalculateAll
 };

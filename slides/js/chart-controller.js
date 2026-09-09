@@ -1,6 +1,6 @@
 import { chartFromDelimitedText, chartToDelimitedText, CHART_TYPES, createChartElement } from './chart-element.js';
 import { getCurrentSlide, getSelectedElement, state } from './state.js';
-import { $ } from './utils.js';
+import { $, createNode } from './utils.js';
 
 export function createChartController({
   elementDomMap,
@@ -17,24 +17,41 @@ export function createChartController({
       return;
     }
     const chart = current?.chart || createChartElement().chart;
-    const typeOptions = CHART_TYPES.map(type => `<option value="${type}"${chart.type === type ? ' selected' : ''}>${({
-      column: 'Стовпчаста', line: 'Лінійна', pie: 'Кругова'
-    })[type]}</option>`).join('');
+    const typeNames = { column: 'Стовпчаста', line: 'Лінійна', pie: 'Кругова' };
+    const typeField = createNode('select', { id: 'chartTypeField', className: 'input-like' });
+    CHART_TYPES.forEach(type => typeField.appendChild(createNode('option', {
+      text: typeNames[type],
+      properties: { value: type, selected: chart.type === type }
+    })));
+    const titleField = createNode('input', {
+      id: 'chartTitleField',
+      className: 'input-like',
+      attributes: { type: 'text', maxlength: 120 },
+      properties: { value: chart.title }
+    });
+    const legendField = createNode('input', {
+      id: 'chartLegendField',
+      attributes: { type: 'checkbox' },
+      properties: { checked: chart.showLegend }
+    });
+    const dataField = createNode('textarea', {
+      id: 'chartDataField',
+      className: 'input-like',
+      attributes: { rows: 8, spellcheck: 'false' },
+      properties: { value: chartToDelimitedText(chart) }
+    });
+    const bodyNode = createNode('div', { className: 'form-grid chart-form' },
+      createNode('label', {}, 'Тип ', typeField),
+      createNode('label', {}, 'Заголовок ', titleField),
+      createNode('label', { className: 'checkbox-row' }, legendField, ' Показувати легенду'),
+      createNode('label', { className: 'chart-data-field' }, 'Дані', dataField),
+      createNode('div', { className: 'helper-text chart-data-field', text: 'Кругова діаграма використовує перший ряд даних; від’ємні значення в ній показуються як нуль.' }),
+      createNode('div', { id: 'chartError', className: 'form-error hidden', attributes: { role: 'alert' } })
+    );
     showModal({
       title: mode === 'edit' ? 'Змінити діаграму' : 'Вставити діаграму',
       text: 'Перший рядок містить назви рядів, перший стовпець — категорії. Розділяйте значення крапкою з комою.',
-      body: `
-        <div class="form-grid chart-form">
-          <label>Тип <select id="chartTypeField" class="input-like">${typeOptions}</select></label>
-          <label>Заголовок <input id="chartTitleField" class="input-like" type="text" maxlength="120" value="${escapeAttr(chart.title)}"></label>
-          <label class="checkbox-row"><input id="chartLegendField" type="checkbox"${chart.showLegend ? ' checked' : ''}> Показувати легенду</label>
-          <label class="chart-data-field">Дані
-            <textarea id="chartDataField" class="input-like" rows="8" spellcheck="false">${escapeText(chartToDelimitedText(chart))}</textarea>
-          </label>
-          <div class="helper-text chart-data-field">Кругова діаграма використовує перший ряд даних; від’ємні значення в ній показуються як нуль.</div>
-          <div id="chartError" class="form-error hidden" role="alert"></div>
-        </div>
-      `,
+      bodyNode,
       confirmText: mode === 'edit' ? 'Застосувати' : 'Вставити',
       cancelText: 'Скасувати',
       onConfirm: () => {
@@ -71,12 +88,4 @@ export function createChartController({
   }
 
   return { showChartModal };
-}
-
-function escapeAttr(value) {
-  return String(value || '').replace(/[&"<>]/g, char => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' })[char]);
-}
-
-function escapeText(value) {
-  return String(value || '').replace(/[&<>]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[char]);
 }

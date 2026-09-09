@@ -11,7 +11,9 @@
 - `flowcharts/` — ПЛЮС Схеми
 - `vector/` — ПЛЮС Вектор
 
-ПЛЮС Схеми має перевірку логіки, локальні шаблони, drag-and-drop блоків, ручні й obstacle-aware маршрути, fit-to-view та поведінковий browser smoke. Наступний фокус редактора — вирівнювання блоків, контрольований auto-layout і лише після цього обмежена Mermaid-сумісність.
+ПЛЮС Таблиці імпортує й експортує XLSX локально: кілька аркушів, числа, текст, дати, базові формули, ширини колонок і базове форматування. Складні Excel-об’єкти не обіцяються й явно перелічуються у попередженні після імпорту.
+
+ПЛЮС Схеми має перевірку логіки, локальні шаблони, drag-and-drop блоків, ручні й obstacle-aware маршрути, fit-to-view, нативний SVG-експорт та поведінковий browser smoke. Наступний фокус редактора — вирівнювання блоків, контрольований auto-layout і лише після цього обмежена Mermaid-сумісність.
 
 ## Документація
 
@@ -26,6 +28,10 @@
 - `OFFICE_UI_STANDARD.md` — головний UI-стандарт усієї лінійки
 - `office-shell.js` — shared helper для boot, command routing і file picker у редакторах
 - `UI_TOKENS.css` — спільні CSS-токени та базові shell-компоненти
+- `office-storage.js` — спільне IndexedDB-сховище чернеток, LocalStorage fallback і очищення сесії на спільному ПК
+- `text/core/storage.js` — autosave та безпечне відновлення чернеток ПЛЮС Текст
+- `tables/js/grid-viewport.js` — windowed DOM-render великих аркушів ПЛЮС Таблиці
+- `tables/js/xlsx-file.js` — беззалежнісний локальний XLSX import/export adapter
 - `design-tokens.json` — машинозчитуваний набір дизайн-токенів
 - `SERVICE_THEME_MAP.json` — карта сервісів, акцентів і структури меню
 - `KEYBOARD_SHORTCUTS.md` — єдиний стандарт гарячих клавіш
@@ -35,6 +41,7 @@
 - `CONTEXTUAL_UI_STANDARD.md` — єдиний стандарт контекстного UI
 - `COMPONENT_CHECKLIST.md` — чекліст для рев'ю, QA і приймання
 - `CHANGELOG.md` — фактичний журнал системних змін пакета
+- `PILOT_READINESS.md` — фінальний автоматизований gate і ручний чекліст для конкретної школи
 
 ### Довідкові та шаблонні файли
 
@@ -92,6 +99,12 @@ powershell -ExecutionPolicy Bypass -File tests\run-tests.ps1
 powershell -ExecutionPolicy Bypass -File tests\run-browser-smoke.ps1
 ```
 
+Повна перевірка готовності до контрольованого пілота:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-pilot-readiness.ps1
+```
+
 Очищення локальних артефактів browser smoke:
 
 ```powershell
@@ -112,9 +125,13 @@ powershell -ExecutionPolicy Bypass -File tests\cleanup-test-artifacts.ps1
 - `OfficeShell.registerCommands` / `OfficeShell.runCommand` як стандартний adapter-шар для `new/open/save/undo/redo`;
 - `OfficeShell.openFilePicker` для file-open entry points;
 - modal/dropdown/statusbar контракти.
-- `sw.js` precache-контракт: `CORE_ASSETS` не має мертвих шляхів і містить локальні asset-и, які підключають HTML-файли редакторів.
+- `sw.js` precache-контракт: іменовані core/editor-групи не мають мертвих шляхів і містять локальні asset-и, які підключають HTML-файли редакторів.
 
 `tests/browser-smoke.html` можна відкрити в браузері як додатковий smoke-тест DOM-структури, а `tests/run-browser-smoke.ps1` автоматизує цей сценарій через headless Chrome і додатково запускає поведінкові перевірки для Flowcharts, Slides і Tables. Для `slides/` `slides/js/runtime.js` лишається тонкою module-entry обгорткою для стабільного підключення в HTML, а `tests/slides-behavior.html` перевіряє, що `SlidesApp.boot`, список слайдів, сцена і project helpers справді працюють у браузері. Зовнішні CDN-ресурси поки лише позначаються warning-ами: їх винесення в локальний `vendor/` є окремим наступним кроком. Директорії `tests/.browser-profile*` і файли `.browser-smoke.*` є локальними артефактами запуску; вони ігноруються git і чистяться через `tests\cleanup-test-artifacts.ps1`.
+
+Реальну готовність пакета без мережі перевіряє `tests/run-offline-smoke.ps1`: тест на динамічному порту прогріває головну сторінку та всі шість редакторів, зупиняє локальний сервер і повторно відкриває їх із тим самим тимчасовим профілем Chrome. Профіль належить лише цьому запуску й видаляється після завершення.
+
+Адаптивну розкладку перевіряє `tests/responsive-smoke.html` на `390×844`, `768×1024` і `1366×768`: горизонтальні toolbar-и Text/Slides, мобільні drawer-панелі Paint/Vector та компактну палітру Flowcharts із canvas у першому екрані.
 
 Локальний сервер для першої браузерної перевірки:
 
@@ -176,10 +193,15 @@ powershell -ExecutionPolicy Bypass -File tests\serve-office.ps1 -Port 4173
   - `showPromptModal`
   - без `alertModal`, `showAlert`, `showTextPrompt`
 - confirm-кнопки вирівняно до моделі `Скасувати` + конкретна дія;
-- підготовлено offline-базу:
+- підготовлено offline-шар:
   - локальні vendor-ресурси
   - `offline.js`
   - `sw.js`
+  - окремі кеші core shell і кожного редактора
+  - перевірка та повторне завантаження кешу через Service Worker message API
+  - чесний UI-статус: «Працює офлайн» лише після підтвердження повноти ресурсів
+- production-сторінки використовують локальний CSP без `script-src 'unsafe-inline'` і без довільного `connect-src https:`; стартовий код головної сторінки винесено в `landing.js`;
+- Слайди додають зображення лише з локального файла, а modal-вміст будують DOM-вузлами без HTML-рядків;
 - Таблиці розділено на доменні JS-шари з перевіркою в `tests/static-ui-audit.ps1` і `tests/tables-formula-behavior.html`.
 
 ## Що ще залишилось

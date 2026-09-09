@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:;">
   <title>ПЛЮС Вектор — векторний графічний редактор</title>
   <meta name="description" content="ПЛЮС Вектор — шкільний векторний графічний редактор у браузері без реєстрації.">
 <link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css">
@@ -73,6 +73,9 @@
             PNG</span><span class="shortcut">Ctrl+Shift+S</span></button>
         <button class="menu-item" data-action="print"><span><i class="fa-solid fa-print fa-fw"></i> Друк</span><span
             class="shortcut">Ctrl+P</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" type="button" data-office-end-session><span><i
+              class="fa-solid fa-person-walking-arrow-right fa-fw"></i> Завершити роботу на цьому ПК</span></button>
       </div>
     </div>
 
@@ -313,6 +316,7 @@
   <script src="js/state.js"></script>
   <script src="js/utils.js"></script>
   <script src="js/project-io.js"></script>
+  <script src="../office-storage.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/editor.js"></script>
   <script src="js/ui.js"></script>

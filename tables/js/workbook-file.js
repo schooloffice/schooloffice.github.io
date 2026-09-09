@@ -180,32 +180,34 @@ function triggerWorkbookImport() {
 function importWorkbookText(text) {
   try {
     if (String(text || '').length > WORKBOOK_MAX_TEXT_CHARS) throw new Error('Файл .arttab завеликий (максимум 5 МБ)');
-    const payload = validateWorkbookPayload(JSON.parse(text));
-
-    saveToHistory();
-
-    workbookName = normalizeFileName(payload.name || DEFAULT_WORKBOOK_NAME);
-    updateFileNameUi();
-
-    sheets = payload.sheets;
-    activeSheet = payload.activeSheet;
-    rowFilter = null;
-    loadGlobalsFromSheet(activeSheet);
-
-    rebuildGrid();
-    recalculateAll();
-    renderSheetTabs();
-    persistStateToStorage();
-    persistUiState();
-    setSaveBadge();
-    saveToHistory();
+    applyWorkbookPayload(JSON.parse(text));
   } catch (e) {
     showInfoModal(`Не вдалося відкрити файл: ${e?.message || 'помилка читання'}`);
   }
 }
 
+function applyWorkbookPayload(rawPayload) {
+  const payload = validateWorkbookPayload(rawPayload);
+  saveToHistory();
+  workbookName = normalizeFileName(payload.name || DEFAULT_WORKBOOK_NAME);
+  updateFileNameUi();
+  sheets = payload.sheets;
+  activeSheet = payload.activeSheet;
+  rowFilter = null;
+  loadGlobalsFromSheet(activeSheet);
+  rebuildGrid();
+  recalculateAll();
+  renderSheetTabs();
+  persistStateToStorage();
+  persistUiState();
+  setSaveBadge();
+  saveToHistory();
+  return payload;
+}
+
 window.TablesWorkbookFile = {
   exportWorkbook,
+  applyWorkbookPayload,
   importWorkbookText,
   triggerWorkbookImport,
   validateWorkbookPayload

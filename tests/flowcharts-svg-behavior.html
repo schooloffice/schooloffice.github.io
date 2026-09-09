@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>Flowcharts SVG behavior smoke</title></head>
+<body data-flowcharts-svg="running">
+  <main><h1>Flowcharts SVG behavior smoke</h1><ol id="results"></ol><pre id="result"></pre></main>
+  <script src="../flowcharts/js/svg-export.js"></script>
+  <script>
+    (() => {
+      const results = document.getElementById('results');
+      const failures = [];
+      function check(label, ok, detail = '') {
+        const li = document.createElement('li'); li.textContent = `${ok ? 'PASS' : 'FAIL'} — ${label}${detail ? `: ${detail}` : ''}`;
+        results.appendChild(li); if (!ok) failures.push(label);
+      }
+      try {
+        const data = {
+          diagramTitle: 'Безпечна <схема>',
+          shapes: [
+            { id: 'a', type: 'start-end', left: 20, top: 80, width: 150, height: 70, color: '#4caf50', textRaw: 'Початок' },
+            { id: 'b', type: 'process', left: 230, top: 80, width: 160, height: 74, color: '#dbeafe', textRaw: 'x < 10 & без HTML' },
+            { id: 'c', type: 'decision', left: 450, top: 55, width: 150, height: 120, color: '#ff9800', textRaw: 'Умова?' },
+            { id: 'd', type: 'input-output', left: 660, top: 80, width: 170, height: 74, color: '#e0e7ff', textRaw: 'Вивести' },
+            { id: 'e', type: 'subroutine', left: 890, top: 80, width: 170, height: 74, color: '#fce7f3', textRaw: 'Підпрограма' },
+            { id: 'f', type: 'connector', left: 1120, top: 90, width: 54, height: 54, color: '#ccfbf1', textRaw: 'A' }
+          ],
+          connections: [{ id: 'l1', from: 'a', to: 'b', type: 'yes', points: [{ x: 170, y: 115 }, { x: 230, y: 115 }] }]
+        };
+        const api = window.FlowchartsSvgExport;
+        const svg = api.createSvg(data);
+        const xml = api.serialize(data);
+        check('exports a real SVG root', svg.localName === 'svg' && /<svg\b/.test(xml));
+        check('uses native vector shapes', !!svg.querySelector('rect') && !!svg.querySelector('ellipse') && !!svg.querySelector('polygon') && !!svg.querySelector('path'));
+        check('never uses foreignObject', !svg.querySelector('foreignObject') && !/foreignObject/i.test(xml));
+        check('wraps labels with text/tspan', !!svg.querySelector('text tspan'));
+        check('text is escaped, not parsed as markup', svg.textContent.includes('Безпечна <схема>') && xml.includes('&lt;схема') && xml.includes('x &lt; 10 &amp;') && !svg.querySelector('script'));
+        check('connection has a native arrow marker', !!svg.querySelector('marker path') && !!svg.querySelector('g[aria-label="З’єднання"] path[marker-end]'));
+      } catch (error) {
+        check('test completed without exception', false, error?.stack || error?.message || String(error));
+      }
+      document.getElementById('result').textContent = failures.length ? failures.join('; ') : 'passed';
+      document.body.dataset.flowchartsSvg = failures.length ? 'failed' : 'passed';
+    })();
+  </script>
+</body>
+</html>

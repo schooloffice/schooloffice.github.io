@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:;">
   <title>ПЛЮС Слайди — редактор презентацій</title>
   <meta name="description" content="ПЛЮС Слайди — простий редактор презентацій для шкільного офісного пакета.">
   <link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css">
@@ -108,6 +108,9 @@
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="clear-draft"><span><i class="fa-solid fa-broom fa-fw"></i> Очистити
             чернетку…</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" type="button" data-office-end-session><span><i
+              class="fa-solid fa-person-walking-arrow-right fa-fw"></i> Завершити роботу на цьому ПК</span></button>
       </div>
     </div>
 
@@ -445,6 +448,7 @@
     <span id="statusRight" data-office-status-slot="secondary">Готово</span>
   </footer>
 
+  <script src="../office-storage.js"></script>
   <script type="module" src="js/runtime.js"></script>
   <script src="../office-shell.js"></script>
   <script src="../office-ui.js"></script>

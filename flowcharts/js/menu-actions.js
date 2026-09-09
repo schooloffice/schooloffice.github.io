@@ -38,6 +38,7 @@
       validateDiagram,
       fitDiagram,
       openTemplates,
+      exportSvg,
     } = options || {};
 
     function triggerShapeButton(type) {
@@ -66,6 +67,9 @@
           break;
         case 'export-png':
           saveButton?.click();
+          break;
+        case 'export-svg':
+          exportSvg?.();
           break;
         case 'print':
           window.print();
@@ -116,7 +120,7 @@
           window.open('manual.html', '_blank', 'noopener');
           break;
         case 'about':
-          showMessageModal?.('ПЛЮС Схеми — редактор блок-схем для шкільного офісного пакета ПЛЮС. Він зберігає проєкти у JSON, експортує схеми у PNG та допомагає учням вивчати алгоритми на практиці.');
+          showMessageModal?.('ПЛЮС Схеми — редактор блок-схем для шкільного офісного пакета ПЛЮС. Він зберігає проєкти у JSON, експортує схеми у PNG та SVG і допомагає учням вивчати алгоритми на практиці.');
           break;
       }
     }

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Storage UI Behavior</title>
+</head>
+<body>
+  <h1>Storage UI Behavior</h1>
+  <pre id="result">Running...</pre>
+  <iframe id="landingFrame" title="Головна сторінка"></iframe>
+  <script>
+    'use strict';
+
+    const result = document.getElementById('result');
+    const frame = document.getElementById('landingFrame');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function waitFor(predicate, label, timeout = 5000) {
+      const started = performance.now();
+      while (performance.now() - started < timeout) {
+        if (predicate()) return;
+        await wait(50);
+      }
+      throw new Error(label);
+    }
+
+    async function run() {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('landing load timed out')), 6000);
+        frame.addEventListener('load', () => { clearTimeout(timer); resolve(); }, { once: true });
+        frame.src = '../index.html';
+      });
+      const doc = frame.contentDocument;
+      await waitFor(() => doc.querySelector('[data-office-clear-drafts]'), 'clear-all control missing');
+      doc.querySelector('[data-office-clear-drafts]').click();
+      await waitFor(() => doc.querySelector('.office-storage-confirm.active'), 'first confirmation missing');
+      const firstTitle = doc.querySelector('.office-storage-confirm h2')?.textContent;
+      doc.querySelector('.office-storage-danger')?.click();
+      await waitFor(() => doc.querySelector('.office-storage-confirm.active h2')?.textContent === 'Підтвердьте очищення', 'second confirmation missing');
+      const secondTitle = doc.querySelector('.office-storage-confirm h2')?.textContent;
+      doc.querySelector('.office-storage-confirm button')?.click();
+      await waitFor(() => !doc.querySelector('.office-storage-confirm'), 'second confirmation did not close');
+      if (firstTitle !== 'Очистити всі локальні чернетки?' || secondTitle !== 'Підтвердьте очищення') {
+        throw new Error('clear-all flow must require two distinct confirmations');
+      }
+      document.documentElement.dataset.storageUi = 'passed';
+      result.textContent = 'PASSED';
+    }
+
+    run().catch(error => {
+      document.documentElement.dataset.storageUi = 'failed';
+      result.textContent = `FAIL ${error.stack || error.message}`;
+    });
+  </script>
+</body>
+</html>

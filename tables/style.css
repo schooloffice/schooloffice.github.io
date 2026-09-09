@@ -486,6 +486,20 @@ body {
 
 .name-box {
   font-weight: 800;
+  text-align: center;
+  min-width: 0;
+}
+
+.viewport-spacer-column,
+#grid .viewport-spacer-row > td {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
+#grid .viewport-spacer-row > td {
+  min-height: 0;
 }
 
 .fx-label {

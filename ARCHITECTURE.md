@@ -8,13 +8,18 @@
 
 - `office-shell.js` - thin adapter для boot, command routing і file picker.
 - `office-ui.js` - shared UI helpers: команди, modal/menu/dropdown/status поведінка.
-- `offline.js` - реєстрація Service Worker.
-- `sw.js` - offline/cache policy і список локальних ресурсів.
+- `office-storage.js` - спільна IndexedDB-інфраструктура чернеток, fallback/міграція LocalStorage, status events і очищення локальної сесії; Text використовує тонкий адаптер `text/core/storage.js` із guarded restore та лімітом чернетки.
+- `offline.js` - реєстрація Service Worker, запит підтвердженої готовності та спільний UI-статус offline шару.
+- `sw.js` - offline/cache policy з окремими кешами core shell і кожного редактора; зберігає невдалі ресурси та підтримує `CHECK_OFFLINE_STATUS` / `RETRY_OFFLINE_CACHE`.
 - `UI_TOKENS.css`, `shell-overrides.css` - shared shell styling.
 - `vendor/` - локальні сторонні залежності.
 - `tests/` - статичні й browser-smoke перевірки.
 
 Shared layer не повинен містити редактор-специфічну бізнес-логіку.
+
+Offline readiness рахується окремо для `text`, `tables`, `slides`, `paint`, `vector` і `flowcharts`: редактор готовий лише тоді, коли повні його власна група та `core`. Загальний статус головної сторінки готовий лише після успішної перевірки всіх шести редакторів. Інсталяція використовує незалежні settled-спроби, тому один недоступний файл не приховує стан решти груп, а повторне кешування можна запустити без очищення вже збережених ресурсів.
+
+ПЛЮС Таблиці зберігає повну workbook-модель незалежно від DOM. `tables/js/grid-viewport.js` визначає лише видимий діапазон і spacer-геометрію, а `tables/js/grid.js` матеріалізує це вікно; persistence залишається тонким адаптером над `office-storage.js`. `tables/js/xlsx-file.js` є окремим OOXML/ZIP adapter без CDN чи стороннього runtime: імпорт приводить дані до тієї самої workbook-моделі, а експорт читає її через валідатор `.arttab`.
 
 ## Service Layer
 
@@ -38,6 +43,8 @@ Shared layer не повинен містити редактор-специфі�
 - `js/app.js` не дублює shared root API, а делегує в `window.OfficeShell` і `window.OfficeUI`.
 - Shared root layer не знає внутрішньої структури конкретного редактора, крім стабільних ресурсних шляхів у `sw.js` і тестах.
 - Локальні модулі можуть залежати від shared root API, але не повинні конфліктувати з глобальними іменами інших редакторів.
+- Production HTML дозволяє скрипти й мережеві API лише з `'self'`; inline styles тимчасово дозволені, бо редактори використовують їх для геометрії та форматування.
+- Modal API приймає готові DOM-вузли. Дані документа, URL і повідомлення помилок не перетворюються на HTML-рядки.
 
 ## Правило Нарізки Модулів
 
@@ -61,6 +68,7 @@ Shared layer не повинен містити редактор-специфі�
 - модель, storage, адресація і формули винесені в окремі core-шари;
 - формульний рушій розділений на parser, references, functions і coordinator;
 - UI-дії, clipboard, formatting, structure, charts, sorting, workbook file і calculation рознесені по доменних модулях.
+- `xlsx-file.js` ізольовано відповідає за обмежений XLSX round-trip і не змішується з CSV чи JSON importer.
 
 Подальше агресивне дроблення Таблиць не є пріоритетом. Наступний етап для `tables/` - стабілізація, інтеграційні перевірки і розвиток можливостей.
 
@@ -89,7 +97,7 @@ Shared layer не повинен містити редактор-специфі�
 
 ### Flowcharts
 
-`flowcharts/` має модульну структуру, поведінковий browser smoke, валідацію схеми, локальні шаблони, ручні waypoints і obstacle-aware routing. `editor.js` лишається orchestration-шаром, `core.js` — чистою доменною логікою й project validation, а `routing.js` явно оркеструє стратегії `custom → smart → decision → merge → default`.
+`flowcharts/` має модульну структуру, поведінковий browser smoke, валідацію схеми, локальні шаблони, ручні waypoints і obstacle-aware routing. `editor.js` лишається orchestration-шаром, `core.js` — чистою доменною логікою й project validation, а `routing.js` явно оркеструє стратегії `custom → smart → decision → merge → default`. `svg-export.js` будує окремий нативний SVG DOM (`rect`, `ellipse`, `polygon`, `path`, `text`/`tspan`) і встановлює весь користувацький текст через `textContent`.
 
 Наступний архітектурний крок має бути функціональним: вирівнювання та контрольований auto-layout. Не дробити routing/editor механічно; окремий модуль виправданий лише для нової доменної межі, наприклад layout або Mermaid adapter.
 

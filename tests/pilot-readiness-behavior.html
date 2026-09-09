@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Pilot readiness behavior smoke</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; }
+    iframe { position: fixed; left: -10000px; width: 390px; height: 844px; border: 0; }
+  </style>
+</head>
+<body data-pilot-readiness="running">
+  <main><h1>Pilot readiness behavior smoke</h1><ol id="results"></ol><pre id="result"></pre></main>
+  <script>
+    (async () => {
+      const services = ['text', 'tables', 'slides', 'paint', 'vector', 'flowcharts'];
+      const failures = [];
+      const results = document.getElementById('results');
+      const LOAD_BUDGET_MS = 8000;
+      const RESPONSE_BUDGET_MS = 750;
+
+      function report(label, ok, detail = '') {
+        const li = document.createElement('li');
+        li.textContent = `${ok ? 'PASS' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`;
+        results.appendChild(li);
+        if (!ok) failures.push(`${label}${detail ? ` (${detail})` : ''}`);
+      }
+
+      function waitFor(predicate, timeout = LOAD_BUDGET_MS) {
+        const started = performance.now();
+        return new Promise((resolve, reject) => {
+          function poll() {
+            if (predicate()) return resolve();
+            if (performance.now() - started > timeout) return reject(new Error('timeout'));
+            setTimeout(poll, 25);
+          }
+          poll();
+        });
+      }
+
+      for (const service of services) {
+        const frame = document.createElement('iframe');
+        const started = performance.now();
+        try {
+          const loaded = new Promise((resolve, reject) => {
+            frame.addEventListener('load', resolve, { once: true });
+            frame.addEventListener('error', reject, { once: true });
+          });
+          frame.src = `../${service}/index.html?pilot-low-end=1`;
+          document.body.appendChild(frame);
+          await Promise.race([loaded, new Promise((_, reject) => setTimeout(() => reject(new Error('load timeout')), LOAD_BUDGET_MS))]);
+          const loadMs = performance.now() - started;
+          const doc = frame.contentDocument;
+          await waitFor(() => doc?.body?.classList.contains('office-app'));
+          report(`${service}: opens within low-end budget`, loadMs < LOAD_BUDGET_MS, `${Math.round(loadMs)} ms`);
+
+          const responseStarted = performance.now();
+          await new Promise(resolve => setTimeout(resolve, 0));
+          const eventLoopMs = performance.now() - responseStarted;
+          report(`${service}: event loop remains responsive`, eventLoopMs < RESPONSE_BUDGET_MS, `${Math.round(eventLoopMs)} ms`);
+
+          const menuButton = doc.querySelector('.menu-title');
+          let expanded = false;
+          for (let attempt = 0; attempt < 40 && !expanded; attempt++) {
+            if (menuButton?.getAttribute('aria-expanded') !== 'true') menuButton?.click();
+            await new Promise(resolve => setTimeout(resolve, 50));
+            expanded = menuButton?.getAttribute('aria-expanded') === 'true' || !!doc.querySelector('.menu-dropdown.open');
+          }
+          report(`${service}: first command responds`, !!expanded);
+        } catch (error) {
+          report(`${service}: readiness probe completes`, false, error?.message || String(error));
+        } finally {
+          frame.remove();
+        }
+      }
+
+      document.getElementById('result').textContent = failures.length ? failures.join('\n') : 'passed';
+      document.body.dataset.pilotReadiness = failures.length ? 'failed' : 'passed';
+    })();
+  </script>
+</body>
+</html>

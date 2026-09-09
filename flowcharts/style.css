@@ -891,14 +891,67 @@ button.validation-issue:focus-visible { outline: 2px solid var(--accent); outlin
 @media (max-width: 760px) {
   html, body { overflow: auto; }
   .app-shell {
-    height: auto;
-    min-height: calc(100vh - var(--header-h) - var(--menubar-h) - var(--toolbar-h) - var(--statusbar-h));
+    height: calc(100vh - var(--header-h) - var(--menubar-h) - var(--toolbar-h) - var(--statusbar-h));
+    min-height: 0;
     grid-template-columns: 1fr;
+    grid-template-rows: 116px minmax(0, 1fr);
   }
   .left-sidebar {
+    grid-column: 1;
+    grid-row: 1;
+    flex-direction: row;
+    align-items: stretch;
     border-right: 0;
     border-bottom: 1px solid var(--border);
-    gap: .75rem;
+    gap: .5rem;
+    padding: .45rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+  .sidebar-card {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .45rem .55rem;
+    border-radius: .7rem;
+  }
+  .sidebar-title {
+    margin: 0;
+    font-size: .78rem;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+  }
+  .shape-list {
+    flex-direction: row;
+    gap: .35rem;
+  }
+  .shape-button {
+    width: 56px;
+    min-width: 56px;
+    min-height: 52px;
+    flex-direction: column;
+    justify-content: center;
+    gap: .2rem;
+    padding: .25rem;
+    font-size: .64rem;
+    line-height: 1.05;
+    text-align: center;
+  }
+  .shape-button-text { flex: 0 1 auto; }
+  .color-picker {
+    display: flex;
+    gap: .35rem;
+  }
+  .color-option {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+  }
+  .workspace {
+    grid-column: 1;
+    grid-row: 2;
   }
   .toolbar { padding: .3rem .5rem; min-height: auto; }
   .tb-group-selection { min-width: 100%; }

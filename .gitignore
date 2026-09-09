@@ -1,4 +1,5 @@
 tests/.browser-profile*/
+tests/.offline-profile*/
 tests/.browser-smoke.*.stdout.txt
 tests/.browser-smoke.*.stderr.txt
 

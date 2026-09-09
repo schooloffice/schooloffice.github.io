@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Office Offline Smoke</title>
+</head>
+<body>
+  <pre id="result">Running...</pre>
+  <div id="frames" hidden></div>
+  <script>
+    const result = document.getElementById('result');
+    const phase = new URLSearchParams(location.search).get('phase') || 'prime';
+    const pages = ['../index.html', '../text/index.html', '../tables/index.html', '../slides/index.html', '../paint/index.html', '../vector/index.html', '../flowcharts/index.html'];
+
+    function send(worker, type) {
+      return new Promise((resolve, reject) => {
+        const channel = new MessageChannel();
+        const timer = setTimeout(() => reject(new Error(`${type} timed out`)), 15000);
+        channel.port1.onmessage = event => {
+          clearTimeout(timer);
+          resolve(event.data);
+        };
+        worker.postMessage({ type }, [channel.port2]);
+      });
+    }
+
+    function openPage(path) {
+      return new Promise((resolve, reject) => {
+        const iframe = document.createElement('iframe');
+        const timer = setTimeout(() => reject(new Error(`iframe timed out: ${path}`)), 12000);
+        iframe.onload = () => { clearTimeout(timer); resolve(path); };
+        iframe.onerror = () => { clearTimeout(timer); reject(new Error(`iframe failed: ${path}`)); };
+        iframe.src = path;
+        document.getElementById('frames').appendChild(iframe);
+      });
+    }
+
+    async function run() {
+      const openedPages = phase === 'prime' ? Promise.all(pages.map(openPage)) : Promise.resolve();
+      const registration = phase === 'prime'
+        ? await navigator.serviceWorker.register('../sw.js')
+        : await navigator.serviceWorker.getRegistration('../');
+      if (!registration) throw new Error('Service Worker registration is missing');
+      const ready = registration.active ? registration : await navigator.serviceWorker.ready;
+      const worker = ready.active || registration.active;
+      if (!worker) throw new Error('Service Worker is not active');
+
+      let status = await send(worker, 'CHECK_OFFLINE_STATUS');
+      if (!status.ready && phase === 'prime') status = await send(worker, 'RETRY_OFFLINE_CACHE');
+      if (!status.ready) {
+        const missing = Object.entries(status.editors || {})
+          .filter(([, editor]) => !editor.ready)
+          .map(([name, editor]) => `${name}: ${(editor.missing || []).join(', ')}`)
+          .join('; ');
+        throw new Error(`offline groups are incomplete: ${missing}`);
+      }
+
+      await openedPages;
+
+      const responses = await Promise.all(pages.map(path => fetch(path, {
+        headers: { Accept: 'text/html' },
+        cache: 'no-store'
+      })));
+      if (responses.some(response => !response.ok)) throw new Error('one or more editor pages are unavailable');
+
+      result.textContent = `PASSED ${phase}: core and all six editors are offline-ready`;
+      if (phase === 'prime') document.body.dataset.offlinePrime = 'passed';
+      else document.body.dataset.offlineSmoke = 'passed';
+    }
+
+    run().catch(error => {
+      result.textContent = error?.stack || String(error);
+      document.body.dataset.offlinePrime = 'failed';
+      document.body.dataset.offlineSmoke = 'failed';
+    });
+  </script>
+</body>
+</html>

@@ -25,7 +25,30 @@ import {
   TABLE_STYLE_PRESETS
 } from './table-element.js';
 import { getCurrentSlide, getSelectedElement, state } from './state.js';
-import { $, clamp, debounce } from './utils.js';
+import { $, clamp, createNode, debounce } from './utils.js';
+
+function createOption(value, text, selected = false) {
+  return createNode('option', { text, properties: { value, selected } });
+}
+
+function createNumberField(id, min, max, value, step = 1) {
+  return createNode('input', {
+    id,
+    className: 'input-like',
+    attributes: { type: 'number', min, max, step },
+    properties: { value }
+  });
+}
+
+function createCheckbox(id, checked = false) {
+  return createNode('input', { id, attributes: { type: 'checkbox' }, properties: { checked } });
+}
+
+function createSelect(id, options, selected) {
+  return createNode('select', { id, className: 'input-like' },
+    options.map(([value, text]) => createOption(value, text, value === selected))
+  );
+}
 
 export function createTableController({
   elementDomMap,
@@ -241,21 +264,33 @@ export function createTableController({
     }
     const table = current?.table;
     const currentPreset = table ? getTableStylePresetKey(table) : 'blue';
-    const customOption = table && !currentPreset ? '<option value="custom" selected>Власний</option>' : '';
     const names = { blue: 'Синій', green: 'Зелений', orange: 'Помаранчевий', gray: 'Сірий' };
-    const presetOptions = customOption + Object.keys(TABLE_STYLE_PRESETS).map(key => `<option value="${key}"${key === currentPreset ? ' selected' : ''}>${names[key]}</option>`).join('');
+    const rowsField = createNumberField('tableRowsField', TABLE_LIMITS.MIN_ROWS, TABLE_LIMITS.MAX_ROWS, table?.rows || 3);
+    const colsField = createNumberField('tableColsField', TABLE_LIMITS.MIN_COLS, TABLE_LIMITS.MAX_COLS, table?.cols || 4);
+    const headerField = createNode('input', {
+      id: 'tableHeaderField',
+      attributes: { type: 'checkbox' },
+      properties: { checked: table?.style?.headerRow !== false }
+    });
+    const styleField = createNode('select', { id: 'tableStyleField', className: 'input-like' });
+    if (table && !currentPreset) styleField.appendChild(createOption('custom', 'Власний', true));
+    Object.keys(TABLE_STYLE_PRESETS).forEach(key => styleField.appendChild(createOption(key, names[key], key === currentPreset)));
+    const bodyNode = createNode('div', { className: 'form-grid table-form' },
+      createNode('label', {}, 'Рядки ', rowsField),
+      createNode('label', {}, 'Стовпці ', colsField),
+      createNode('label', { className: 'checkbox-row' }, headerField, ' Перший рядок — заголовок'),
+      createNode('label', { className: 'table-style-field' }, 'Стиль ', styleField)
+    );
+    if (mode === 'edit') {
+      bodyNode.appendChild(createNode('label', {
+        id: 'tableResizeWarning',
+        className: 'checkbox-row destructive-warning hidden'
+      }, createNode('input', { id: 'tableResizeConfirmField', attributes: { type: 'checkbox' } }), ' Видалити обрізані заповнені комірки та їх форматування'));
+    }
     showModal({
       title: mode === 'edit' ? 'Змінити таблицю' : 'Вставити таблицю',
       text: 'Оберіть кількість рядків і стовпців. Під час зміни розміру текст зберігається в межах нової таблиці.',
-      body: `
-        <div class="form-grid table-form">
-          <label>Рядки <input id="tableRowsField" class="input-like" type="number" min="${TABLE_LIMITS.MIN_ROWS}" max="${TABLE_LIMITS.MAX_ROWS}" value="${table?.rows || 3}"></label>
-          <label>Стовпці <input id="tableColsField" class="input-like" type="number" min="${TABLE_LIMITS.MIN_COLS}" max="${TABLE_LIMITS.MAX_COLS}" value="${table?.cols || 4}"></label>
-          <label class="checkbox-row"><input id="tableHeaderField" type="checkbox"${table?.style?.headerRow !== false ? ' checked' : ''}> Перший рядок — заголовок</label>
-          <label class="table-style-field">Стиль <select id="tableStyleField" class="input-like">${presetOptions}</select></label>
-          ${mode === 'edit' ? '<label id="tableResizeWarning" class="checkbox-row destructive-warning hidden"><input id="tableResizeConfirmField" type="checkbox"> Видалити обрізані заповнені комірки та їх форматування</label>' : ''}
-        </div>
-      `,
+      bodyNode,
       confirmText: mode === 'edit' ? 'Застосувати' : 'Вставити',
       cancelText: 'Скасувати',
       onConfirm: () => {
@@ -401,35 +436,33 @@ export function createTableController({
       align: style.align || 'left',
       valign: style.valign || 'top'
     };
+    const fillField = createNode('input', { id: 'tableCellFillField', className: 'input-like color-input', attributes: { type: 'color' }, properties: { value: effective.fill } });
+    const colorField = createNode('input', { id: 'tableCellColorField', className: 'input-like color-input', attributes: { type: 'color' }, properties: { value: effective.color } });
+    const alignField = createSelect('tableCellAlignField', [['left', 'Ліворуч'], ['center', 'По центру'], ['right', 'Праворуч']], effective.align);
+    const valignField = createSelect('tableCellVAlignField', [['top', 'Вгорі'], ['middle', 'Посередині'], ['bottom', 'Внизу']], effective.valign);
+    const boldField = createCheckbox('tableCellBoldField', effective.bold);
+    const bodyNode = createNode('div', { className: 'form-grid table-cell-format' },
+      createNode('label', {}, 'Заливка ', fillField),
+      createNode('label', {}, 'Колір тексту ', colorField),
+      createNode('label', {}, 'Вирівнювання ', alignField),
+      createNode('label', {}, 'По вертикалі ', valignField),
+      createNode('label', { className: 'checkbox-row' }, boldField, ' Жирний текст')
+    );
+    if (selectedCount > 1) {
+      bodyNode.appendChild(createNode('fieldset', { className: 'table-range-properties' },
+        createNode('legend', { text: 'Застосувати до всього діапазону' }),
+        createNode('label', {}, createCheckbox('tableApplyFillField'), ' заливку'),
+        createNode('label', {}, createCheckbox('tableApplyColorField'), ' колір тексту'),
+        createNode('label', {}, createCheckbox('tableApplyAlignField'), ' вирівнювання'),
+        createNode('label', {}, createCheckbox('tableApplyVAlignField'), ' вертикальне вирівнювання'),
+        createNode('label', {}, createCheckbox('tableApplyBoldField'), ' жирність')
+      ));
+    }
+    bodyNode.appendChild(createNode('label', { className: 'checkbox-row' }, createCheckbox('tableCellClearField'), ' Очистити власне форматування й успадкувати стиль таблиці'));
     showModal({
       title: selectedCount > 1 ? `Формат діапазону (${selectedCount} комірок)` : `Формат комірки ${row + 1}, ${col + 1}`,
       text: selectedCount > 1 ? 'Налаштування застосовуються до всього виділеного прямокутника.' : 'Налаштування застосовуються лише до активної комірки.',
-      body: `
-        <div class="form-grid table-cell-format">
-          <label>Заливка <input id="tableCellFillField" class="input-like color-input" type="color" value="${effective.fill}"></label>
-          <label>Колір тексту <input id="tableCellColorField" class="input-like color-input" type="color" value="${effective.color}"></label>
-          <label>Вирівнювання <select id="tableCellAlignField" class="input-like">
-            <option value="left"${effective.align === 'left' ? ' selected' : ''}>Ліворуч</option>
-            <option value="center"${effective.align === 'center' ? ' selected' : ''}>По центру</option>
-            <option value="right"${effective.align === 'right' ? ' selected' : ''}>Праворуч</option>
-          </select></label>
-          <label>По вертикалі <select id="tableCellVAlignField" class="input-like">
-            <option value="top"${effective.valign === 'top' ? ' selected' : ''}>Вгорі</option>
-            <option value="middle"${effective.valign === 'middle' ? ' selected' : ''}>Посередині</option>
-            <option value="bottom"${effective.valign === 'bottom' ? ' selected' : ''}>Внизу</option>
-          </select></label>
-          <label class="checkbox-row"><input id="tableCellBoldField" type="checkbox"${effective.bold ? ' checked' : ''}> Жирний текст</label>
-          ${selectedCount > 1 ? `<fieldset class="table-range-properties">
-            <legend>Застосувати до всього діапазону</legend>
-            <label><input id="tableApplyFillField" type="checkbox"> заливку</label>
-            <label><input id="tableApplyColorField" type="checkbox"> колір тексту</label>
-            <label><input id="tableApplyAlignField" type="checkbox"> вирівнювання</label>
-            <label><input id="tableApplyVAlignField" type="checkbox"> вертикальне вирівнювання</label>
-            <label><input id="tableApplyBoldField" type="checkbox"> жирність</label>
-          </fieldset>` : ''}
-          <label class="checkbox-row"><input id="tableCellClearField" type="checkbox"> Очистити власне форматування й успадкувати стиль таблиці</label>
-        </div>
-      `,
+      bodyNode,
       confirmText: 'Застосувати',
       cancelText: 'Скасувати',
       onMount: () => {
@@ -482,15 +515,14 @@ export function createTableController({
     const { row, col } = activeCell;
     const rowPercent = Math.round((element.table.rowWeights?.[row] || 1) * 100);
     const columnPercent = Math.round((element.table.columnWeights?.[col] || 1) * 100);
+    const bodyNode = createNode('div', { className: 'form-grid table-form' },
+      createNode('label', {}, 'Висота рядка, % ', createNumberField('tableRowWeightField', 25, 400, rowPercent, 5)),
+      createNode('label', {}, 'Ширина стовпця, % ', createNumberField('tableColumnWeightField', 25, 400, columnPercent, 5))
+    );
     showModal({
       title: `Розмір рядка ${row + 1} та стовпця ${col + 1}`,
       text: 'Задайте відносний розмір. 100% — стандартний; таблиця зберігає пропорції під час масштабування.',
-      body: `
-        <div class="form-grid table-form">
-          <label>Висота рядка, % <input id="tableRowWeightField" class="input-like" type="number" min="25" max="400" step="5" value="${rowPercent}"></label>
-          <label>Ширина стовпця, % <input id="tableColumnWeightField" class="input-like" type="number" min="25" max="400" step="5" value="${columnPercent}"></label>
-        </div>
-      `,
+      bodyNode,
       confirmText: 'Застосувати',
       cancelText: 'Скасувати',
       onConfirm: () => {

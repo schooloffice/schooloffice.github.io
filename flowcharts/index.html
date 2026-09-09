@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:;">
   <title>ПЛЮС Схеми — редактор блок-схем</title>
   <link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css">
   <script src="../vendor/html2canvas/html2canvas.min.js"></script>
@@ -55,9 +55,14 @@
             class="shortcut">Ctrl+Shift+S</span></button>
         <button class="menu-item" data-action="export-png" role="menuitem"><span><i class="fa-solid fa-image fa-fw"></i>
             Зберегти як PNG</span><span class="shortcut">Ctrl+S</span></button>
+        <button class="menu-item" data-action="export-svg" role="menuitem"><span><i class="fa-solid fa-bezier-curve fa-fw"></i>
+            Зберегти як SVG</span></button>
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="print" role="menuitem"><span><i class="fa-solid fa-print fa-fw"></i>
             Друк…</span><span class="shortcut">Ctrl+P</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" type="button" data-office-end-session role="menuitem"><span><i
+              class="fa-solid fa-person-walking-arrow-right fa-fw"></i> Завершити роботу на цьому ПК</span></button>
       </div>
     </div>
 
@@ -375,7 +380,9 @@
   <script src="js/obstacle-routing.js"></script>
   <script src="js/templates-data.js"></script>
   <script src="js/project-io.js"></script>
+  <script src="js/svg-export.js"></script>
   <script src="js/ui.js"></script>
+  <script src="../office-storage.js"></script>
   <script src="js/autosave.js"></script>
   <script src="js/modals.js"></script>
   <script src="js/editor-utils.js"></script>

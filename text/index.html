@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:;">
   <title>ПЛЮС Текст — Текстовий редактор</title>
 <link rel="stylesheet" href="../vendor/fontawesome/css/all.min.css">
 
@@ -84,6 +84,10 @@
         <button class="menu-item" data-action="print" role="menuitem">
           <span><i class="fa-solid fa-print fa-fw"></i> Друк…</span>
           <span class="shortcut">Ctrl+P</span>
+        </button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" type="button" data-office-end-session role="menuitem">
+          <span><i class="fa-solid fa-person-walking-arrow-right fa-fw"></i> Завершити роботу на цьому ПК</span>
         </button>
       </div>
     </div>
@@ -713,10 +717,12 @@
   <!-- ════════════════════════════════════════
      СКРИПТИ (порядок обов'язковий)
 ════════════════════════════════════════ -->
+  <script src="../office-storage.js"></script>
   <script src="core/state.js"></script>
   <script src="core/history.js"></script>
   <script src="core/selection.js"></script>
   <script src="core/sanitize.js"></script>
+  <script src="core/storage.js"></script>
   <script src="formats/txt.js"></script>
   <script src="formats/rtf.js"></script>
   <script src="formats/docx.js"></script>

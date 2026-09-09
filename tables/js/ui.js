@@ -233,6 +233,8 @@ function dispatchUiAction(action) {
     case 'new': askConfirm('Створити нову таблицю? Поточні дані буде очищено.', clearAll, 'Створити'); break;
     case 'open-workbook': runOfficeCommand('open') || triggerWorkbookImport(); break;
     case 'save-workbook': runOfficeCommand('save') || exportWorkbook(); break;
+    case 'import-xlsx': window.TablesXlsxFile?.triggerImport?.(); break;
+    case 'export-xlsx': window.TablesXlsxFile?.exportWorkbook?.(); break;
     case 'import-csv': triggerCSVImport(); break;
     case 'export-csv': exportCSV(); break;
     case 'print': window.print(); break;
@@ -327,6 +329,7 @@ F4 — тип посилання у формулі: A1 → $A$1 → A$1 → $A1`
 • вирівнювання за типом даних
 • сортування діапазону, формати чисел
 • кольори тексту й заливки, діаграми
-• збереження у формат .arttab`); break;
+• збереження у формат .arttab
+• імпорт та експорт XLSX: аркуші, дані, базові формули й оформлення`); break;
   }
 }

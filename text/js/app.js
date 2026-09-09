@@ -22,7 +22,7 @@ function createShellCommands() {
   };
 }
 
-window.TextApp.boot = () => {
+window.TextApp.boot = async () => {
   const editor = document.getElementById('editor');
   const announcer = document.getElementById('ariaAnnouncer');
   if (!editor) return;
@@ -181,6 +181,10 @@ window.TextApp.boot = () => {
     menu: ArtMenu, editor: ArtEditor, toolbar: ArtToolbar, modals: ArtModals, history: ArtHistory,
     page: ArtPage,
     state: ArtState,
+    storage: ArtTextStorage,
     formats: { docx: ArtDocx, rtf: ArtRtf, txt: ArtTxt }
   };
+
+  await ArtTextStorage.init(ArtEditor);
+  return window.art;
 };

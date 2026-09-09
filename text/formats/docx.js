@@ -2,6 +2,9 @@
 /* formats/docx.js — .docx імпорт/експорт */
 
 const ArtDocx = (() => {
+  const MAX_IMPORTED_DOM_NODES = 50_000;
+  const MAX_IMPORTED_TEXT_CHARS = 5 * 1024 * 1024;
+  const MAX_IMPORTED_IMAGES = 100;
   const PAGE_SIZES_TWIPS = {
     a4: { width: 11906, height: 16838 },
     a5: { width: 8391, height: 11906 },
@@ -26,7 +29,9 @@ const ArtDocx = (() => {
               "p[style-name='Заголовок 3'] => h3:fresh"
             ]
           });
-          resolve({ html: ArtSanitize.clean(result.value), meta: { format: 'docx', fileName: file.name, warnings: result.messages || [] } });
+          const html = ArtSanitize.clean(result.value);
+          _validateConvertedHtml(html);
+          resolve({ html, meta: { format: 'docx', fileName: file.name, warnings: result.messages || [] } });
         } catch (e) {
           reject(new Error('Не вдалося прочитати .docx: ' + (e.message || e)));
         }
@@ -34,6 +39,25 @@ const ArtDocx = (() => {
       fr.onerror = () => reject(new Error('Не вдалося прочитати файл'));
       fr.readAsArrayBuffer(file);
     });
+  }
+
+  function _validateConvertedHtml(html) {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ALL);
+    let nodes = 0;
+    while (walker.nextNode()) {
+      nodes += 1;
+      if (nodes > MAX_IMPORTED_DOM_NODES) {
+        throw new Error(`DOCX містить забагато елементів. Максимум — ${MAX_IMPORTED_DOM_NODES}.`);
+      }
+    }
+    if ((template.content.textContent || '').length > MAX_IMPORTED_TEXT_CHARS) {
+      throw new Error('DOCX містить забагато тексту для безпечного відкриття.');
+    }
+    if (template.content.querySelectorAll('img').length > MAX_IMPORTED_IMAGES) {
+      throw new Error(`DOCX містить забагато зображень. Максимум — ${MAX_IMPORTED_IMAGES}.`);
+    }
   }
 
   async function exportDocx(html, meta = {}) {
@@ -242,5 +266,14 @@ const ArtDocx = (() => {
     return notes;
   }
 
-  return { importDocx, exportDocx, describeExportLimits };
+  return {
+    importDocx,
+    exportDocx,
+    describeExportLimits,
+    limits: {
+      maxDomNodes: MAX_IMPORTED_DOM_NODES,
+      maxTextChars: MAX_IMPORTED_TEXT_CHARS,
+      maxImages: MAX_IMPORTED_IMAGES
+    }
+  };
 })();

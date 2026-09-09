@@ -29,7 +29,11 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.updateZoomUI();
       this.updateFileNameUI();
       this.updateDirtyUI();
-      this.applyPanelState(this.isPanelCollapsed());
+      this.panelMedia = window.matchMedia('(max-width: 760px)');
+      this.applyPanelState(this.panelMedia.matches || this.isPanelCollapsed(), { persist: false });
+      this.panelMedia.addEventListener?.('change', event => {
+        this.applyPanelState(event.matches ? true : this.isPanelCollapsed(), { persist: false });
+      });
       return this.elements;
     },
 
@@ -43,8 +47,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       }
     },
 
-    applyPanelState(collapsed) {
+    applyPanelState(collapsed, { persist = true } = {}) {
       document.body.classList.toggle('panel-collapsed', collapsed);
+      this.elements.propertiesPanel?.setAttribute('aria-hidden', String(collapsed));
       const button = this.elements.panelToggleBtn;
       if (button) {
         button.setAttribute('aria-expanded', String(!collapsed));
@@ -57,6 +62,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
           ? 'fa-solid fa-chevron-right'
           : 'fa-solid fa-chevron-left';
       }
+      if (!persist) return;
       try {
         localStorage.setItem(constants.PANEL_STATE_KEY, collapsed ? '1' : '0');
       } catch {
@@ -66,7 +72,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     togglePanel() {
       const collapsed = !document.body.classList.contains('panel-collapsed');
-      this.applyPanelState(collapsed);
+      this.applyPanelState(collapsed, { persist: !this.panelMedia?.matches });
       return collapsed;
     },
 
@@ -108,6 +114,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
         panelToggleBtn: utils.$('panelToggleBtn'),
         panelToggleIcon: utils.$('panelToggleIcon'),
+        propertiesPanel: utils.$('propertiesPanel'),
 
         brushGrid: utils.$('brushGrid'),
         shapeGrid: utils.$('shapeGrid'),

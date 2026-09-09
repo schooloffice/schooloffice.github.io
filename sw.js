@@ -1,8 +1,9 @@
-const CACHE_VERSION = 'office-plus-v44';
-const PRECACHE_NAME = `${CACHE_VERSION}-precache`;
+const CACHE_VERSION = 'office-plus-v51';
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
+const OFFLINE_STATUS_CACHE = `${CACHE_VERSION}-offline-status`;
+const OFFLINE_STATUS_URL = new URL('./__offline_status__', self.registration.scope).href;
 const MAX_RUNTIME_ENTRIES = 80;
-const CORE_ASSETS = [
+const ALL_LOCAL_ASSETS = [
   './apple-touch-icon.png',
   './design-tokens.json',
   './favicon-96x96.png',
@@ -27,6 +28,7 @@ const CORE_ASSETS = [
   './flowcharts/js/obstacle-routing.js',
   './flowcharts/js/palette-dnd.js',
   './flowcharts/js/project-io.js',
+  './flowcharts/js/svg-export.js',
   './flowcharts/js/routing.js',
   './flowcharts/js/runtime.js',
   './flowcharts/js/templates.js',
@@ -45,6 +47,8 @@ const CORE_ASSETS = [
   './flowcharts/js/ui.js',
   './flowcharts/js/viewport.js',
   './index.html',
+  './landing.js',
+  './office-storage.js',
   './office-shell.js',
   './office-ui.js',
   './offline.js',
@@ -109,6 +113,7 @@ const CORE_ASSETS = [
   './tables/js/formula-parser.js',
   './tables/js/formula-references.js',
   './tables/js/sheets.js',
+  './tables/js/grid-viewport.js',
   './tables/js/grid.js',
   './tables/js/model.js',
   './tables/js/runtime.js',
@@ -121,11 +126,13 @@ const CORE_ASSETS = [
   './tables/js/view-options.js',
   './tables/js/workbook.js',
   './tables/js/workbook-file.js',
+  './tables/js/xlsx-file.js',
   './tables/style.css',
   './text/core/history.js',
   './text/core/sanitize.js',
   './text/core/selection.js',
   './text/core/state.js',
+  './text/core/storage.js',
   './text/formats/docx.js',
   './text/formats/rtf.js',
   './text/formats/txt.js',
@@ -166,27 +173,165 @@ const CORE_ASSETS = [
   './vendor/pptxgenjs/pptxgen.bundle.js'
 ];
 
+const TEXT_VENDOR_ASSETS = new Set([
+  './vendor/docx/index.umd.js',
+  './vendor/dompurify/purify.min.js',
+  './vendor/mammoth/mammoth.browser.min.js'
+]);
+const TABLES_VENDOR_ASSETS = new Set(['./vendor/chartjs/chart.umd.js']);
+const SLIDES_VENDOR_ASSETS = new Set([
+  './vendor/html2pdf/html2pdf.bundle.min.js',
+  './vendor/pptxgenjs/LICENSE',
+  './vendor/pptxgenjs/pptxgen.bundle.js'
+]);
+const FLOWCHARTS_VENDOR_ASSETS = new Set(['./vendor/html2canvas/html2canvas.min.js']);
+
+const TEXT_ASSETS = ALL_LOCAL_ASSETS.filter(asset => asset.startsWith('./text/') || TEXT_VENDOR_ASSETS.has(asset));
+const TABLES_ASSETS = ALL_LOCAL_ASSETS.filter(asset => asset.startsWith('./tables/') || TABLES_VENDOR_ASSETS.has(asset));
+const SLIDES_ASSETS = ALL_LOCAL_ASSETS.filter(asset => asset.startsWith('./slides/') || SLIDES_VENDOR_ASSETS.has(asset));
+const PAINT_ASSETS = ALL_LOCAL_ASSETS.filter(asset => asset.startsWith('./paint/'));
+const VECTOR_ASSETS = ALL_LOCAL_ASSETS.filter(asset => asset.startsWith('./vector/'));
+const FLOWCHARTS_ASSETS = ALL_LOCAL_ASSETS.filter(asset => asset.startsWith('./flowcharts/') || FLOWCHARTS_VENDOR_ASSETS.has(asset));
+const EDITOR_ASSET_SET = new Set([
+  ...TEXT_ASSETS,
+  ...TABLES_ASSETS,
+  ...SLIDES_ASSETS,
+  ...PAINT_ASSETS,
+  ...VECTOR_ASSETS,
+  ...FLOWCHARTS_ASSETS
+]);
+const CORE_SHELL_ASSETS = ALL_LOCAL_ASSETS.filter(asset => !EDITOR_ASSET_SET.has(asset)).concat('./tests/offline-smoke.html');
+
+const CACHE_GROUPS = {
+  core: CORE_SHELL_ASSETS,
+  text: TEXT_ASSETS,
+  tables: TABLES_ASSETS,
+  slides: SLIDES_ASSETS,
+  paint: PAINT_ASSETS,
+  vector: VECTOR_ASSETS,
+  flowcharts: FLOWCHARTS_ASSETS
+};
+const GROUP_CACHE_NAMES = Object.fromEntries(
+  Object.keys(CACHE_GROUPS).map(group => [group, `${CACHE_VERSION}-${group}`])
+);
+
 const ASSET_EXTENSIONS = /\.(?:css|js|json|png|jpg|jpeg|svg|woff2|ico|webmanifest)$/i;
 
 self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(PRECACHE_NAME)
-      .then(cache => cache.addAll(CORE_ASSETS))
-      .then(() => self.skipWaiting())
-  );
+  event.waitUntil(cacheAllGroups().then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {
+  const keepCaches = new Set([...Object.values(GROUP_CACHE_NAMES), RUNTIME_CACHE, OFFLINE_STATUS_CACHE]);
   event.waitUntil(
     caches.keys()
       .then(keys => Promise.all(
         keys
-          .filter(key => key !== PRECACHE_NAME && key !== RUNTIME_CACHE)
+          .filter(key => !keepCaches.has(key))
           .map(key => caches.delete(key))
       ))
       .then(() => self.clients.claim())
   );
 });
+
+self.addEventListener('message', event => {
+  const type = event.data?.type;
+  if (type === 'CHECK_OFFLINE_STATUS') {
+    event.waitUntil(checkOfflineStatus().then(status => respondToMessage(event, status)));
+    return;
+  }
+  if (type === 'RETRY_OFFLINE_CACHE') {
+    event.waitUntil(cacheAllGroups().then(status => respondToMessage(event, status)));
+  }
+});
+
+function assetUrl(asset) {
+  return new URL(asset, self.registration.scope).href;
+}
+
+async function cacheAssetGroup(group, assets) {
+  const cache = await caches.open(GROUP_CACHE_NAMES[group]);
+  const failures = [];
+  for (let offset = 0; offset < assets.length; offset += 6) {
+    const batch = assets.slice(offset, offset + 6);
+    const attempts = await Promise.allSettled(batch.map(async asset => {
+      const request = new Request(assetUrl(asset), { cache: 'reload' });
+      const response = await fetch(request);
+      if (!isPrecacheable(response)) throw new Error(`HTTP ${response.status}`);
+      await cache.put(request, response.clone());
+      return asset;
+    }));
+    attempts.forEach((attempt, index) => {
+      if (attempt.status === 'rejected') failures.push(batch[index]);
+    });
+  }
+  return failures;
+}
+
+async function saveOfflineFailures(failures) {
+  const cache = await caches.open(OFFLINE_STATUS_CACHE);
+  await cache.put(OFFLINE_STATUS_URL, new Response(JSON.stringify({
+    cacheVersion: CACHE_VERSION,
+    checkedAt: Date.now(),
+    failures
+  }), { headers: { 'Content-Type': 'application/json' } }));
+}
+
+async function readOfflineFailures() {
+  try {
+    const cache = await caches.open(OFFLINE_STATUS_CACHE);
+    const response = await cache.match(OFFLINE_STATUS_URL);
+    return response ? (await response.json()).failures || {} : {};
+  } catch {
+    return {};
+  }
+}
+
+async function cacheAllGroups() {
+  const entries = Object.entries(CACHE_GROUPS);
+  const settled = await Promise.allSettled(entries.map(([group, assets]) => cacheAssetGroup(group, assets)));
+  const failures = {};
+  settled.forEach((result, index) => {
+    const group = entries[index][0];
+    failures[group] = result.status === 'fulfilled'
+      ? result.value
+      : [...entries[index][1]];
+  });
+  await saveOfflineFailures(failures);
+  return checkOfflineStatus();
+}
+
+async function checkGroup(group, assets) {
+  const cache = await caches.open(GROUP_CACHE_NAMES[group]);
+  const cachedUrls = new Set((await cache.keys()).map(request => request.url));
+  const missing = assets.filter(asset => !cachedUrls.has(assetUrl(asset)));
+  return { ready: missing.length === 0, missing };
+}
+
+async function checkOfflineStatus() {
+  const groupEntries = await Promise.all(Object.entries(CACHE_GROUPS).map(async ([group, assets]) => {
+    return [group, await checkGroup(group, assets)];
+  }));
+  const groups = Object.fromEntries(groupEntries);
+  const editors = {};
+  for (const editor of ['text', 'tables', 'slides', 'paint', 'vector', 'flowcharts']) {
+    const missing = [...groups.core.missing, ...groups[editor].missing];
+    editors[editor] = { ready: groups.core.ready && groups[editor].ready, missing };
+  }
+  return {
+    type: 'OFFLINE_STATUS',
+    cacheVersion: CACHE_VERSION,
+    ready: Object.values(editors).every(editor => editor.ready),
+    groups,
+    editors,
+    lastFailures: await readOfflineFailures()
+  };
+}
+
+function respondToMessage(event, payload) {
+  if (event.ports?.[0]) event.ports[0].postMessage(payload);
+  else event.source?.postMessage?.(payload);
+}
 
 self.addEventListener('fetch', event => {
   const request = event.request;
@@ -216,15 +361,16 @@ function shouldCacheAsset(url) {
 }
 
 async function networkFirstPage(request) {
-  const cache = await caches.open(PRECACHE_NAME);
+  const cache = await caches.open(RUNTIME_CACHE);
   try {
     const response = await fetch(request);
     if (isCacheable(response)) {
       await cache.put(request, response.clone());
+      await trimRuntimeCache(cache);
     }
     return response;
   } catch (error) {
-    const cached = await cache.match(request);
+    const cached = await cache.match(request, { ignoreSearch: true }) || await caches.match(request, { ignoreSearch: true });
     if (cached) return cached;
     throw error;
   }
@@ -232,14 +378,13 @@ async function networkFirstPage(request) {
 
 async function assetFromCacheOrNetwork(request, refreshPromise) {
   const runtime = await caches.open(RUNTIME_CACHE);
-  const precache = await caches.open(PRECACHE_NAME);
-  const cached = await runtime.match(request) || await precache.match(request);
+  const cached = await runtime.match(request) || await caches.match(request);
   if (cached) return cached;
 
   const refreshed = await refreshPromise;
   if (refreshed) return refreshed;
 
-  const fallback = await precache.match(request);
+  const fallback = await caches.match(request);
   if (fallback) return fallback;
   throw new Error(`Asset unavailable: ${request.url}`);
 }
@@ -262,6 +407,10 @@ function isCacheable(response) {
   if (!response || response.status !== 200 || response.type !== 'basic') return false;
   const cacheControl = response.headers.get('Cache-Control') || '';
   return !/no-store/i.test(cacheControl);
+}
+
+function isPrecacheable(response) {
+  return !!response && response.status === 200 && response.type === 'basic';
 }
 
 async function trimRuntimeCache(cache) {

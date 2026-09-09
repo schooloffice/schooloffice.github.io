@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:;">
   <title>Офіс ПЛЮС — Онлайн-редактори для школи</title>
   <!-- Favicons -->
   <link rel="icon" type="image/png" href="favicon-96x96.png" sizes="96x96" />
@@ -26,6 +26,7 @@
   <!-- Fonts -->
 <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css" />
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="shell-overrides.css" />
   <style>
     /* Modernized Office suite specific styles, integrated with global style.css */
 
@@ -266,6 +267,27 @@
       grid-column: 1 / -1;
     }
 
+    .local-drafts-panel {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 8px;
+      text-align: center;
+    }
+
+    .local-clear-button {
+      --card-accent: #b42318;
+      border: 0;
+      cursor: pointer;
+    }
+
+    .local-drafts-result {
+      min-height: 1.25em;
+      color: var(--text-secondary);
+      font-size: .9rem;
+    }
+
     .office-features {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -429,7 +451,7 @@
               <div class="office-grades"><i class="fas fa-school"></i> 5–11 класи</div>
               <div class="office-formats">
                 <span class="office-format-tag">.csv</span>
-                <span class="office-format-tag">.xls (скоро)</span>
+                <span class="office-format-tag">.xlsx</span>
               </div>
             </div>
             <a href="tables/" class="btn-office">
@@ -448,8 +470,8 @@
           </div>
           <div class="card-subtitle">Редактор презентацій</div>
           <h2 class="card-title">ПЛЮС Слайди</h2>
-          <p class="card-desc">Створюй яскраві презентації з анімацією та мультимедіа. Зручний інтерфейс для швидкої
-            підготовки до уроків.</p>
+          <p class="card-desc">Створюй презентації з текстом, зображеннями, фігурами й таблицями. Використовуй теми та
+            макети для швидкої підготовки до уроків.</p>
 
           <div class="office-card-footer">
             <div class="office-meta">
@@ -510,7 +532,6 @@
               <div class="office-formats">
                 <span class="office-format-tag">.png</span>
                 <span class="office-format-tag">.jpg</span>
-                <span class="office-format-tag">.bmp</span>
               </div>
             </div>
             <a href="paint/" class="btn-office">
@@ -528,8 +549,8 @@
           </div>
           <div class="card-subtitle">Векторний редактор</div>
           <h2 class="card-title">ПЛЮС Вектор</h2>
-          <p class="card-desc">Інструмент для створення векторних зображень та ілюстрацій. Робота з кривими Безьє,
-            шарами та геометричними примітивами.</p>
+          <p class="card-desc">Інструмент для створення векторних зображень та ілюстрацій із геометричних фігур,
+            ліній і тексту.</p>
 
           <div class="office-card-footer">
             <div class="office-meta">
@@ -546,6 +567,13 @@
           </div>
         </article>
       </div>
+
+      <section class="local-drafts-panel" aria-label="Локальні чернетки">
+        <button class="btn-office local-clear-button" type="button" data-office-clear-drafts>
+          <i class="fas fa-broom"></i> Очистити всі локальні чернетки
+        </button>
+        <span class="local-drafts-result" data-office-clear-drafts-result aria-live="polite"></span>
+      </section>
     </main>
 
     <!-- FOOTER -->
@@ -564,32 +592,8 @@
     </footer>
   </div>
 
-  <script>
-    // Minimal theme toggle script
-    const themeToggle = document.getElementById('themeToggle');
-    const themeIcon = themeToggle.querySelector('i');
-    const body = document.body;
-
-    // Check saved theme
-    const savedTheme = localStorage.getItem("theme");
-    if (savedTheme === "dark") {
-      body.classList.add("dark-mode");
-      themeIcon.classList.replace("fa-moon", "fa-sun");
-    }
-
-    themeToggle.addEventListener("click", () => {
-      body.classList.toggle("dark-mode");
-      const isDark = body.classList.contains("dark-mode");
-
-      if (isDark) {
-        themeIcon.classList.replace("fa-moon", "fa-sun");
-        localStorage.setItem("theme", "dark");
-      } else {
-        themeIcon.classList.replace("fa-sun", "fa-moon");
-        localStorage.setItem("theme", "light");
-      }
-    });
-  </script>
+  <script src="landing.js"></script>
+  <script src="office-storage.js"></script>
   <script src="offline.js"></script>
 </body>
 

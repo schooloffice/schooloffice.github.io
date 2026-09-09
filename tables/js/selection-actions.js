@@ -52,8 +52,7 @@ function applyFunc(name) {
   setSaveBadge();
   saveToHistory();
 
-  const inp = cellInp[tR]?.[tC];
-  if (inp) inp.focus();
+  focusGridCell(tC, tR);
 }
 
 window.TablesSelectionActions = {

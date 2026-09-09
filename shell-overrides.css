@@ -18,8 +18,160 @@ body.office-app {
   padding-right: .5rem;
 }
 
+body[data-office-service="text"] .office-toolbar.toolbar,
+body[data-office-service="slides"] .office-toolbar.toolbar {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+body[data-office-service="text"] .office-toolbar.toolbar::-webkit-scrollbar,
+body[data-office-service="slides"] .office-toolbar.toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Край toolbar м'яко зникає, коли за ним є приховані інструменти. Класи
+   підтримує office-ui.js після scroll, resize і зміни активного інструмента. */
+.office-toolbar-scrollable.can-scroll-right:not(.can-scroll-left) {
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 34px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 34px), transparent 100%);
+}
+
+.office-toolbar-scrollable.can-scroll-left:not(.can-scroll-right) {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 34px, #000 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 34px, #000 100%);
+}
+
+.office-toolbar-scrollable.can-scroll-left.can-scroll-right {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 34px, #000 calc(100% - 34px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 34px, #000 calc(100% - 34px), transparent 100%);
+}
+
 .office-statusbar.status-bar,
 .office-statusbar.statusbar {
   padding-left: .75rem;
   padding-right: .75rem;
+}
+
+.office-storage-status {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 20px;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--office-color-success, #16803c) 30%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--office-color-success, #16803c) 10%, transparent);
+  color: var(--office-color-success, #166534);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.office-storage-status[data-state="saving"] {
+  border-color: color-mix(in srgb, var(--office-color-accent, #2563eb) 30%, transparent);
+  background: color-mix(in srgb, var(--office-color-accent, #2563eb) 10%, transparent);
+  color: var(--office-color-accent, #1d4ed8);
+}
+
+.office-storage-status[data-state="error"] {
+  border-color: color-mix(in srgb, var(--office-color-danger, #b42318) 35%, transparent);
+  background: color-mix(in srgb, var(--office-color-danger, #b42318) 10%, transparent);
+  color: var(--office-color-danger, #b42318);
+}
+
+.office-offline-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid var(--office-border, #cbd5e1);
+  border-radius: 999px;
+  background: var(--office-surface, #fff);
+  color: var(--office-muted, #475569);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.office-offline-status[data-state="ready"] {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.office-offline-status[data-state="error"] {
+  border-color: #fdba74;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+body > .office-offline-status {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 80;
+}
+
+.office-storage-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: none;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, .55);
+}
+
+.office-storage-confirm.active {
+  display: grid;
+}
+
+.office-storage-dialog {
+  width: min(460px, 100%);
+  padding: 22px;
+  border: 1px solid var(--office-border-color, #d8dee9);
+  border-radius: 14px;
+  background: var(--office-color-bg-panel, #fff);
+  color: var(--office-color-text, #172033);
+  box-shadow: 0 20px 55px rgba(15, 23, 42, .25);
+}
+
+.office-storage-dialog h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+}
+
+.office-storage-dialog p {
+  margin: 0;
+  color: var(--office-color-text-muted, #5f6b7a);
+  line-height: 1.5;
+}
+
+.office-storage-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.office-storage-actions .office-button {
+  min-height: 36px;
+  padding: 7px 14px;
+  border: 1px solid var(--office-border-color, #d8dee9);
+  border-radius: 8px;
+  background: var(--office-color-bg-panel, #fff);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.office-storage-actions .office-storage-danger {
+  border-color: #b42318;
+  background: #b42318;
+  color: #fff;
 }

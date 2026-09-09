@@ -38,10 +38,12 @@
 
       const doc = frame.contentDocument;
       const win = frame.contentWindow;
+      await win.TablesApp?.ready;
       const headers = doc.querySelectorAll('#headRow th.col-header');
       const rows = doc.querySelectorAll('#bodyRows tr');
       const cells = doc.querySelectorAll('#bodyRows td[data-id]');
-      const activeCell = doc.getElementById('activeCellRef')?.textContent?.trim();
+      const activeCellRef = doc.getElementById('activeCellRef');
+      const activeCell = (activeCellRef?.value || activeCellRef?.textContent || '').trim();
       win.TablesViewOptions.setZoom(100);
       const defaultCellHeight = Math.round(doc.querySelector('#bodyRows td[data-id]')?.getBoundingClientRect().height || 0);
       const defaultHeaderHeight = Math.round(doc.querySelector('#headRow th')?.getBoundingClientRect().height || 0);

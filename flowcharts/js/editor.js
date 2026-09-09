@@ -29,6 +29,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
 
   const core = window.FlowchartCore || null;
   const projectIo = window.FlowchartsProjectIO || null;
+  const svgExporter = window.FlowchartsSvgExport || null;
 
   // ================= DOM =================
   const canvas = document.getElementById('flowchart-canvas');
@@ -782,6 +783,37 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     };
   }
 
+  function collectSvgExportData() {
+    const project = collectProjectData();
+    const mergeContext = buildMergeContext();
+    return {
+      diagramTitle: project.diagramTitle,
+      shapes: project.shapes.map(shape => {
+        const el = document.getElementById(shape.id);
+        return { ...shape, width: el?.offsetWidth || 0, height: el?.offsetHeight || 0 };
+      }),
+      connections: state.connections.map(conn => ({ ...conn, points: getConnectionPath(conn.id, mergeContext) }))
+    };
+  }
+
+  function exportSvg() {
+    if (!svgExporter?.download) {
+      showMessageModal('SVG-експортер не завантажився.');
+      return;
+    }
+    if (!state.shapes.length) {
+      showMessageModal('Спочатку додай хоча б один блок.');
+      return;
+    }
+    try {
+      svgExporter.download(collectSvgExportData(), sanitizeFilename(state.diagramTitle || 'блок-схема'));
+      flashSavedBadge();
+    } catch (error) {
+      console.error(error);
+      showMessageModal('Не вдалося експортувати SVG.');
+    }
+  }
+
   const projectBridge = projectIo?.createProjectBridge?.({
     core,
     state,
@@ -908,6 +940,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     validateDiagram,
     fitDiagram,
     openTemplates,
+    exportSvg,
   }) || {};
   const toggleHelp = menuActions.toggleHelp || (() => {});
   const menuApi = menuActions.bind?.() || null;

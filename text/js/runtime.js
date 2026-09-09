@@ -1,3 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
-  window.TextApp?.boot?.();
+  const bootResult = window.TextApp?.boot?.();
+  window.TextApp.ready = Promise.resolve(bootResult).catch(error => {
+    console.error('Text boot failed:', error);
+    throw error;
+  });
 });

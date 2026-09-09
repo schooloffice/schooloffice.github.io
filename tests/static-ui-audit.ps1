@@ -7,9 +7,9 @@ $ErrorActionPreference = 'Stop'
 
 $services = @(
   @{ Key = 'text'; Path = 'text'; Menu = @('file', 'edit', 'insert', 'view', 'help'); ActionFiles = @('text/ui/menu.js'); CommandFiles = @('text/js/app.js'); FilePickerFiles = @('text/ui/menu.js', 'text/ui/editor.js'); OptionalIds = @() },
-  @{ Key = 'tables'; Path = 'tables'; Menu = @('file', 'edit', 'insert', 'format', 'data', 'view', 'help'); ActionFiles = @('tables/js/ui.js'); CommandFiles = @('tables/js/app.js'); FilePickerFiles = @('tables/js/ui.js', 'tables/js/workbook-file.js'); OptionalIds = @('header') },
+  @{ Key = 'tables'; Path = 'tables'; Menu = @('file', 'edit', 'insert', 'format', 'data', 'view', 'help'); ActionFiles = @('tables/js/ui.js'); CommandFiles = @('tables/js/app.js'); FilePickerFiles = @('tables/js/ui.js', 'tables/js/workbook-file.js', 'tables/js/xlsx-file.js'); OptionalIds = @('header') },
   @{ Key = 'paint'; Path = 'paint'; Menu = @('file', 'edit', 'view', 'help'); ActionFiles = @('paint/js/app.js'); CommandFiles = @('paint/js/app.js'); FilePickerFiles = @('paint/js/document.js'); OptionalIds = @() },
-  @{ Key = 'slides'; Path = 'slides'; Menu = @('file', 'edit', 'insert', 'slide', 'view', 'help'); ActionFiles = @('slides/js/app.js'); CommandFiles = @('slides/js/app.js'); FilePickerFiles = @('slides/js/app.js'); OptionalIds = @('imageUrlField', 'imageAltField', 'imageSourceError', 'altEditField', 'pickImageFile', 'linkUrlField', 'linkSlideField', 'linkError', 'tableRowsField', 'tableColsField', 'tableHeaderField', 'tableStyleField', 'tableResizeWarning', 'tableResizeConfirmField', 'tableCellFillField', 'tableCellColorField', 'tableCellAlignField', 'tableCellVAlignField', 'tableCellBoldField', 'tableCellClearField', 'tableApplyFillField', 'tableApplyColorField', 'tableApplyAlignField', 'tableApplyVAlignField', 'tableApplyBoldField', 'tableRowWeightField', 'tableColumnWeightField', 'chartTypeField', 'chartTitleField', 'chartLegendField', 'chartDataField', 'chartError', 'transitionType', 'transitionDuration', 'transitionApplyAll') },
+  @{ Key = 'slides'; Path = 'slides'; Menu = @('file', 'edit', 'insert', 'slide', 'view', 'help'); ActionFiles = @('slides/js/app.js'); CommandFiles = @('slides/js/app.js'); FilePickerFiles = @('slides/js/app.js'); OptionalIds = @('imageAltField', 'altEditField', 'pickImageFile', 'linkUrlField', 'linkSlideField', 'linkError', 'tableRowsField', 'tableColsField', 'tableHeaderField', 'tableStyleField', 'tableResizeWarning', 'tableResizeConfirmField', 'tableCellFillField', 'tableCellColorField', 'tableCellAlignField', 'tableCellVAlignField', 'tableCellBoldField', 'tableCellClearField', 'tableApplyFillField', 'tableApplyColorField', 'tableApplyAlignField', 'tableApplyVAlignField', 'tableApplyBoldField', 'tableRowWeightField', 'tableColumnWeightField', 'chartTypeField', 'chartTitleField', 'chartLegendField', 'chartDataField', 'chartError', 'transitionType', 'transitionDuration', 'transitionApplyAll') },
   @{ Key = 'flowcharts'; Path = 'flowcharts'; Menu = @('file', 'edit', 'insert', 'view', 'help'); ActionFiles = @('flowcharts/js/editor.js', 'flowcharts/js/menu-actions.js'); CommandFiles = @('flowcharts/js/editor.js', 'flowcharts/js/project-io.js', 'flowcharts/js/menu-actions.js'); FilePickerFiles = @('flowcharts/js/editor.js', 'flowcharts/js/project-io.js'); OptionalIds = @('delete-button', 'help-button') },
   @{ Key = 'vector'; Path = 'vector'; Menu = @('file', 'edit', 'insert', 'format', 'help'); ActionFiles = @('vector/js/app.js'); CommandFiles = @('vector/js/app.js'); FilePickerFiles = @('vector/js/app.js'); OptionalIds = @() }
 )
@@ -26,15 +26,23 @@ $requiredRootFiles = @(
   'MODAL_STANDARD.md',
   'DROPDOWN_STANDARD.md',
   'CONTEXTUAL_UI_STANDARD.md',
+  'PILOT_READINESS.md',
   'COMPONENT_CHECKLIST.md',
   'CHANGELOG.md',
   'CHANGELOG_STANDARD.md',
   'LICENSE',
   'THIRD_PARTY_NOTICES.md',
+  'office-storage.js',
+  'landing.js',
+  'text/core/storage.js',
+  'tables/js/grid-viewport.js',
   'office-shell.js',
   'office-ui.js',
   'offline.js',
-  'sw.js'
+  'sw.js',
+  'tests/offline-smoke.html',
+  'tests/run-offline-smoke.ps1',
+  'tests/responsive-smoke.html'
 )
 
 $failures = New-Object System.Collections.Generic.List[string]
@@ -248,7 +256,7 @@ function Assert-CspBaseline {
     "style-src 'self'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    "connect-src 'self' https:",
+    "connect-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
     "frame-ancestors 'none'",
@@ -257,6 +265,8 @@ function Assert-CspBaseline {
   )) {
     Assert-True ($policy.Contains($directive)) "${PathLabel}: CSP is missing directive: $directive"
   }
+  Assert-True ($policy -notmatch "script-src[^;]*'unsafe-inline'") "${PathLabel}: CSP must not allow inline scripts"
+  Assert-True ($policy -notmatch 'connect-src[^;]*https:') "${PathLabel}: CSP must not allow arbitrary HTTPS connections"
 }
 
 function Assert-BlankLinksAreIsolated {
@@ -282,6 +292,7 @@ function Assert-ProductionHtmlSecurityBaseline {
   Assert-CspBaseline $Html $PathLabel
   Assert-BlankLinksAreIsolated $Html $PathLabel
   Assert-True ($Html -notmatch '\bhref\s*=\s*["'']javascript:') "${PathLabel}: production HTML must not use javascript: links"
+  Assert-True ($Html -notmatch '<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?</script>') "${PathLabel}: inline scripts must be moved to local JavaScript files"
 }
 
 function Assert-LocalHtmlAssetsExist {
@@ -357,6 +368,7 @@ function Assert-ServiceWorkerPrecache {
 
   $precacheAssets = [regex]::Matches($ServiceWorkerContent, "['""](\./[^'""]+)['""]") |
     ForEach-Object { $_.Groups[1].Value } |
+    Where-Object { $_ -ne './__offline_status__' } |
     Sort-Object -Unique
 
   foreach ($asset in $precacheAssets) {
@@ -367,6 +379,8 @@ function Assert-ServiceWorkerPrecache {
   $requiredAssets = New-Object System.Collections.Generic.HashSet[string]
   foreach ($asset in @(
     './index.html',
+    './landing.js',
+    './office-storage.js',
     './office-shell.js',
     './office-ui.js',
     './offline.js',
@@ -389,7 +403,7 @@ function Assert-ServiceWorkerPrecache {
   }
 
   foreach ($asset in $requiredAssets) {
-    Assert-True ($precacheAssets -contains $asset) "sw.js: CORE_ASSETS is missing required local asset: $asset"
+    Assert-True ($precacheAssets -contains $asset) "sw.js: named offline asset groups are missing required local asset: $asset"
   }
 }
 
@@ -469,9 +483,35 @@ if (Test-Path $rootIndexPath) {
   Assert-True ($rootHtml -notmatch '/office/art-') "Root index still contains old /office/art-* links"
   Assert-True ($rootHtml -notmatch '/office/office-') "Root index contains invalid /office/office-* links"
   Assert-True ($rootHtml -notmatch "pathname\.endsWith\('/office'\)") "Standalone root index should not contain the old /office redirect"
+  Assert-True ($rootHtml -match 'src="office-storage\.js"') "Root index must load office-storage.js"
+  Assert-True ($rootHtml -match 'src="landing\.js"') "Root index must load the external landing.js bootstrap"
+  Assert-True ([regex]::Matches($rootHtml, 'data-office-clear-drafts(?=\s|>)').Count -eq 1) "Root index must provide one clear-all-drafts control"
+  Assert-True ([regex]::Matches($rootHtml, 'data-office-clear-drafts-result').Count -eq 1) "Root index must provide one clear-all-drafts result region"
   foreach ($service in $services) {
     Assert-True ($rootHtml -match "href=""$($service.Path)/""") "Root index is missing relative link to $($service.Path)/"
   }
+
+  $landingClaims = @(
+    @{ Card = 'ПЛЮС Слайди'; Forbidden = 'анімаці|мультимеді'; Message = 'must not claim animations or multimedia support' },
+    @{ Card = 'ПЛЮС Малюнки'; Forbidden = '\.bmp'; Message = 'must not claim BMP support' },
+    @{ Card = 'ПЛЮС Вектор'; Forbidden = 'Безьє|\bшар(?:и|ами)?\b'; Message = 'must not claim Bezier curves or layers' }
+  )
+
+  foreach ($claim in $landingClaims) {
+    $title = [regex]::Escape($claim.Card)
+    $cardMatch = [regex]::Match($rootHtml, "(?s)<article\b(?:(?!</article>).)*?<h2\b[^>]*>$title</h2>(?:(?!</article>).)*?</article>")
+    Assert-True $cardMatch.Success "index.html: landing card is missing: $($claim.Card)"
+    if ($cardMatch.Success) {
+      Assert-True ($cardMatch.Value -notmatch $claim.Forbidden) "index.html: $($claim.Card) $($claim.Message)"
+    }
+  }
+  Assert-True ($rootHtml -match '<span[^>]*class="[^"]*office-format-tag[^"]*"[^>]*>\s*\.xlsx\s*</span>') 'index.html: Tables card should advertise verified XLSX support'
+  Assert-True ($rootHtml -match '<span[^>]*class="[^"]*office-format-tag[^"]*"[^>]*>\s*\.svg\s*</span>') 'index.html: Flowcharts card should advertise verified SVG export'
+}
+
+$appShellPath = Join-Path $Root 'APP_SHELL.html'
+if (Test-Path $appShellPath) {
+  Assert-ProductionHtmlSecurityBaseline (Get-Content -Raw -Encoding UTF8 $appShellPath) 'APP_SHELL.html'
 }
 
 $themeMapPath = Join-Path $Root 'SERVICE_THEME_MAP.json'
@@ -518,7 +558,9 @@ foreach ($service in $services) {
   Assert-True ($html -match 'href="\.\./shell-overrides\.css"') "$($service.Path): shell-overrides.css is not linked after local styling"
   Assert-True ($html -match 'src="\.\./office-shell\.js"') "$($service.Path): office-shell.js is not linked"
   Assert-True ($html -match 'src="\.\./office-ui\.js"') "$($service.Path): office-ui.js is not linked"
+  Assert-True ($html -match 'src="\.\./office-storage\.js"') "$($service.Path): office-storage.js is not linked"
   Assert-True ($html -match 'src="\.\./offline\.js"') "$($service.Path): offline.js is not registered"
+  Assert-True ($html -match 'src="\.\./office-storage\.js"[\s\S]*src="(?:js/)?(?:storage|autosave)\.js"|src="\.\./office-storage\.js"[\s\S]*src="(?:core|js)/[^\"]*\.js"') "$($service.Path): office-storage.js must load before local storage/app modules"
   Assert-True ($html -match 'src="\.\./office-shell\.js"[\s\S]*src="\.\./office-ui\.js"') "$($service.Path): office-shell.js must be linked before office-ui.js"
   Assert-True ($html -match 'src="\.\./office-ui\.js"[\s\S]*src="\.\./offline\.js"') "$($service.Path): office-ui.js must be linked before offline.js"
   Assert-True ($html -match '<body[^>]*class="[^"]*\boffice-app\b[^"]*"') "$($service.Path): body is missing office-app class"
@@ -532,6 +574,7 @@ foreach ($service in $services) {
   Assert-True ($html -match '<footer[^>]*class="[^"]*\boffice-statusbar\b[^"]*"[^>]*aria-label=') "$($service.Path): statusbar should have an aria-label"
   Assert-True ($html -match 'data-office-status-slot="primary"') "$($service.Path): statusbar is missing primary status slot"
   Assert-True ($html -match 'data-office-status-slot="secondary"') "$($service.Path): statusbar is missing secondary status slot"
+  Assert-True ([regex]::Matches($html, 'data-office-end-session').Count -eq 1) "$($service.Path): File menu must contain exactly one end-session command"
   Assert-True ($html -match 'class="[^"]*\boffice-workspace-focusable\b[^"]*"') "$($service.Path): workspace is missing office-workspace-focusable class"
   Assert-True ($html -match 'office-workspace-focusable[^>]*tabindex="0"|tabindex="0"[^>]*office-workspace-focusable') "$($service.Path): focusable workspace should have tabindex=0"
   Assert-True ($html -match 'class="[^"]*\bmodal(?:-overlay)?\b[^"]*"') "$($service.Path): expected at least one modal surface for standard behavior checks"
@@ -818,7 +861,7 @@ if (Test-Path $flowchartsIndexPath) {
   $flowchartsHtml = Get-Content -Raw -Encoding UTF8 $flowchartsIndexPath
   Assert-True ($flowchartsHtml -match 'src="js/core\.js"') "flowcharts/index.html: should load js/core.js as the shared domain layer"
   Assert-True ($flowchartsHtml -match 'src="js/ui\.js"') "flowcharts/index.html: should load js/ui.js as the shared UI helper layer"
-  foreach ($moduleName in @('autosave', 'modals', 'editor-utils', 'status', 'colors', 'connection-selection', 'shape-selection', 'shape-deletion', 'shape-text', 'shape-interactions', 'shape-factory', 'viewport', 'keyboard-shortcuts', 'history', 'menu-actions', 'flow-actions', 'title', 'shape-geometry', 'shape-placement', 'handles', 'routing', 'connections-dom')) {
+  foreach ($moduleName in @('svg-export', 'autosave', 'modals', 'editor-utils', 'status', 'colors', 'connection-selection', 'shape-selection', 'shape-deletion', 'shape-text', 'shape-interactions', 'shape-factory', 'viewport', 'keyboard-shortcuts', 'history', 'menu-actions', 'flow-actions', 'title', 'shape-geometry', 'shape-placement', 'handles', 'routing', 'connections-dom')) {
     Assert-True ($flowchartsHtml -match "src=""js/$moduleName\.js""") "flowcharts/index.html: should load js/$moduleName.js before editor.js"
     Assert-True ($flowchartsHtml -match "src=""js/$moduleName\.js""[\s\S]*src=""js/editor\.js""") "flowcharts/index.html: js/$moduleName.js must load before js/editor.js"
   }
@@ -873,6 +916,7 @@ $flowchartsModuleContracts = @{
   'flowcharts/js/handles.js' = 'window\.FlowchartsHandles\s*='
   'flowcharts/js/routing.js' = 'window\.FlowchartsRouting\s*='
   'flowcharts/js/connections-dom.js' = 'window\.FlowchartsConnectionsDom\s*='
+  'flowcharts/js/svg-export.js' = 'root\.FlowchartsSvgExport\s*='
 }
 foreach ($modulePath in $flowchartsModuleContracts.Keys) {
   $fullPath = Join-Path $Root $modulePath
@@ -894,6 +938,8 @@ if (Test-Path $tablesIndexPath) {
   Assert-True ($tablesHtml -match 'src="js/column-sizing\.js"') "tables/index.html: should load js/column-sizing.js as the column sizing layer"
   Assert-True ($tablesHtml -match 'src="js/state\.js"[\s\S]*src="js/column-sizing\.js"[\s\S]*src="js/formula-bar\.js"') "tables/index.html: js/column-sizing.js should load after state.js and before formula-bar.js"
   Assert-True ($tablesHtml -match 'src="js/formula-bar\.js"') "tables/index.html: should load js/formula-bar.js as the formula bar layer"
+  Assert-True ($tablesHtml -match 'src="js/grid-viewport\.js"') "tables/index.html: should load js/grid-viewport.js"
+  Assert-True ($tablesHtml -match 'src="js/formula-bar\.js"[\s\S]*src="js/grid-viewport\.js"[\s\S]*src="js/grid\.js"') "tables/index.html: viewport policy must load immediately before grid.js"
   Assert-True ($tablesHtml -match 'src="js/column-sizing\.js"[\s\S]*src="js/formula-bar\.js"[\s\S]*src="js/grid\.js"') "tables/index.html: js/formula-bar.js should load after column-sizing.js and before grid.js"
   Assert-True ($tablesHtml -match 'src="js/clipboard\.js"') "tables/index.html: should load js/clipboard.js as the clipboard layer"
   Assert-True ($tablesHtml -match 'src="js/grid\.js"[\s\S]*src="js/clipboard\.js"[\s\S]*src="js/structure\.js"') "tables/index.html: js/clipboard.js should load after grid.js and before structure.js"
@@ -905,7 +951,7 @@ if (Test-Path $tablesIndexPath) {
   Assert-True ($tablesHtml -match 'src="js/grid\.js"[\s\S]*src="js/structure\.js"[\s\S]*src="js/workbook\.js"') "tables/index.html: js/structure.js should load after grid.js and before workbook.js"
   Assert-True ($tablesHtml -match 'src="js/charts\.js"') "tables/index.html: should load js/charts.js as the chart layer"
   Assert-True ($tablesHtml -match 'src="js/workbook\.js"[\s\S]*src="js/charts\.js"[\s\S]*src="js/ui\.js"') "tables/index.html: js/charts.js should load after workbook.js and before ui.js"
-  foreach ($tablesUiModule in @('sorting', 'workbook-file', 'view-options', 'cell-format-ui')) {
+  foreach ($tablesUiModule in @('sorting', 'workbook-file', 'xlsx-file', 'view-options', 'cell-format-ui')) {
     Assert-True ($tablesHtml -match "src=""js/$tablesUiModule\.js""") "tables/index.html: should load js/$tablesUiModule.js as a UI sublayer"
     Assert-True ($tablesHtml -match "src=""js/ui\.js""[\s\S]*src=""js/$tablesUiModule\.js""[\s\S]*src=""js/calculation\.js""") "tables/index.html: js/$tablesUiModule.js should load after ui.js and before calculation.js"
   }
@@ -939,9 +985,62 @@ $tablesStoragePath = Join-Path $Root 'tables/js/storage.js'
 if (Test-Path $tablesStoragePath) {
   $tablesStorage = Get-Content -Raw -Encoding UTF8 $tablesStoragePath
   Assert-True ($tablesStorage -match 'window\.TablesStorage\s*=') "tables/js/storage.js: should expose a stable TablesStorage namespace"
-  foreach ($storageFunction in @('loadStateFromStorage', 'persistStateToStorage', 'safeGetItem', 'safeParseJSON', 'safeSetItem')) {
+  foreach ($storageFunction in @('loadStateFromStorage', 'persistStateToStorage', 'flushStateToStorage', 'clearStateFromStorage', 'safeGetItem', 'safeParseJSON', 'safeSetItem')) {
     Assert-True ($tablesStorage -match "function $storageFunction\(") "tables/js/storage.js: should own $storageFunction"
   }
+  Assert-True ($tablesStorage -match "createDraftStore\(\{[\s\S]*app:\s*'tables'") "tables/js/storage.js: persistence must use the shared Tables draft store"
+  Assert-True ($tablesStorage -match 'STORAGE_DEBOUNCE_MS\s*=\s*250') "tables/js/storage.js: persistence debounce must be 250 ms"
+}
+
+$xlsxAdapterPath = Join-Path $Root 'tables/js/xlsx-file.js'
+if (Test-Path $xlsxAdapterPath) {
+  $xlsxAdapter = Get-Content -Raw -Encoding UTF8 $xlsxAdapterPath
+  Assert-True ($xlsxAdapter -match 'root\.TablesXlsxFile\s*=') 'tables/js/xlsx-file.js: should expose TablesXlsxFile'
+  Assert-True ($xlsxAdapter -match 'DecompressionStream') 'tables/js/xlsx-file.js: should decompress locally in the browser'
+  Assert-True ($xlsxAdapter -notmatch 'https?://[^"'']+\.js') 'tables/js/xlsx-file.js: must not load a CDN dependency'
+}
+
+$flowchartsSvgPath = Join-Path $Root 'flowcharts/js/svg-export.js'
+if (Test-Path $flowchartsSvgPath) {
+  $flowchartsSvg = Get-Content -Raw -Encoding UTF8 $flowchartsSvgPath
+  Assert-True ($flowchartsSvg -match 'root\.FlowchartsSvgExport\s*=') 'flowcharts/js/svg-export.js: should expose FlowchartsSvgExport'
+  Assert-True ($flowchartsSvg -notmatch 'foreignObject') 'flowcharts/js/svg-export.js: must use native SVG text instead of foreignObject'
+  Assert-True ($flowchartsSvg -match '\.textContent\s*=') 'flowcharts/js/svg-export.js: should assign untrusted labels with textContent'
+}
+
+$tablesViewportPath = Join-Path $Root 'tables/js/grid-viewport.js'
+if (Test-Path $tablesViewportPath) {
+  $tablesViewport = Get-Content -Raw -Encoding UTF8 $tablesViewportPath
+  Assert-True ($tablesViewport -match 'window\.TablesGridViewport|const TablesGridViewport\s*=') "tables/js/grid-viewport.js: should expose a viewport contract"
+  Assert-True ($tablesViewport -match 'ROW_OVERSCAN\s*=\s*5') "tables/js/grid-viewport.js: row overscan must be 5"
+  Assert-True ($tablesViewport -match 'COL_OVERSCAN\s*=\s*2') "tables/js/grid-viewport.js: column overscan must be 2"
+  Assert-True ($tablesViewport -match 'function ensureCellVisible\(') "tables/js/grid-viewport.js: must expose ensureCellVisible"
+}
+
+$tablesWorkbookPath = Join-Path $Root 'tables/js/workbook.js'
+if (Test-Path $tablesWorkbookPath) {
+  $tablesWorkbook = Get-Content -Raw -Encoding UTF8 $tablesWorkbookPath
+  Assert-True ($tablesWorkbook -match '\^\[=\+\\-@\\t\\r\]') "tables/js/workbook.js: CSV text values must be protected from formula injection"
+  foreach ($fixture in @('=CMD', '+SUM', '-1+1', '@IMPORT')) {
+    Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/tables-storage-viewport-behavior.html')) -match [regex]::Escape($fixture)) "Tables CSV behavior test must cover $fixture"
+  }
+  Assert-True ($slidesModalUi -match 'bodyNode\s*=\s*null') "slides/js/modal-ui.js: showModal must accept bodyNode"
+  Assert-True ($slidesModalUi -notmatch '\binnerHTML\b') "slides/js/modal-ui.js: modal content must not use innerHTML"
+  Assert-True ($slidesModalUi -notmatch '\bbody\s*=\s*[''"]') "slides/js/modal-ui.js: modal API must not accept HTML body strings"
+}
+
+$slidesAppPath = Join-Path $Root 'slides/js/app.js'
+$slidesChartControllerPath = Join-Path $Root 'slides/js/chart-controller.js'
+$slidesTableControllerPath = Join-Path $Root 'slides/js/table-controller.js'
+foreach ($safeModalFile in @($slidesAppPath, $slidesChartControllerPath, $slidesTableControllerPath)) {
+  if (-not (Test-Path $safeModalFile)) { continue }
+  $safeModalSource = Get-Content -Raw -Encoding UTF8 $safeModalFile
+  Assert-True ($safeModalSource -notmatch '(?m)^\s*body\s*:') "$([IO.Path]::GetFileName($safeModalFile)): modal callers must pass bodyNode, not HTML strings"
+}
+if (Test-Path $slidesAppPath) {
+  $slidesAppSource = Get-Content -Raw -Encoding UTF8 $slidesAppPath
+  Assert-True ($slidesAppSource -notmatch '\bfetch\s*\(') "slides/js/app.js: arbitrary network image loading must remain disabled"
+  Assert-True ($slidesAppSource -notmatch 'imageUrlField') "slides/js/app.js: image modal must not expose an external URL field"
 }
 
 $tablesFormulaParserPath = Join-Path $Root 'tables/js/formula-parser.js'
@@ -983,7 +1082,8 @@ $tablesCorePath = Join-Path $Root 'tables/js/core.js'
 if (Test-Path $tablesCorePath) {
   $tablesCore = Get-Content -Raw -Encoding UTF8 $tablesCorePath
   Assert-True ($tablesCore -match 'window\.TablesCore\s*=') "tables/js/core.js: should expose the split core facade"
-  Assert-True ($tablesCore -match 'loadStateFromStorage\(\)') "tables/js/core.js: should initialize persisted state after split core modules load"
+  $tablesAppSource = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/js/app.js')
+  Assert-True ($tablesAppSource -match 'async function initTablesEditor\(\)[\s\S]*await loadStateFromStorage\(\)') "tables/js/app.js: async boot should await persisted state before rendering"
 }
 
 $tablesColumnSizingPath = Join-Path $Root 'tables/js/column-sizing.js'
@@ -1131,6 +1231,45 @@ if (Test-Path $textIndexPath) {
   Assert-True ($textHtml -match 'src="js/app\.js"') "text/index.html: should load js/app.js as the local boot layer"
   Assert-True ($textHtml -match 'src="js/runtime\.js"') "text/index.html: should load js/runtime.js as the runtime entrypoint"
   Assert-True ($textHtml -notmatch 'src="app\.js"') "text/index.html: should not load the legacy root app.js path after js/ migration"
+  Assert-True ($textHtml -match 'src="\.\./office-storage\.js"[\s\S]*src="core/storage\.js"[\s\S]*src="js/app\.js"') "text/index.html: shared and Text storage modules must load before app boot"
+}
+
+$textStoragePath = Join-Path $Root 'text/core/storage.js'
+if (Test-Path $textStoragePath) {
+  $textStorage = Get-Content -Raw -Encoding UTF8 $textStoragePath
+  Assert-True ($textStorage -match "createDraftStore\(\{[\s\S]*app:\s*'text'[\s\S]*key:\s*'text'") "text/core/storage.js: must use the shared Text draft store"
+  Assert-True ($textStorage -match 'MAX_DRAFT_BYTES\s*=\s*8\s*\*\s*1024\s*\*\s*1024') "text/core/storage.js: draft size must be capped at 8 MiB"
+  Assert-True ($textStorage -match 'AUTOSAVE_DELAY_MS\s*=\s*300') "text/core/storage.js: autosave debounce must be 300 ms"
+  Assert-True ($textStorage -match "visibilitychange" -and $textStorage -match "pagehide") "text/core/storage.js: must flush on visibilitychange and pagehide"
+  Assert-True ($textStorage -match 'bootRevision[\s\S]*getDocumentRevision') "text/core/storage.js: restore must be guarded by a boot revision"
+}
+
+$textEditorPath = Join-Path $Root 'text/ui/editor.js'
+if (Test-Path $textEditorPath) {
+  $textEditor = Get-Content -Raw -Encoding UTF8 $textEditorPath
+  foreach ($method in @('getDraftPayload', 'restoreDraft', 'clearDocument')) {
+    Assert-True ($textEditor -match "function $method\(") "text/ui/editor.js: expected public $method method"
+  }
+  foreach ($limit in @('MAX_TEXT_FILE_BYTES', 'MAX_DOCX_FILE_BYTES', 'MAX_IMAGE_FILE_BYTES', 'MAX_IMAGE_PIXELS')) {
+    Assert-True ($textEditor -match "const $limit\s*=") "text/ui/editor.js: missing $limit import limit"
+  }
+  Assert-True ($textEditor -match 'createImageBitmap' -and $textEditor -match 'URL\.revokeObjectURL') "text/ui/editor.js: image dimensions must be decoded safely and object URLs revoked"
+}
+
+$textHistoryPath = Join-Path $Root 'text/core/history.js'
+if (Test-Path $textHistoryPath) {
+  $textHistory = Get-Content -Raw -Encoding UTF8 $textHistoryPath
+  Assert-True ($textHistory -match 'MAX_HISTORY_ENTRIES\s*=\s*80') "text/core/history.js: history entry limit must be 80"
+  Assert-True ($textHistory -match 'MAX_HISTORY_BYTES\s*=\s*24\s*\*\s*1024\s*\*\s*1024') "text/core/history.js: history byte limit must be 24 MiB"
+}
+
+$textDocxPath = Join-Path $Root 'text/formats/docx.js'
+if (Test-Path $textDocxPath) {
+  $textDocx = Get-Content -Raw -Encoding UTF8 $textDocxPath
+  foreach ($limit in @('MAX_IMPORTED_DOM_NODES', 'MAX_IMPORTED_TEXT_CHARS', 'MAX_IMPORTED_IMAGES')) {
+    Assert-True ($textDocx -match "const $limit\s*=") "text/formats/docx.js: missing post-conversion $limit limit"
+  }
+  Assert-True ($textDocx -match '_validateConvertedHtml\(html\)') "text/formats/docx.js: converted HTML must be validated before import"
 }
 
 $textAppPath = Join-Path $Root 'text/js/app.js'
@@ -1165,6 +1304,21 @@ if (Test-Path $officeShellPath) {
   Assert-True ($officeShell -match 'window\.OfficeShell\s*=') "office-shell.js: helper API must be exported on window.OfficeShell"
 }
 
+$officeStoragePath = Join-Path $Root 'office-storage.js'
+if (Test-Path $officeStoragePath) {
+  $officeStorage = Get-Content -Raw -Encoding UTF8 $officeStoragePath
+  foreach ($storageFunction in @('createDraftStore', 'clearAllKnownDrafts', 'getDraftStatus')) {
+    Assert-True ($officeStorage -match "function $storageFunction\(") "office-storage.js: expected shared $storageFunction API"
+    Assert-True ($officeStorage -match "\b$storageFunction[,\s]") "office-storage.js: $storageFunction must be exported on window.OfficeStorage"
+  }
+  foreach ($draftMethod in @('load', 'save', 'clear', 'flush', 'getStatus')) {
+    Assert-True ($officeStorage -match "\b$draftMethod[,\s]") "office-storage.js: draft store must expose $draftMethod"
+  }
+  Assert-True ($officeStorage -match "CustomEvent\('office:storage-error'") "office-storage.js: storage failures must emit office:storage-error"
+  Assert-True ($officeStorage -match 'schemaVersion:\s*SCHEMA_VERSION[\s\S]*savedAt:\s*Date\.now\(\)[\s\S]*revision[\s\S]*payload') "office-storage.js: records must contain schemaVersion, savedAt, revision, and payload"
+  Assert-True ($officeStorage -match 'makeRecord\(nextRevision\(\),\s*null\)') "office-storage.js: clear must persist a tombstone"
+}
+
 $officeUiPath = Join-Path $Root 'office-ui.js'
 if (Test-Path $officeUiPath) {
   $officeUi = Get-Content -Raw -Encoding UTF8 $officeUiPath
@@ -1193,8 +1347,18 @@ if (Test-Path $officeUiPath) {
 $swPath = Join-Path $Root 'sw.js'
 if (Test-Path $swPath) {
   $sw = Get-Content -Raw -Encoding UTF8 $swPath
-  Assert-True ($sw -match 'const PRECACHE_NAME =') "sw.js: expected a dedicated precache bucket"
+  foreach ($assetGroup in @('CORE_SHELL_ASSETS', 'TEXT_ASSETS', 'TABLES_ASSETS', 'SLIDES_ASSETS', 'PAINT_ASSETS', 'VECTOR_ASSETS', 'FLOWCHARTS_ASSETS')) {
+    Assert-True ($sw -match "const $assetGroup =") "sw.js: expected named offline group $assetGroup"
+  }
+  Assert-True ($sw -match 'const CACHE_GROUPS =') "sw.js: named asset groups must map to separate caches"
+  Assert-True ($sw -match 'const GROUP_CACHE_NAMES =') "sw.js: each asset group must have a dedicated cache"
   Assert-True ($sw -match 'const RUNTIME_CACHE =') "sw.js: expected a dedicated runtime cache bucket"
+  Assert-True ($sw -match 'const OFFLINE_STATUS_CACHE =') "sw.js: failed offline resources must be persisted"
+  Assert-True ($sw -match 'Promise\.allSettled') "sw.js: partial cache failures must not abort the complete install pass"
+  Assert-True ($sw -match "type === 'CHECK_OFFLINE_STATUS'") "sw.js: missing CHECK_OFFLINE_STATUS message API"
+  Assert-True ($sw -match "type === 'RETRY_OFFLINE_CACHE'") "sw.js: missing RETRY_OFFLINE_CACHE message API"
+  Assert-True ($sw -match "type: 'OFFLINE_STATUS'") "sw.js: status response must identify its payload"
+  Assert-True ($sw -match 'editors\[editor\] = \{ ready:') "sw.js: status response must expose per-editor readiness"
   Assert-True ($sw -match 'const MAX_RUNTIME_ENTRIES =') "sw.js: runtime cache should declare an explicit size cap"
   Assert-True ($sw -match "request\.mode === 'navigate' \|\| acceptsHtml\(request\)") "sw.js: HTML requests should use a dedicated navigation strategy"
   Assert-True ($sw -match 'event\.waitUntil\(refresh\)') "sw.js: asset refresh should continue in the background"
@@ -1207,9 +1371,46 @@ $offlinePath = Join-Path $Root 'offline.js'
 if (Test-Path $offlinePath) {
   $offline = Get-Content -Raw -Encoding UTF8 $offlinePath
   Assert-True ($offline -match 'navigator\.serviceWorker\.register') "offline.js: service worker registration must remain enabled"
+  Assert-True ($offline -match 'console\.error\(`Offline') "offline.js: technical registration/cache errors must be logged"
+  Assert-True ($offline -match "CustomEvent\('office:offline-error'") "offline.js: failures must emit office:offline-error"
+  Assert-True ($offline -match "'Офлайн-режим ще не готовий'") "offline.js: incomplete caches need an explicit not-ready label"
+  Assert-True ($offline -match "'Працює офлайн'") "offline.js: confirmed offline readiness needs an explicit ready label"
+  Assert-True ($offline -match "postToWorker\(currentRegistration, 'CHECK_OFFLINE_STATUS'\)") "offline.js: ready UI must be based on Service Worker status"
+  Assert-True ($offline -notmatch '\.catch\(\(\) => \{\s*\}\)') "offline.js: registration errors must not be swallowed silently"
   Assert-True ($offline -notmatch 'getRegistrations\(\)[\s\S]*unregister\(\)') "offline.js: must not unregister the service worker during normal boot"
   Assert-True ($offline -notmatch 'caches\.keys\(\)[\s\S]*caches\.delete') "offline.js: must not clear offline caches during normal boot"
 }
+
+$offlineSmokeRunnerPath = Join-Path $Root 'tests/run-offline-smoke.ps1'
+if (Test-Path $offlineSmokeRunnerPath) {
+  $offlineSmokeRunner = Get-Content -Raw -Encoding UTF8 $offlineSmokeRunnerPath
+  Assert-True ($offlineSmokeRunner -match 'TcpListener') "run-offline-smoke.ps1: expected dynamic port allocation"
+  Assert-True ($offlineSmokeRunner -match '--user-data-dir=\$profilePath') "run-offline-smoke.ps1: online and offline phases must share one temporary Chrome profile"
+  Assert-True ($offlineSmokeRunner -match 'Stop-Process[\s\S]*phase=offline') "run-offline-smoke.ps1: local server must stop before the offline phase"
+  Assert-True ($offlineSmokeRunner -match 'StartsWith\(\$resolvedTests') "run-offline-smoke.ps1: profile cleanup must validate its owning tests directory"
+  Assert-True ($offlineSmokeRunner -match 'Remove-Item -LiteralPath \$resolvedProfile') "run-offline-smoke.ps1: cleanup must target only the resolved temporary profile"
+}
+
+$responsiveSmoke = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/responsive-smoke.html')
+foreach ($viewport in @('390, height: 844', '768, height: 1024', '1366, height: 768')) {
+  Assert-True ($responsiveSmoke -match [regex]::Escape($viewport)) "responsive-smoke.html: missing viewport $viewport"
+}
+$officeUiSource = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'office-ui.js')
+$shellOverrides = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'shell-overrides.css')
+Assert-True ($officeUiSource -match 'bindResponsiveToolbars') 'office-ui.js: Text/Slides responsive toolbar enhancer is required'
+Assert-True ($officeUiSource -match "addEventListener\('wheel'") 'office-ui.js: horizontal toolbar wheel scrolling is required'
+Assert-True ($officeUiSource -match 'MutationObserver') 'office-ui.js: active toolbar controls must be revealed after state changes'
+Assert-True ($shellOverrides -match 'can-scroll-right') 'shell-overrides.css: toolbar overflow gradient contract is required'
+foreach ($service in @('paint', 'vector')) {
+  $serviceUi = Get-Content -Raw -Encoding UTF8 (Join-Path $Root "$service/js/ui.js")
+  $serviceCss = Get-Content -Raw -Encoding UTF8 (Join-Path $Root "$service/style.css")
+  Assert-True ($serviceUi -match "matchMedia\('\(max-width: 760px\)'\)") "$service/js/ui.js: mobile properties panel must start collapsed"
+  Assert-True ($serviceCss -match '@media \(max-width: 760px\)[\s\S]*?\.properties-panel\s*\{[\s\S]*?position:\s*fixed') "$service/style.css: mobile properties panel must be an overlay"
+  Assert-True ($serviceCss -match '@media \(max-width: 760px\)[\s\S]*?\.tool-rail\s*\{[\s\S]*?flex-direction:\s*row') "$service/style.css: mobile tool rail must be horizontal"
+}
+$flowchartsCss = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'flowcharts/style.css')
+Assert-True ($flowchartsCss -match '@media \(max-width: 760px\)[\s\S]*?grid-template-rows:\s*116px minmax\(0, 1fr\)') 'flowcharts/style.css: mobile canvas must retain the primary workspace row'
+Assert-True ($flowchartsCss -match '@media \(max-width: 760px\)[\s\S]*?\.shape-list\s*\{[\s\S]*?flex-direction:\s*row') 'flowcharts/style.css: mobile shape palette must be horizontal'
 
 $modalContractFiles = @(
   'text/ui/modals.js',

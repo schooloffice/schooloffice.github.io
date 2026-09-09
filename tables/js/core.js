@@ -9,8 +9,6 @@
   - formula-engine.js
 */
 
-loadStateFromStorage();
-
 window.TablesCore = {
   addressing: window.TablesAddressing,
   formulaEngine: window.TablesFormulaEngine,

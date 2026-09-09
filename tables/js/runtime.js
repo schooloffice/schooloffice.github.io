@@ -1,3 +1,3 @@
 document.addEventListener('DOMContentLoaded', () => {
-  window.TablesApp?.boot?.();
+  window.TablesApp.ready = Promise.resolve(window.TablesApp?.boot?.());
 });

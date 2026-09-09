@@ -4,6 +4,7 @@
   let globalsBound = false;
   let modalBehaviorBound = false;
   let statusbarBound = false;
+  let responsiveToolbarsBound = false;
   const commands = new Map();
 
   const focusableSelector = [
@@ -512,12 +513,79 @@
     }, true);
   }
 
+  function bindResponsiveToolbars() {
+    const service = document.body?.dataset?.officeService;
+    if (!['text', 'slides'].includes(service)) return;
+
+    const toolbars = qsa('.office-toolbar.toolbar');
+    const activeSelector = '.active, [aria-pressed="true"], [aria-selected="true"]';
+
+    const updateScrollState = toolbar => {
+      const maxScrollLeft = Math.max(0, toolbar.scrollWidth - toolbar.clientWidth);
+      const scrollable = maxScrollLeft > 2;
+      toolbar.classList.toggle('office-toolbar-scrollable', scrollable);
+      toolbar.classList.toggle('can-scroll-left', scrollable && toolbar.scrollLeft > 2);
+      toolbar.classList.toggle('can-scroll-right', scrollable && toolbar.scrollLeft < maxScrollLeft - 2);
+    };
+
+    const revealTool = (toolbar, tool) => {
+      if (!(tool instanceof Element) || !toolbar.contains(tool)) return;
+      const toolbarRect = toolbar.getBoundingClientRect();
+      const toolRect = tool.getBoundingClientRect();
+      const edgePadding = 28;
+      if (toolRect.left < toolbarRect.left + edgePadding) {
+        toolbar.scrollLeft += toolRect.left - toolbarRect.left - edgePadding;
+      } else if (toolRect.right > toolbarRect.right - edgePadding) {
+        toolbar.scrollLeft += toolRect.right - toolbarRect.right + edgePadding;
+      }
+    };
+
+    toolbars.forEach(toolbar => {
+      if (toolbar.dataset.officeScrollEnhanced === 'true') return;
+      toolbar.dataset.officeScrollEnhanced = 'true';
+      toolbar.addEventListener('scroll', () => updateScrollState(toolbar), { passive: true });
+      toolbar.addEventListener('wheel', event => {
+        if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || toolbar.scrollWidth <= toolbar.clientWidth) return;
+        event.preventDefault();
+        toolbar.scrollLeft += event.deltaY;
+      }, { passive: false });
+      toolbar.addEventListener('focusin', event => revealTool(toolbar, event.target));
+      toolbar.addEventListener('click', event => revealTool(toolbar, event.target.closest('button, select, input, [role="button"]')));
+
+      const observer = new MutationObserver(records => {
+        const activeTool = records
+          .map(record => record.target instanceof Element ? record.target.closest(activeSelector) : null)
+          .find(Boolean);
+        // MutationObserver already runs after the class/ARIA change. Reveal now:
+        // requestAnimationFrame can be throttled for a background editor iframe,
+        // leaving the newly active control outside the mobile toolbar viewport.
+        if (activeTool) revealTool(toolbar, activeTool);
+        requestAnimationFrame(() => updateScrollState(toolbar));
+      });
+      observer.observe(toolbar, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'aria-pressed', 'aria-selected']
+      });
+      requestAnimationFrame(() => {
+        updateScrollState(toolbar);
+        revealTool(toolbar, toolbar.querySelector(activeSelector));
+      });
+    });
+
+    if (!responsiveToolbarsBound) {
+      responsiveToolbarsBound = true;
+      window.addEventListener('resize', () => toolbars.forEach(updateScrollState), { passive: true });
+    }
+  }
+
   function init() {
     bindMenuKeyboard();
     bindModalBehavior();
     bindStatusbarBehavior();
     bindGlobalOverlayBehavior();
     syncAriaOnPointer();
+    bindResponsiveToolbars();
   }
 
   if (document.readyState === 'loading') {
@@ -543,6 +611,7 @@
     runCommand,
     dispatchOverlayClose,
     announce,
-    updateStatus
+    updateStatus,
+    bindResponsiveToolbars
   };
 }());

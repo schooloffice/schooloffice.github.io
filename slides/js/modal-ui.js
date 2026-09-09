@@ -4,7 +4,7 @@ let modalCloseHandler = null;
 export function showModal(dom, {
   title,
   text = '',
-  body = '',
+  bodyNode = null,
   confirmText = 'Гаразд',
   cancelText = 'Скасувати',
   icon = 'fa-solid fa-circle-info',
@@ -20,8 +20,12 @@ export function showModal(dom, {
   previousClose?.();
   dom.modalTitle.textContent = title;
   dom.modalText.textContent = text;
-  dom.modalBody.innerHTML = body;
-  dom.modalIcon.innerHTML = `<i class="${icon}"></i>`;
+  dom.modalBody.replaceChildren();
+  if (bodyNode instanceof Node) dom.modalBody.appendChild(bodyNode);
+  dom.modalIcon.replaceChildren();
+  const iconNode = document.createElement('i');
+  String(icon).split(/\s+/).filter(name => /^fa[\w-]*$/.test(name)).forEach(name => iconNode.classList.add(name));
+  dom.modalIcon.appendChild(iconNode);
   dom.modalConfirm.textContent = confirmText;
   dom.modalCancel.textContent = cancelText;
   dom.modalCancel.classList.toggle('hidden', !showCancel);
@@ -51,7 +55,7 @@ export function closeModal(dom) {
   dom.modalOverlay.classList.add('hidden');
   dom.modalOverlay.classList.remove('active');
   dom.modalOverlay.setAttribute('aria-hidden', 'true');
-  dom.modalBody.innerHTML = '';
+  dom.modalBody.replaceChildren();
   // Закриття будь-яким шляхом (кнопка, overlay, програмно) повідомляє власника
   // модалки — напр. щоб скасувати незавершений fetch вставки зображення.
   const handler = modalCloseHandler;

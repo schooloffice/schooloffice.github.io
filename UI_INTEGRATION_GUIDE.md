@@ -8,6 +8,7 @@
 
 - `office-shell.js`
 - `office-ui.js`
+- `office-storage.js`
 - `UI_TOKENS.css`
 - `shell-overrides.css`
 - `design-tokens.json`
@@ -21,12 +22,23 @@
 <link rel="stylesheet" href="../UI_TOKENS.css">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="../shell-overrides.css">
+<script src="../office-storage.js"></script>
 <script src="../office-shell.js" defer></script>
 <script src="../office-ui.js" defer></script>
 <script src="../offline.js" defer></script>
 ```
 
-Порядок важливий: shared tokens -> локальні стилі -> shell overrides -> office-shell -> office-ui -> offline.
+Порядок важливий: shared tokens -> локальні стилі -> shell overrides -> office-storage (до локального storage/app) -> office-shell -> office-ui -> offline.
+
+`offline.js` додає спільний індикатор і показує «Працює офлайн» тільки після відповіді Service Worker, що `core` і група поточного редактора повні. До цього стан має бути «Перевіряємо офлайн-режим…» або «Офлайн-режим ще не готовий». Технічні збої логуються та надсилаються як `office:offline-error`; їх не можна поглинати порожнім `catch`.
+
+Для діагностики доступний `window.OfficeOffline`: `checkStatus()` надсилає `CHECK_OFFLINE_STATUS`, а `retryOfflineCache()` — `RETRY_OFFLINE_CACHE`. Очищати Cache Storage або знімати реєстрацію під час звичайного boot заборонено.
+
+Production-сторінки мають використовувати CSP `script-src 'self'` і `connect-src 'self'`. Inline-скрипти та фонові запити до довільних HTTPS-хостів заборонені; `style-src 'unsafe-inline'` поки лишається через динамічну геометрію редакторів. Складний modal-вміст передається як `bodyNode`, створений через `document.createElement`, `textContent` і явні атрибути, а не як HTML-рядок.
+
+Чернетки редакторів мають використовувати `OfficeStorage.createDraftStore()`. IndexedDB є основним сховищем, LocalStorage — лише fallback і джерелом міграції. Кожен редактор має команду «Завершити роботу на цьому ПК», яка очищає його чернетку, створює порожній документ і не видаляє PWA-кеш.
+
+На малих екранах довгі toolbar-и не переносяться у високі багаторядкові блоки: вони прокручуються горизонтально, показують градієнт на прихованому краї та відкривають активний інструмент у видимій області. Панелі властивостей графічних редакторів до `760px` працюють як закриті за замовчуванням overlay/drawer і не відбирають ширину canvas.
 
 ## 2. DOM-контракт shell
 

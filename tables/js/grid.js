@@ -1,5 +1,5 @@
 // ---- Grid build / rebuild ----
-function rebuildGrid() {
+function rebuildGrid(requestedRange = null) {
   ensureCellWithinBounds();
 
   const hRow = document.getElementById('headRow');
@@ -10,6 +10,12 @@ function rebuildGrid() {
     console.error('Grid elements not found');
     return;
   }
+
+  const focusedInput = document.activeElement?.classList?.contains('cell-input')
+    ? { id: document.activeElement.closest('td[data-id]')?.dataset.id, start: document.activeElement.selectionStart, end: document.activeElement.selectionEnd }
+    : null;
+  const view = requestedRange || TablesGridViewport.range(ROWS, COL_COUNT);
+  TablesGridViewport.markRendered(view);
 
   // Recompute COLS (in case col count changed)
   COLS = buildCols(COL_COUNT);
@@ -25,16 +31,26 @@ function rebuildGrid() {
   colgroup.innerHTML = '';
 
   // Colgroup (0 = row header)
-  colEls = [];
+  colEls = Array(COL_COUNT + 1).fill(null);
   const colRowHeader = document.createElement('col');
   colRowHeader.style.width = '50px';
   colgroup.appendChild(colRowHeader);
-  colEls.push(colRowHeader);
+  colEls[0] = colRowHeader;
 
-  for (let c = 0; c < COL_COUNT; c++) {
+  if (view.leftWidth) {
+    const spacer = document.createElement('col');
+    spacer.style.width = `${view.leftWidth}px`;
+    colgroup.appendChild(spacer);
+  }
+  for (let c = view.colStart; c <= view.colEnd; c++) {
     const col = document.createElement('col');
     colgroup.appendChild(col);
-    colEls.push(col);
+    colEls[c + 1] = col;
+  }
+  if (view.rightWidth) {
+    const spacer = document.createElement('col');
+    spacer.style.width = `${view.rightWidth}px`;
+    colgroup.appendChild(spacer);
   }
 
   // Header corner
@@ -59,8 +75,15 @@ function rebuildGrid() {
   });
   hRow.appendChild(thCorner);
 
+  if (view.leftWidth) {
+    const spacer = document.createElement('th');
+    spacer.className = 'viewport-spacer-column';
+    spacer.setAttribute('aria-hidden', 'true');
+    hRow.appendChild(spacer);
+  }
+
   // Column headers
-  for (let c = 0; c < COL_COUNT; c++) {
+  for (let c = view.colStart; c <= view.colEnd; c++) {
     const th = document.createElement('th');
     th.classList.add('col-header');
     th.textContent = COLS[c];
@@ -96,12 +119,32 @@ function rebuildGrid() {
 
     hRow.appendChild(th);
   }
+  if (view.rightWidth) {
+    const spacer = document.createElement('th');
+    spacer.className = 'viewport-spacer-column';
+    spacer.setAttribute('aria-hidden', 'true');
+    hRow.appendChild(spacer);
+  }
 
   // Body
-  cellTd = Array.from({ length: ROWS + 1 }, () => Array(COL_COUNT).fill(null));
-  cellInp = Array.from({ length: ROWS + 1 }, () => Array(COL_COUNT).fill(null));
+  cellTd = Array.from({ length: ROWS + 1 }, () => []);
+  cellInp = Array.from({ length: ROWS + 1 }, () => []);
 
-  for (let r = 1; r <= ROWS; r++) {
+  const renderedColumnCount = (view.colEnd - view.colStart + 1) + 1 + (view.leftWidth ? 1 : 0) + (view.rightWidth ? 1 : 0);
+  function appendRowSpacer(height) {
+    if (!height) return;
+    const tr = document.createElement('tr');
+    tr.className = 'viewport-spacer-row';
+    const td = document.createElement('td');
+    td.colSpan = renderedColumnCount;
+    td.style.height = `${height}px`;
+    td.setAttribute('aria-hidden', 'true');
+    tr.appendChild(td);
+    bRows.appendChild(tr);
+  }
+  appendRowSpacer(view.topHeight);
+
+  for (let r = view.rowStart; r <= view.rowEnd; r++) {
     const tr = document.createElement('tr');
 
     const rowTh = document.createElement('th');
@@ -109,6 +152,7 @@ function rebuildGrid() {
     rowTh.className = 'row-header';
     rowTh.title = `Виділити рядок ${r}`;
     rowTh.setAttribute('scope', 'row');
+    rowTh.dataset.row = String(r);
     rowTh.setAttribute('aria-label', `Рядок ${r}. Клацни, щоб виділити весь рядок.`);
     rowTh.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
@@ -127,7 +171,14 @@ function rebuildGrid() {
     });
     tr.appendChild(rowTh);
 
-    for (let c = 0; c < COL_COUNT; c++) {
+    if (view.leftWidth) {
+      const spacer = document.createElement('td');
+      spacer.className = 'viewport-spacer-column';
+      spacer.setAttribute('aria-hidden', 'true');
+      tr.appendChild(spacer);
+    }
+
+    for (let c = view.colStart; c <= view.colEnd; c++) {
       const td = document.createElement('td');
       const id = getCellId(c, r);
       td.dataset.id = id;
@@ -185,6 +236,7 @@ function rebuildGrid() {
         }
         cellData[id] = e.target.value;
         setDirty(true);
+        persistStateToStorage();
 
         if (activeId === id) {
           const fb = document.getElementById('formulaBar');
@@ -196,7 +248,7 @@ function rebuildGrid() {
       inp.addEventListener('blur', () => {
         // commit on blur
         recalculateAll();
-        persistStateToStorage();
+        flushStateToStorage();
         setSaveBadge();
         saveToHistory();
       });
@@ -219,8 +271,16 @@ function rebuildGrid() {
       cellInp[r][c] = inp;
     }
 
+    if (view.rightWidth) {
+      const spacer = document.createElement('td');
+      spacer.className = 'viewport-spacer-column';
+      spacer.setAttribute('aria-hidden', 'true');
+      tr.appendChild(spacer);
+    }
+
     bRows.appendChild(tr);
   }
+  appendRowSpacer(view.bottomHeight);
 
   // Apply widths via colgroup
   applyColWidths();
@@ -230,7 +290,7 @@ function rebuildGrid() {
     const cornerRect = thCorner.getBoundingClientRect();
     metrics.rowHeaderW = Math.round(cornerRect.width) || 50;
     metrics.headerH = Math.round(cornerRect.height) || 32;
-    const td0 = cellTd[1]?.[0];
+    const td0 = cellTd[view.rowStart]?.[view.colStart];
     if (td0) {
       const tdRect = td0.getBoundingClientRect();
       metrics.rowH = Math.round(tdRect.height) || 30;
@@ -242,8 +302,8 @@ function rebuildGrid() {
   renderSel();
 
   // Populate raw values (computed will be shown after recalc)
-  for (let r = 1; r <= ROWS; r++) {
-    for (let c = 0; c < COL_COUNT; c++) {
+  for (let r = view.rowStart; r <= view.rowEnd; r++) {
+    for (let c = view.colStart; c <= view.colEnd; c++) {
       const id = getCellId(c, r);
       const inp = cellInp[r][c];
       if (!inp) continue;
@@ -257,6 +317,14 @@ function rebuildGrid() {
   }
 
   if (typeof applyRowFilter === 'function') applyRowFilter();
+  if (focusedInput?.id) {
+    const parsed = parseCellId(focusedInput.id);
+    const input = parsed ? cellInp[parsed.r]?.[parsed.cIdx] : null;
+    if (input) {
+      input.focus({ preventScroll: true });
+      try { input.setSelectionRange(focusedInput.start, focusedInput.end); } catch { }
+    }
+  }
 }
 
 // ---- Selection ----
@@ -290,7 +358,7 @@ function setActive(c, r, id, opts = {}) {
   activeId = id;
 
   const ref = document.getElementById('activeCellRef');
-  if (ref) ref.innerText = id;
+  if (ref) ref.value = id;
   // Повідомляємо скрінрідер про активну клітинку
   const cellVal = cellData[id] || '';
   announce(`Клітинка ${id}. ${cellVal ? 'Значення: ' + cellVal : 'Порожня'}`);
@@ -335,7 +403,7 @@ function renderSel() {
   const wholeCols = b.rMin === 1 && b.rMax === ROWS;
   if (wholeRows) {
     for (let rr = b.rMin; rr <= b.rMax; rr++) {
-      document.querySelector(`#bodyRows > tr:nth-child(${rr}) > .row-header`)?.classList.add('header-selected');
+      document.querySelector(`#bodyRows .row-header[data-row="${rr}"]`)?.classList.add('header-selected');
     }
   }
   if (wholeCols) {
@@ -352,13 +420,33 @@ function renderSel() {
 // ---- Keyboard / clipboard ----
 function commitCell() {
   recalculateAll();
-  persistStateToStorage();
+  flushStateToStorage();
   setSaveBadge();
   saveToHistory();
 }
 
+function focusGridCell(c, r) {
+  TablesGridViewport.ensureCellVisible(r, c);
+  if (!cellInp[r]?.[c]) {
+    rebuildGrid(TablesGridViewport.range(ROWS, COL_COUNT));
+    recalculateAll();
+  }
+  cellInp[r]?.[c]?.focus({ preventScroll: true });
+}
+
 function handleKey(e, c, r) {
   const inp = cellInp[r]?.[c];
+
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'Home' || e.key === 'End')) {
+    e.preventDefault();
+    commitCell();
+    const targetC = e.key === 'End' ? COL_COUNT - 1 : 0;
+    const targetR = e.key === 'End' ? ROWS : 1;
+    selStart = selEnd = { c: targetC, r: targetR };
+    setActive(targetC, targetR, getCellId(targetC, targetR));
+    focusGridCell(targetC, targetR);
+    return;
+  }
 
   // Escape — скасувати редагування, відновити попереднє значення
   if (e.key === 'Escape') {
@@ -380,8 +468,7 @@ function handleKey(e, c, r) {
   if (e.key === 'Enter') {
     e.preventDefault();
     commitCell();
-    const nextInp = cellInp[Math.min(r + 1, ROWS)]?.[c];
-    if (nextInp) nextInp.focus();
+    focusGridCell(c, Math.min(r + 1, ROWS));
     return;
   }
 
@@ -389,8 +476,7 @@ function handleKey(e, c, r) {
     e.preventDefault();
     commitCell();
     const nextC = e.shiftKey ? Math.max(c - 1, 0) : Math.min(c + 1, COL_COUNT - 1);
-    const nextInp = cellInp[r]?.[nextC];
-    if (nextInp) nextInp.focus();
+    focusGridCell(nextC, r);
     return;
   }
 
@@ -401,25 +487,25 @@ function handleKey(e, c, r) {
   if (e.key === 'ArrowDown') {
     e.preventDefault();
     commitCell();
-    cellInp[Math.min(r + 1, ROWS)]?.[c]?.focus();
+    focusGridCell(c, Math.min(r + 1, ROWS));
     return;
   }
   if (e.key === 'ArrowUp') {
     e.preventDefault();
     commitCell();
-    cellInp[Math.max(r - 1, 1)]?.[c]?.focus();
+    focusGridCell(c, Math.max(r - 1, 1));
     return;
   }
   if (e.key === 'ArrowRight' && isAtEnd) {
     e.preventDefault();
     commitCell();
-    cellInp[r]?.[Math.min(c + 1, COL_COUNT - 1)]?.focus();
+    focusGridCell(Math.min(c + 1, COL_COUNT - 1), r);
     return;
   }
   if (e.key === 'ArrowLeft' && isAtStart) {
     e.preventDefault();
     commitCell();
-    cellInp[r]?.[Math.max(c - 1, 0)]?.focus();
+    focusGridCell(Math.max(c - 1, 0), r);
     return;
   }
 }

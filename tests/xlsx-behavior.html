@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>XLSX behavior smoke</title></head>
+<body data-xlsx="running">
+  <main><h1>XLSX behavior smoke</h1><ol id="results"></ol><pre id="result"></pre></main>
+  <script>
+    (async () => {
+      const results = document.getElementById('results');
+      const failures = [];
+      function check(label, ok, detail = '') {
+        const li = document.createElement('li'); li.textContent = `${ok ? 'PASS' : 'FAIL'} — ${label}${detail ? `: ${detail}` : ''}`;
+        results.appendChild(li); if (!ok) failures.push(label);
+      }
+      try {
+        const frame = document.createElement('iframe'); frame.hidden = true; frame.src = '../tables/index.html'; document.body.appendChild(frame);
+        await new Promise((resolve, reject) => { frame.onload = resolve; frame.onerror = reject; });
+        const api = frame.contentWindow.TablesXlsxFile;
+        check('XLSX API is exposed', !!api?.exportArrayBuffer && !!api?.importArrayBuffer);
+        const payload = {
+          type: 'art-tables-workbook', version: 2, name: 'Навчальна книга', activeSheet: 1,
+          sheets: [
+            { name: 'Дані', rows: 60, cols: 30, cellData: { A1: 'Назва', B1: '12.5', C1: '2026-09-09', D1: '=B1*2' }, cellStyles: { A1: 'style-text-bold style-bg-yellow style-align-center', C1: 'style-num-date' }, colWidths: { 0: 180 }, condRules: [] },
+            { name: 'Підсумок', rows: 60, cols: 30, cellData: { A1: '=Дані!D1', B2: 'Готово' }, cellStyles: { B2: 'style-text-italic style-border-all' }, colWidths: { 1: 120 }, condRules: [] }
+          ]
+        };
+        const buffer = api.exportArrayBuffer(payload);
+        check('export creates a compact ZIP workbook', buffer.byteLength > 1000 && buffer.byteLength < 100000);
+        const imported = await api.importArrayBuffer(buffer, 'Навчальна книга.xlsx');
+        check('multiple sheets round-trip', imported.payload.sheets.length === 2 && imported.payload.sheets[1].name === 'Підсумок');
+        check('text and numbers round-trip', imported.payload.sheets[0].cellData.A1 === 'Назва' && imported.payload.sheets[0].cellData.B1 === '12.5');
+        check('formulas round-trip', imported.payload.sheets[0].cellData.D1 === '=B1*2' && imported.payload.sheets[1].cellData.A1 === '=Дані!D1');
+        check('dates round-trip', imported.payload.sheets[0].cellData.C1 === '2026-09-09');
+        check('column widths round-trip', Math.abs(imported.payload.sheets[0].colWidths[0] - 180) <= 2);
+        check('basic formatting round-trip', imported.payload.sheets[0].cellStyles.A1.includes('style-text-bold') && imported.payload.sheets[0].cellStyles.A1.includes('style-bg-yellow'));
+        check('generated workbook has no unsupported warnings', imported.warnings.length === 0);
+      } catch (error) {
+        check('test completed without exception', false, error?.stack || error?.message || String(error));
+      }
+      document.getElementById('result').textContent = failures.length ? failures.join('; ') : 'passed';
+      document.body.dataset.xlsx = failures.length ? 'failed' : 'passed';
+    })();
+  </script>
+</body>
+</html>
