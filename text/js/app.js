@@ -115,12 +115,7 @@ window.TextApp.boot = async () => {
     );
   });
 
-  const findInput = document.querySelector('[data-find-input]');
-  const findNext = () => ArtEditor.findNext(document.getElementById('findInput')?.value || '');
-  findInput?.addEventListener('keydown', event => {
-    if (event.key === 'Enter') findNext();
-  });
-  document.querySelector('[data-find-next]')?.addEventListener('click', findNext);
+  ArtFind.init(editor);
 
   document.querySelectorAll('[data-set-zoom]').forEach(button => {
     button.addEventListener('click', () => {
@@ -156,7 +151,8 @@ window.TextApp.boot = async () => {
       s: () => runOfficeCommand('save'),
       o: () => runOfficeCommand('open'),
       p: () => window.print(),
-      f: () => ArtModals.open('modalFind'),
+      f: () => ArtFind.open('find'),
+      h: () => ArtFind.open('replace'),
       a: () => ArtSelection.selectAll(editor),
       c: () => ArtSelection.copy(editor),
       x: async () => {
@@ -180,6 +176,7 @@ window.TextApp.boot = async () => {
   window.art = {
     menu: ArtMenu, editor: ArtEditor, toolbar: ArtToolbar, modals: ArtModals, history: ArtHistory,
     page: ArtPage,
+    find: ArtFind,
     state: ArtState,
     storage: ArtTextStorage,
     formats: { docx: ArtDocx, rtf: ArtRtf, txt: ArtTxt }

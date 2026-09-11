@@ -1,6 +1,6 @@
 ﻿import { DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILIES, FONT_SIZES, LAYOUTS, LAYOUT_KEYS, LIMITS, LINE_SHAPE_TYPES, STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES, THEMES, THEME_KEYS, TRANSITION_DURATIONS, TRANSITION_TYPES } from './constants.js';
 import { exportPresentationPdf, printPresentation, createSlideSnapshot, createThumbSnapshot } from './export.js';
-import { exportPresentationPptx } from './pptx-export.js';
+import { preparePptxExport, writePptxPresentation } from './pptx-export.js';
 import { captureState, commitState, pushHistory, redo, resetHistory, undo } from './history.js';
 import {
   closeModal as closeModalUi,
@@ -1166,7 +1166,12 @@ function beginRenameFile() {
   input.focus();
   input.select();
 
+  // Enter/Escape прибирають поле з DOM, а видалення сфокусованого поля запускає
+  // blur: без прапорця другий finish(true) перейменовував би навіть після Escape.
+  let finished = false;
   const finish = commit => {
+    if (finished) return;
+    finished = true;
     if (commit) {
       const nextName = input.value.trim() || 'моя презентація';
       if (nextName !== state.fileName) {
@@ -2153,27 +2158,55 @@ function handleExportPdf() {
   });
 }
 
+function reportPptxFailure(error) {
+  console.error('PPTX export failed', error);
+  showInfoModal('Експорт не вдався', 'Не вдалося створити PPTX. Презентація ПЛЮС Слайди не змінена.');
+  setStatusRight('PPTX не створено');
+}
+
+// Презентацію будуємо без запису; застереження показуємо ДО завантаження файлу.
 async function handleExportPptx() {
   if (pptxExportInProgress) {
     setStatusRight('PPTX уже створюється…');
     return;
   }
   pptxExportInProgress = true;
+  setStatusRight('Готуємо PPTX…');
+  let prepared;
+  try {
+    prepared = await preparePptxExport(state.fileName, state.slides);
+  } catch (error) {
+    reportPptxFailure(error);
+    pptxExportInProgress = false;
+    return;
+  }
+  const { presentation, report } = prepared;
+  if (!report.warnings.length) {
+    await writePreparedPptx(presentation, report);
+    return;
+  }
+  pptxExportInProgress = false;
+  setStatusRight('PPTX чекає підтвердження');
+  showConfirmModal({
+    title: 'Експорт PPTX з застереженнями',
+    text: `У PPTX частину вмісту буде спрощено:\n• ${report.warnings.join('\n• ')}\n\nФайл проєкту ПЛЮС Слайди (Файл → Зберегти файл…) зберігає все без змін.`,
+    confirmText: 'Експортувати PPTX',
+    onConfirm: () => {
+      if (pptxExportInProgress) return;
+      pptxExportInProgress = true;
+      writePreparedPptx(presentation, report);
+    }
+  });
+}
+
+async function writePreparedPptx(presentation, report) {
   setStatusRight('Створюємо PPTX…');
   try {
-    const report = await exportPresentationPptx(state.fileName, state.slides);
-    const details = report.warnings.length
-      ? `\n\nЗверніть увагу:\n• ${report.warnings.join('\n• ')}`
-      : '';
-    showInfoModal(
-      'PPTX створено',
-      `Експортовано ${report.slideCount} слайдів і ${report.exportedElements} об’єктів.${details}`
-    );
+    await writePptxPresentation(presentation, state.fileName);
+    showInfoModal('PPTX створено', `Експортовано ${report.slideCount} слайдів і ${report.exportedElements} об’єктів.`);
     setStatusRight('PPTX експортовано');
   } catch (error) {
-    console.error('PPTX export failed', error);
-    showInfoModal('Експорт не вдався', 'Не вдалося створити PPTX. Презентація ПЛЮС Слайди не змінена.');
-    setStatusRight('PPTX не створено');
+    reportPptxFailure(error);
   } finally {
     pptxExportInProgress = false;
   }

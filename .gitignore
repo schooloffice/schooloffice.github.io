@@ -6,3 +6,7 @@ tests/.browser-smoke.*.stderr.txt
 # Local Claude Code state (machine-specific)
 .claude/settings.local.json
 .claude/worktrees/
+
+# Робочі документи плану аудиту (тимчасово поза репозиторієм; прибрати після чистки)
+/AUDIT_ACTION_PLAN_GPT56.md
+/ПОКРОКОВО.md

@@ -1,0 +1,15 @@
+{
+  "fileName": "Текст і фігури",
+  "slides": [
+    {
+      "id": "slide-text",
+      "background": "#ffffff",
+      "elements": [
+        { "id": "title", "type": "text", "content": "Кругообіг води", "x": 60, "y": 40, "w": 840, "h": 90, "style": { "fontSize": 40, "bold": true } },
+        { "id": "body", "type": "text", "content": "Випаровування, конденсація, опади", "x": 60, "y": 150, "w": 840, "h": 60, "style": { "fontSize": 24 } },
+        { "id": "cloud", "type": "shape", "shape": "rect", "x": 80, "y": 260, "w": 220, "h": 120, "style": { "fill": "#bfdbfe", "stroke": "#1d4ed8" } },
+        { "id": "sun", "type": "shape", "shape": "circle", "x": 380, "y": 260, "w": 200, "h": 120, "style": { "fill": "#fde68a", "stroke": "#b45309" } }
+      ]
+    }
+  ]
+}

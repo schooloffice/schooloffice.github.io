@@ -445,11 +445,29 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       }
       this.ctx.save();
       this.setRasterStyle();
-      this.ctx.beginPath();
-      this.ctx.moveTo(state.lastX, state.lastY);
-      this.ctx.lineTo(x, y);
-      this.ctx.stroke();
+      this.strokeSegment(x, y);
       this.ctx.restore();
+    },
+
+    // Відрізок від попередньої точки. Клік без руху дає відрізок нульової
+    // довжини, який рушій canvas може не малювати зовсім (headless Chrome 153
+    // не ставить round cap), тож крапку малюємо явно у формі кінця лінії.
+    strokeSegment(x, y) {
+      const ctx = this.ctx;
+      ctx.beginPath();
+      if (x === state.lastX && y === state.lastY) {
+        const size = ctx.lineWidth;
+        if (ctx.lineCap === 'round') {
+          ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (ctx.lineCap === 'square') {
+          ctx.fillRect(x - size / 2, y - size / 2, size, size);
+        }
+        return;
+      }
+      ctx.moveTo(state.lastX, state.lastY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
     },
 
     erase(x, y) {
@@ -463,13 +481,11 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         this.ctx.globalCompositeOperation = 'source-over';
         this.ctx.strokeStyle = state.document.background || '#ffffff';
       }
+      this.ctx.fillStyle = this.ctx.strokeStyle;
       this.ctx.lineWidth = Math.max(4, state.currentSize * 1.2);
       this.ctx.lineCap = 'round';
       this.ctx.lineJoin = 'round';
-      this.ctx.beginPath();
-      this.ctx.moveTo(state.lastX, state.lastY);
-      this.ctx.lineTo(x, y);
-      this.ctx.stroke();
+      this.strokeSegment(x, y);
       this.ctx.restore();
     },
 

@@ -1,10 +1,17 @@
 param(
   [int]$Port = 0,
-  [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+  [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
+  # Wall-clock ліміт одного запуску Chrome. `--virtual-time-budget` керує лише
+  # віртуальним часом сторінки і не завершує завислий процес.
+  [ValidateRange(1, 3600)]
+  [int]$PageTimeoutSeconds = 120,
+  # Порожнє значення — стандартне розташування Chrome.
+  [string]$ChromePath = ''
 )
 
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+. (Join-Path $PSScriptRoot 'test-process-helpers.ps1')
 
 function Get-ChromePath {
   $candidates = @(
@@ -45,54 +52,10 @@ function Join-ProcessArguments {
 function Start-SafeProcess {
   param(
     [string]$FilePath,
-    [string[]]$ArgumentList,
-    [switch]$Wait,
-    [switch]$CaptureOutput
+    [string[]]$ArgumentList
   )
 
-  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-  $startInfo.FileName = $FilePath
-  $startInfo.Arguments = Join-ProcessArguments $ArgumentList
-  $startInfo.UseShellExecute = $false
-  $startInfo.CreateNoWindow = $true
-
-  if ($CaptureOutput) {
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-  }
-
-  $process = [System.Diagnostics.Process]::new()
-  $process.StartInfo = $startInfo
-  [void]$process.Start()
-
-  if ($CaptureOutput) {
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
-  }
-
-  if (-not $Wait) {
-    if ($CaptureOutput) {
-      return [pscustomobject]@{
-        Process = $process
-        StdoutTask = $stdoutTask
-        StderrTask = $stderrTask
-      }
-    }
-
-    return $process
-  }
-
-  $process.WaitForExit()
-
-  if ($CaptureOutput) {
-    return [pscustomobject]@{
-      Process = $process
-      Stdout = $stdoutTask.Result
-      Stderr = $stderrTask.Result
-    }
-  }
-
-  return $process
+  return Start-CapturedChildProcess -FilePath $FilePath -Arguments (Join-ProcessArguments $ArgumentList)
 }
 
 function Wait-ForServer {
@@ -100,7 +63,7 @@ function Wait-ForServer {
 
   for ($attempt = 0; $attempt -lt 40; $attempt++) {
     try {
-      Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$PortNumber/tests/browser-smoke.html" | Out-Null
+      Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 -Uri "http://127.0.0.1:$PortNumber/tests/browser-smoke.html" | Out-Null
       return
     } catch {
       Start-Sleep -Milliseconds 250
@@ -108,6 +71,27 @@ function Wait-ForServer {
   }
 
   throw "Local smoke server did not start on port $PortNumber."
+}
+
+# Профілі створює й видаляє лише цей запуск: тільки власні GUID-шляхи всередині
+# tests/, без очищення за маскою чужих або паралельних прогонів.
+function New-PageProfile {
+  $path = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ('.browser-profile-' + [guid]::NewGuid().ToString())))
+  $script:ownedProfiles.Add($path)
+  New-Item -ItemType Directory -Path $path, (Join-Path $path 'cache') -Force | Out-Null
+  return $path
+}
+
+function Remove-PageProfile {
+  param([string]$Path)
+
+  $leaf = Split-Path -Leaf $Path
+  if (-not $Path.StartsWith($resolvedTests, [StringComparison]::OrdinalIgnoreCase) -or $leaf -notlike '.browser-profile-*') {
+    throw "Refusing to remove browser profile outside tests: $Path"
+  }
+  if (Test-Path -LiteralPath $Path) {
+    Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
 
 function Test-GpuLaunchFailure {
@@ -147,6 +131,26 @@ function Assert-NoUncaughtPageErrors {
   }
 }
 
+function Invoke-ChromeRun {
+  param(
+    [string[]]$ArgumentList,
+    [string]$ProfilePath
+  )
+
+  $capture = Start-SafeProcess $chromePath $ArgumentList
+  $completed = $false
+  try {
+    $result = Wait-CapturedProcess -Capture $capture -TimeoutSeconds $PageTimeoutSeconds -OwnedMarker $ProfilePath
+    $completed = $true
+    return $result
+  } finally {
+    # Перерваний прогін (Ctrl+C, виняток) не лишає браузер цього профілю.
+    if (-not $completed) {
+      [void](Stop-OwnedProcessTree -Capture $capture -OwnedMarker $ProfilePath)
+    }
+  }
+}
+
 function Invoke-SmokePage {
   param(
     [string]$Url,
@@ -159,10 +163,9 @@ function Invoke-SmokePage {
   # послідовними chrome у CI спричиняв конкуренцію за профіль/disk-cache
   # (ERROR simple_index_file.cc "Could not create a directory") і нестабільний
   # стан storage у наступних сторінках.
-  $pageProfile = Join-Path $PSScriptRoot ('.browser-profile-' + [guid]::NewGuid().ToString())
+  $pageProfile = New-PageProfile
   $pageCache = Join-Path $pageProfile 'cache'
   $fallbackProfile = $null
-  New-Item -ItemType Directory -Path $pageProfile, $pageCache -Force | Out-Null
   try {
     $baseArguments = @(
       '--headless=new',
@@ -179,14 +182,14 @@ function Invoke-SmokePage {
       '--dump-dom'
     ) + $ExtraArguments + @($Url)
 
-    $result = Start-SafeProcess $chromePath $baseArguments -Wait -CaptureOutput
+    $result = Invoke-ChromeRun $baseArguments $pageProfile
     $firstLaunchStderr = $result.Stderr
 
-    if ($result.Process.ExitCode -ne 0 -and (Test-GpuLaunchFailure $result.Stderr)) {
+    # Повтор лише для швидкої GPU-відмови запуску; тайм-аут не подвоюємо.
+    if (-not $result.TimedOut -and $result.ExitCode -ne 0 -and (Test-GpuLaunchFailure $result.Stderr)) {
       Write-Host "${Name}: Chrome GPU launch failed; retrying once with SwiftShader."
-      $fallbackProfile = Join-Path $PSScriptRoot ('.browser-profile-' + [guid]::NewGuid().ToString())
+      $fallbackProfile = New-PageProfile
       $fallbackCache = Join-Path $fallbackProfile 'cache'
-      New-Item -ItemType Directory -Path $fallbackProfile, $fallbackCache -Force | Out-Null
       $fallbackArguments = @(
         '--headless=new',
         '--disable-crash-reporter',
@@ -201,14 +204,24 @@ function Invoke-SmokePage {
         '--log-level=0',
         '--dump-dom'
       ) + $ExtraArguments + @($Url)
-      $result = Start-SafeProcess $chromePath $fallbackArguments -Wait -CaptureOutput
+      $result = Invoke-ChromeRun $fallbackArguments $fallbackProfile
     } else {
       $firstLaunchStderr = ''
     }
 
-    if ($result.Process.ExitCode -ne 0) {
-      $launchDetails = @($firstLaunchStderr, $result.Stderr) | Where-Object { $_ }
-      throw "$Name browser process failed with exit code $($result.Process.ExitCode).`nBrowser stderr:`n$($launchDetails -join "`n--- retry ---`n")"
+    $launchDetails = @($firstLaunchStderr, $result.Stderr) | Where-Object { $_ }
+    $stderrDetails = "Browser stderr:`n$($launchDetails -join "`n--- retry ---`n")"
+
+    if ($result.TimedOut) {
+      throw "$Name timed out: browser did not finish within $PageTimeoutSeconds s wall-clock; stopped $($result.StoppedProcessCount) process(es) of this run.`n$stderrDetails"
+    }
+
+    if (-not $result.OutputComplete) {
+      throw "$Name browser output did not close after exit (exit code $($result.ExitCode)); stopped $($result.StoppedProcessCount) process(es) of this run.`n$stderrDetails"
+    }
+
+    if ($result.ExitCode -ne 0) {
+      throw "$Name browser launch failed with exit code $($result.ExitCode); page checks did not run.`n$stderrDetails"
     }
 
     try {
@@ -230,17 +243,15 @@ function Invoke-SmokePage {
       throw "$($_.Exception.Message)`nBrowser stderr:`n$($result.Stderr)"
     }
   } finally {
-    if (Test-Path $pageProfile) {
-      Remove-Item -LiteralPath $pageProfile -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    if ($fallbackProfile -and (Test-Path $fallbackProfile)) {
-      Remove-Item -LiteralPath $fallbackProfile -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    Remove-PageProfile $pageProfile
+    if ($fallbackProfile) { Remove-PageProfile $fallbackProfile }
   }
 }
 
 $Port = if ($Port -gt 0) { $Port } else { Get-FreeTcpPort }
-$chromePath = Get-ChromePath
+$chromePath = if ($ChromePath) { (Resolve-Path -LiteralPath $ChromePath).Path } else { Get-ChromePath }
+$resolvedTests = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\') + '\'
+$ownedProfiles = New-Object System.Collections.Generic.List[string]
 $server = $null
 $serverCapture = $null
 $failure = $null
@@ -252,7 +263,7 @@ try {
     '-File', (Join-Path $PSScriptRoot 'serve-office.ps1'),
     '-Port', $Port,
     '-Root', $Root
-  ) -CaptureOutput
+  )
   $server = $serverCapture.Process
 
   Wait-ForServer -PortNumber $Port
@@ -272,22 +283,24 @@ try {
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/xlsx-behavior.html" 'data-xlsx="passed"' 'Tables XLSX behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/vector-behavior.html" 'data-vector-behavior="passed"' 'Vector behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/responsive-smoke.html" 'data-responsive="passed"' 'Responsive layout smoke'
+  Invoke-SmokePage "http://127.0.0.1:$Port/tests/accessibility-smoke.html" 'data-accessibility="passed"' 'Contrast and zoom 200% smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/pilot-readiness-behavior.html" 'data-pilot-readiness="passed"' 'Low-end pilot readiness smoke' @('--enable-low-end-device-mode')
 } catch {
   $failure = $_
 } finally {
   if ($server -and -not $server.HasExited) {
     Stop-Process -Id $server.Id -Force
-    $server.WaitForExit()
+    [void]$server.WaitForExit(10000)
   }
 
-  # Прибираємо будь-які залишкові per-page профілі (на випадок аварійного виходу).
-  Get-ChildItem -LiteralPath $PSScriptRoot -Filter '.browser-profile-*' -Directory -Force -ErrorAction SilentlyContinue |
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+  # Повторна спроба для власних профілів, які ще тримав щойно зупинений процес.
+  foreach ($ownedProfile in $ownedProfiles) { Remove-PageProfile $ownedProfile }
 }
 
 if ($failure) {
-  $serverStderr = if ($serverCapture) { $serverCapture.StderrTask.Result } else { '' }
+  $serverStderr = if ($serverCapture -and (Wait-OutputTasks -Capture $serverCapture -TimeoutSeconds 5)) {
+    Get-CapturedText $serverCapture.StderrTask ''
+  } else { '' }
   $serverDetails = if ($serverStderr) { "`nServer stderr:`n$serverStderr" } else { '' }
   throw "$($failure.Exception.Message)$serverDetails"
 }

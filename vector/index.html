@@ -146,6 +146,8 @@
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="toggle-panel"><span><i class="fa-solid fa-table-columns fa-fw"></i> Панель
             параметрів</span><span class="shortcut">Ctrl+\</span></button>
+        <button class="menu-item" data-action="toggle-objects"><span><i class="fa-solid fa-layer-group fa-fw"></i> Панель
+            «Об'єкти»</span></button>
       </div>
     </div>
 
@@ -183,6 +185,7 @@
       </div>
 
       <div class="rail-group rail-panel-toggle">
+        <button id="objectsToggleBtn" class="rail-btn" type="button" data-action="toggle-objects" aria-pressed="false" aria-controls="propertiesPanel" title="Об'єкти: порядок, видимість, блокування"><i class="fa-solid fa-layer-group"></i><span>Об'єкти</span></button>
         <button id="panelToggleBtn" class="rail-btn" type="button" data-action="toggle-panel" aria-expanded="true" aria-controls="propertiesPanel" title="Згорнути панель параметрів (Ctrl+\)"><i id="panelToggleIcon" class="fa-solid fa-chevron-left"></i><span>Панель</span></button>
       </div>
     </aside>
@@ -272,6 +275,18 @@
           </div>
         </div>
       </div>
+      <!-- Список об'єктів — окремий режим тієї самої панелі (кнопка «Об'єкти» в rail).
+           Це не шари: кожен рядок — один об'єкт у z-порядку. -->
+      <section id="objectsPanel" class="objects-panel" aria-labelledby="objectsTitle" hidden>
+        <div id="objectsTitle" class="prop-title">Об'єкти <span id="objectsCount" class="prop-title-value">0</span></div>
+        <p id="objectsEmpty" class="objects-empty">Намалюйте фігуру — вона з'явиться в цьому списку.</p>
+        <ul id="objectsList" class="objects-list" aria-label="Об'єкти від переднього плану до заднього"></ul>
+        <div class="objects-actions" role="group" aria-label="Порядок і назва вибраного об'єкта">
+          <button class="panel-action" type="button" data-action="object-up" title="Вище на один крок" disabled><i class="fa-solid fa-arrow-up" aria-hidden="true"></i><span>Вище</span></button>
+          <button class="panel-action" type="button" data-action="object-down" title="Нижче на один крок" disabled><i class="fa-solid fa-arrow-down" aria-hidden="true"></i><span>Нижче</span></button>
+          <button class="panel-action" type="button" data-action="object-rename" title="Перейменувати вибраний об'єкт" disabled><i class="fa-solid fa-i-cursor" aria-hidden="true"></i><span>Назва…</span></button>
+        </div>
+      </section>
     </aside>
 
     <main class="workspace office-workspace office-workspace-focusable" tabindex="0">

@@ -346,9 +346,18 @@ export function loadPptxLibrary() {
   return pptxLibraryPromise;
 }
 
-export async function exportPresentationPptx(fileName, slides, PptxCtor = null) {
+// Будує презентацію без запису файлу: застереження можна показати до завантаження.
+export async function preparePptxExport(fileName, slides, PptxCtor = null) {
   const Ctor = PptxCtor || await loadPptxLibrary();
-  const { presentation, report } = buildPptxPresentation(fileName, slides, Ctor);
+  return buildPptxPresentation(fileName, slides, Ctor);
+}
+
+export async function writePptxPresentation(presentation, fileName) {
   await presentation.writeFile({ fileName: `${fileName || 'presentation'}.pptx`, compression: true });
+}
+
+export async function exportPresentationPptx(fileName, slides, PptxCtor = null) {
+  const { presentation, report } = await preparePptxExport(fileName, slides, PptxCtor);
+  await writePptxPresentation(presentation, fileName);
   return report;
 }

@@ -23,6 +23,7 @@ window.ArtVector = window.ArtVector || {};
     MAX_TEXT_LENGTH: 5000,
     MAX_TEXT_LINES: 200,
     MAX_NAME_LENGTH: 100,
+    MAX_OBJECT_NAME_LENGTH: 60,
     MIN_CANVAS: 100,
     MAX_CANVAS: 10000,
     // Окрема межа площі: 10000×10000 проходить по сторонах, але PNG-експорт і друк
@@ -99,6 +100,12 @@ window.ArtVector = window.ArtVector || {};
     return cleaned ? cleaned.slice(0, LIMITS.MAX_NAME_LENGTH) : fallback;
   }
 
+  // Назва об'єкта для панелі «Об'єкти»: лише підпис в інтерфейсі, у SVG не потрапляє.
+  function sanitizeObjectName(value) {
+    if (typeof value !== 'string') return '';
+    return stripControlChars(value).trim().slice(0, LIMITS.MAX_OBJECT_NAME_LENGTH);
+  }
+
   function sanitizeText(value) {
     const raw = stripXmlInvalidChars(typeof value === 'string' ? value : '');
     const lines = raw.replace(/\r/g, '').split('\n').slice(0, LIMITS.MAX_TEXT_LINES);
@@ -120,7 +127,11 @@ window.ArtVector = window.ArtVector || {};
       stroke: sanitizeColor(raw.stroke, DEFAULT_STROKE),
       fill: sanitizeColor(raw.fill, 'none'),
       strokeWidth: clampNumber(raw.strokeWidth, LIMITS.MIN_STROKE_WIDTH, LIMITS.MAX_STROKE_WIDTH, 3),
-      opacity: clampNumber(raw.opacity, 0, 100, 100)
+      opacity: clampNumber(raw.opacity, 0, 100, 100),
+      // Старі файли без цих полів відкриваються видимими й незаблокованими.
+      name: sanitizeObjectName(raw.name),
+      hidden: raw.hidden === true,
+      locked: raw.locked === true
     };
   }
 
@@ -248,6 +259,7 @@ window.ArtVector = window.ArtVector || {};
     LIMITS,
     OBJECT_TYPES,
     sanitizeColor,
+    sanitizeObjectName,
     normalizeObject,
     normalizeProject,
     parseProjectText

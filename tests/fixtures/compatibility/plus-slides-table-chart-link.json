@@ -1,0 +1,21 @@
+{
+  "fileName": "Таблиця діаграма посилання",
+  "slides": [
+    {
+      "id": "slide-data",
+      "background": "#ffffff",
+      "elements": [
+        { "id": "next", "type": "text", "content": "Перейти до висновків", "link": { "kind": "slide", "slideId": "slide-summary" }, "x": 40, "y": 20, "w": 500, "h": 60, "style": { "fontSize": 24, "bold": true } },
+        { "id": "scores", "type": "table", "x": 40, "y": 100, "w": 420, "h": 180, "table": { "rows": 3, "cols": 2, "cells": [["Клас", "Середній бал"], ["7-А", "9.5"], ["7-Б", "10.1"]] } },
+        { "id": "chart", "type": "chart", "x": 500, "y": 100, "w": 420, "h": 300, "chart": { "type": "column", "title": "Середній бал", "categories": ["7-А", "7-Б"], "series": [{ "name": "Бал", "values": [9.5, 10.1] }] } }
+      ]
+    },
+    {
+      "id": "slide-summary",
+      "background": "#ffffff",
+      "elements": [
+        { "id": "summary", "type": "text", "content": "Висновки", "x": 60, "y": 60, "w": 840, "h": 90, "style": { "fontSize": 40, "bold": true } }
+      ]
+    }
+  ]
+}

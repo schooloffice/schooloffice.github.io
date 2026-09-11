@@ -12,6 +12,12 @@
         results.appendChild(li); if (!ok) failures.push(label);
       }
       try {
+        // Фікстури завантажуємо ДО iframe: Таблиці реєструють service worker, і пізніші
+        // fetch цієї сторінки йшли б через нього.
+        const fixtureBuffers = {};
+        for (const name of ['excel-formulas-types.xlsx', 'excel-two-sheets.xlsx', 'excel-formatting-chart.xlsx']) {
+          fixtureBuffers[name] = await (await fetch(`fixtures/compatibility/${name}`, { cache: 'no-store' })).arrayBuffer();
+        }
         const frame = document.createElement('iframe'); frame.hidden = true; frame.src = '../tables/index.html'; document.body.appendChild(frame);
         await new Promise((resolve, reject) => { frame.onload = resolve; frame.onerror = reject; });
         const api = frame.contentWindow.TablesXlsxFile;
@@ -33,6 +39,144 @@
         check('column widths round-trip', Math.abs(imported.payload.sheets[0].colWidths[0] - 180) <= 2);
         check('basic formatting round-trip', imported.payload.sheets[0].cellStyles.A1.includes('style-text-bold') && imported.payload.sheets[0].cellStyles.A1.includes('style-bg-yellow'));
         check('generated workbook has no unsupported warnings', imported.warnings.length === 0);
+
+        // Кешовані значення формул: типізований результат або жодного <v>, але не вигаданий 0.
+        // ZIP записано без стиснення, тож XML аркушів читається прямо з байтів.
+        const cachePayload = {
+          type: 'art-tables-workbook', version: 2, name: 'Кеш формул', activeSheet: 0,
+          sheets: [
+            { name: 'Дані', rows: 60, cols: 30, colWidths: {}, condRules: [], cellStyles: {}, cellData: {
+              A1: '10', A2: '4', A3: 'Текст',
+              B1: '=A1/A2', B2: '=A1>A2', B3: '=IF(A1>A2,"більше","менше")', B4: '=A1/0',
+              B5: '=ROUND(A1/3,2)', B6: '=AVG(A1:A2)', B7: '=SUM(Підсумок!A1:A2)', B8: '=A3', B9: '=A3>A1',
+              B10: '=PMT(C1/12,C2,C3)', B11: '=PMT(C1/12,C2)', C1: '0.05', C2: '36', C3: '10000'
+            } },
+            { name: 'Підсумок', rows: 60, cols: 30, colWidths: {}, condRules: [], cellStyles: {}, cellData: { A1: '1', A2: '2' } }
+          ]
+        };
+        const cacheXml = new TextDecoder().decode(new Uint8Array(api.exportArrayBuffer(cachePayload)));
+        const cellXml = ref => (cacheXml.match(new RegExp(`<c r="${ref}"[^>]*>(?:(?!</c>).)*</c>`)) || [''])[0];
+        check('numeric formula caches the computed number', /<f>A1\/A2<\/f><v>2\.5<\/v>/.test(cellXml('B1')) && !/ t="/.test(cellXml('B1')), cellXml('B1'));
+        check('comparison caches a boolean', / t="b"/.test(cellXml('B2')) && /<v>1<\/v>/.test(cellXml('B2')), cellXml('B2'));
+        check('text formula caches a typed string', / t="str"/.test(cellXml('B3')) && cellXml('B3').includes('<v>більше</v>') && / t="str"/.test(cellXml('B8')) && cellXml('B8').includes('<v>Текст</v>'), `${cellXml('B3')} ${cellXml('B8')}`);
+        check('formula error caches an Excel error code', / t="e"/.test(cellXml('B4')) && cellXml('B4').includes('<v>#DIV/0!</v>'), cellXml('B4'));
+        check('formulas with different Excel semantics keep no cached value', cellXml('B5').includes('<f>ROUND(A1/3,2)</f>') && !cellXml('B5').includes('<v>')
+          && cellXml('B6').includes('<f>AVG(A1:A2)</f>') && !cellXml('B6').includes('<v>')
+          && cellXml('B9').includes('<f>A3&gt;A1</f>') && !cellXml('B9').includes('<v>'), `${cellXml('B5')} ${cellXml('B6')} ${cellXml('B9')}`);
+        check('cross-sheet formula is cached from the exported workbook', /<f>SUM\(Підсумок!A1:A2\)<\/f><v>3<\/v>/.test(cellXml('B7')), cellXml('B7'));
+        check('no formula is cached as a made-up zero', !/<f>[^<]*<\/f><v>0<\/v>/.test(cacheXml));
+        check('workbook asks spreadsheet programs to recalculate on load', /<calcPr[^>]*fullCalcOnLoad="1"/.test(cacheXml));
+        // Microsoft Excel відмовлявся відкривати файл, де аркуш без ширин мав порожній <cols></cols>.
+        check('sheet without column widths has no empty <cols> element', !cacheXml.includes('<cols></cols>'));
+        // PMT рахується як у Excel (контроль: Excel 16 дає -299.70897104665477), тож кеш пишеться.
+        const pmtCache = cellXml('B10').match(/<f>PMT\(C1\/12,C2,C3\)<\/f><v>([^<]+)<\/v>/);
+        check('PMT caches the Excel-compatible number', !!pmtCache && Math.abs(Number(pmtCache[1]) + 299.70897104665477) < 1e-9 && !/ t="/.test(cellXml('B10')), cellXml('B10'));
+        check('PMT with too few arguments keeps no cached value', cellXml('B11').includes('<f>PMT(C1/12,C2)</f>') && !cellXml('B11').includes('<v>'), cellXml('B11'));
+
+        // Корпус сумісності: файли, створені Microsoft Excel, а не нашим exporter.
+        const excelTypes = await api.importArrayBuffer(fixtureBuffers['excel-formulas-types.xlsx'], 'excel-formulas-types.xlsx');
+        const typesSheet = excelTypes.payload.sheets[0];
+        check('Excel fixture: numbers, text and formulas import', typesSheet.name === 'Формули' && typesSheet.cellData.A1 === '10'
+          && typesSheet.cellData.A3 === 'Текст' && typesSheet.cellData.B1 === '=A1/A2' && typesSheet.cellData.B2 === '=A1>A2'
+          && typesSheet.cellData.B3 === '=IF(A1>A2,"більше","менше")' && typesSheet.cellData.B4 === '=SUM(A1:A2)', JSON.stringify(typesSheet.cellData));
+        check('Excel fixture: logical literal imports as TRUE', typesSheet.cellData.B5 === 'TRUE', typesSheet.cellData.B5);
+        check('Excel fixture: plain workbook has no loss warnings', excelTypes.warnings.length === 0, excelTypes.warnings.join(', '));
+
+        const excelTwo = await api.importArrayBuffer(fixtureBuffers['excel-two-sheets.xlsx'], 'excel-two-sheets.xlsx');
+        check('Excel fixture: two sheets and cross-sheet formulas', excelTwo.payload.sheets.map(sheet => sheet.name).join('|') === 'Дані|Підсумок'
+          && excelTwo.payload.sheets[0].cellData.B2 === '11' && excelTwo.payload.sheets[1].cellData.B1 === '=SUM(Дані!B2:B3)'
+          && excelTwo.payload.sheets[1].cellData.B2 === '=MAX(Дані!B2:B3)', JSON.stringify(excelTwo.payload.sheets[1].cellData));
+
+        const excelFormat = await api.importArrayBuffer(fixtureBuffers['excel-formatting-chart.xlsx'], 'excel-formatting-chart.xlsx');
+        const formatSheet = excelFormat.payload.sheets[0];
+        check('Excel fixture: bold header, numbers and column width import', (formatSheet.cellStyles.A1 || '').includes('style-text-bold')
+          && formatSheet.cellData.B2 === '10.5' && Math.abs((formatSheet.colWidths[0] || 0) - 150) <= 10,
+          JSON.stringify({ data: formatSheet.cellData, styles: formatSheet.cellStyles, widths: formatSheet.colWidths }));
+        check('Excel fixture: chart is reported as not transferred', excelFormat.warnings.some(warning => warning.includes('діаграми')), excelFormat.warnings.join(', '));
+
+        // Результати, які обчислив Excel: 10/4, 10>4, IF → «більше», 10+4, 11+9.
+        const engine = frame.contentWindow.TablesFormulaEngine;
+        const typedResult = (formula, sheets, index) => engine.evaluateFormulaForExport(formula, sheets, index);
+        const fixtureResults = {
+          B1: typedResult('A1/A2', excelTypes.payload.sheets, 0),
+          B2: typedResult('A1>A2', excelTypes.payload.sheets, 0),
+          B3: typedResult('IF(A1>A2,"більше","менше")', excelTypes.payload.sheets, 0),
+          B4: typedResult('SUM(A1:A2)', excelTypes.payload.sheets, 0),
+          total: typedResult('SUM(Дані!B2:B3)', excelTwo.payload.sheets, 1)
+        };
+        check('PLUS computes the same typed results as Excel for fixture formulas', fixtureResults.B1.kind === 'number' && fixtureResults.B1.value === 2.5
+          && fixtureResults.B2.kind === 'boolean' && fixtureResults.B2.value === 1 && fixtureResults.B3.kind === 'string' && fixtureResults.B3.value === 'більше'
+          && fixtureResults.B4.value === 14 && fixtureResults.total.value === 20, JSON.stringify(fixtureResults));
+
+        // Перед експортом XLSX названо лише актуальні втрати поточної книги.
+        check('lossless workbook has no export losses', Array.isArray(api.describeExportLosses?.(payload)) && api.describeExportLosses(payload).length === 0);
+        const lossyPayload = {
+          type: 'art-tables-workbook', version: 2, name: 'Втрати', activeSheet: 0,
+          sheets: [
+            { name: 'Бюджет', rows: 60, cols: 30, cellData: { A1: '100', A2: '250' }, cellStyles: { A1: 'style-num-currency-uah', A2: 'style-num-currency-uah style-text-bold' }, colWidths: {}, condRules: [{ range: [0, 1, 0, 2], op: 'gt', v1: 150, v2: null, fill: '#fee2e2' }] },
+            { name: 'Інше', rows: 60, cols: 30, cellData: { B1: 'x' }, cellStyles: {}, colWidths: {}, condRules: [] }
+          ]
+        };
+        const losses = api.describeExportLosses?.(lossyPayload) || [];
+        check('export losses name conditional formatting and the UAH format', losses.length === 2
+          && losses.some(line => line.includes('умовне форматування') && line.includes('Бюджет'))
+          && losses.some(line => line.includes('₴')), losses.join(' | '));
+
+        const win = frame.contentWindow;
+        const doc = frame.contentDocument;
+        const downloads = [];
+        const blobs = new Map();
+        const originalCreateObjectURL = win.URL.createObjectURL;
+        const originalAnchorClick = win.HTMLAnchorElement.prototype.click;
+        win.URL.createObjectURL = function captureObjectUrl(blob) {
+          const url = originalCreateObjectURL.call(win.URL, blob);
+          blobs.set(url, blob);
+          return url;
+        };
+        win.HTMLAnchorElement.prototype.click = function captureDownload() {
+          if (this.download) {
+            downloads.push({ name: this.download, blob: blobs.get(this.href) || null });
+            return undefined;
+          }
+          return originalAnchorClick.call(this);
+        };
+        try {
+          const modal = doc.getElementById('xlsxLossModal');
+          const dialogOpen = () => !!modal && modal.classList.contains('active');
+          const isDirty = () => doc.getElementById('dirtyDot')?.style.opacity === '1';
+          win.TablesWorkbookFile.applyWorkbookPayload(lossyPayload);
+          win.setDirty(true);
+
+          api.exportWorkbook();
+          check('lossy XLSX export asks before downloading', dialogOpen() && downloads.length === 0
+            && /умовне форматування/.test(doc.getElementById('xlsxLossText')?.textContent || ''));
+
+          doc.getElementById('xlsxLossCancel')?.click();
+          check('cancel downloads nothing and keeps the unsaved state', !dialogOpen() && downloads.length === 0 && isDirty(),
+            `open=${dialogOpen()} downloads=${downloads.length} dirtyDot=${doc.getElementById('dirtyDot')?.style.opacity} classes=${modal?.className}`);
+
+          api.exportWorkbook();
+          doc.getElementById('xlsxLossSaveArttab')?.click();
+          const arttab = downloads.find(item => item.name.endsWith('.arttab'));
+          const saved = arttab?.blob ? JSON.parse(await arttab.blob.text()) : null;
+          check('dialog offers .arttab that keeps what XLSX loses', !dialogOpen() && downloads.length === 1
+            && saved?.sheets?.[0]?.condRules?.length === 1 && saved.sheets[0].cellStyles.A1 === 'style-num-currency-uah');
+
+          downloads.length = 0;
+          win.setDirty(true);
+          api.exportWorkbook();
+          doc.getElementById('xlsxLossExport')?.click();
+          check('confirmed lossy export downloads one XLSX', !dialogOpen() && downloads.length === 1 && downloads[0].name.endsWith('.xlsx'));
+          check('lossy XLSX export does not mark the workbook saved', isDirty());
+
+          downloads.length = 0;
+          win.TablesWorkbookFile.applyWorkbookPayload(payload);
+          api.exportWorkbook();
+          check('lossless XLSX export downloads without a dialog', !dialogOpen() && downloads.length === 1 && downloads[0].name.endsWith('.xlsx'));
+        } finally {
+          win.URL.createObjectURL = originalCreateObjectURL;
+          win.HTMLAnchorElement.prototype.click = originalAnchorClick;
+        }
       } catch (error) {
         check('test completed without exception', false, error?.stack || error?.message || String(error));
       }

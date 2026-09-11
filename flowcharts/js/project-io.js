@@ -207,7 +207,7 @@
       saveWithTitleBtn?.addEventListener('click', () => {
         const title = (saveTitleInput?.value || '').trim();
         if (!title) {
-          showMessageModal('Введи назву або натисни "Зберегти без назви".');
+          showMessageModal('Введи назву або натисни "Експортувати без назви".');
           return;
         }
         state.diagramTitle = title;

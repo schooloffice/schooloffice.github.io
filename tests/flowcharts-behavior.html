@@ -1236,13 +1236,155 @@
       return checks;
     }
 
+    // Ctrl/Cmd+S, Ctrl+Shift+S, кнопка й меню зберігають редагований JSON-проєкт
+    // однією дією; PNG лишається окремим, явно названим експортом.
+    async function runSaveShortcutChecks(win, doc) {
+      const checks = [];
+      const downloads = [];
+      const blobs = new Map();
+      let pngRenders = 0;
+      const originalCreateObjectURL = win.URL.createObjectURL;
+      const originalAnchorClick = win.HTMLAnchorElement.prototype.click;
+      const originalHtml2canvas = win.html2canvas;
+      win.URL.createObjectURL = function captureObjectUrl(blob) {
+        const url = originalCreateObjectURL.call(win.URL, blob);
+        blobs.set(url, blob);
+        return url;
+      };
+      win.HTMLAnchorElement.prototype.click = function captureDownload() {
+        if (this.download) {
+          downloads.push({ name: this.download, blob: blobs.get(this.href) || null });
+          return undefined;
+        }
+        return originalAnchorClick.call(this);
+      };
+      win.html2canvas = async () => {
+        pngRenders += 1;
+        return { toDataURL: () => 'data:image/png;base64,AAAA' };
+      };
+
+      const waitUntil = async (predicate, timeout = 3000) => {
+        const start = performance.now();
+        while (performance.now() - start < timeout) {
+          if (predicate()) return true;
+          await wait(50);
+        }
+        return predicate();
+      };
+      const saveTitleModal = doc.getElementById('save-title-modal');
+      const gesture = async (action) => {
+        downloads.length = 0;
+        const pngBefore = pngRenders;
+        const outcome = action();
+        await wait(200);
+        return { outcome, files: downloads.map(item => item.name), blobs: downloads.map(item => item.blob), png: pngRenders - pngBefore };
+      };
+      const pressKey = (init) => {
+        const event = new win.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+        doc.dispatchEvent(event);
+        return event;
+      };
+      const savedOnlyJson = (result) => result.files.length === 1 && result.files[0].endsWith('.json') && result.png === 0
+        && !saveTitleModal?.classList.contains('active');
+
+      try {
+        // Проєкт відкривається через справжній file input і parseProject.
+        const project = {
+          version: 2,
+          diagramTitle: 'Збереження A2',
+          shapeCounter: 3,
+          lastShapeType: 'process',
+          snapEnabled: true,
+          shapes: [
+            { id: 'shape-1', type: 'start-end', textRaw: 'Початок', left: 80, top: 60 },
+            { id: 'shape-2', type: 'decision', textRaw: 'x > 0?', left: 80, top: 220 },
+            { id: 'shape-3', type: 'process', textRaw: 'Дія', left: 380, top: 420 }
+          ],
+          connections: [
+            { id: 'conn-shape-1-shape-2', from: 'shape-1', to: 'shape-2', type: null, routeMode: 'vertical', label: null },
+            { id: 'conn-shape-2-shape-3-yes', from: 'shape-2', to: 'shape-3', type: 'yes', routeMode: 'auto', label: 'так', isCustom: true, waypoints: [{ x: 440, y: 300 }] }
+          ]
+        };
+        const fileInput = doc.getElementById('project-file-input');
+        const transfer = new win.DataTransfer();
+        transfer.items.add(new win.File([JSON.stringify(project)], 'a2.json', { type: 'application/json' }));
+        fileInput.files = transfer.files;
+        // restoreSnapshot відновлює стрілки через подвійний rAF, а під
+        // --virtual-time-budget кадри в прихованому iframe ненадійні.
+        const importRaf = win.requestAnimationFrame;
+        win.requestAnimationFrame = callback => win.setTimeout(() => callback(performance.now()), 16);
+        fileInput.dispatchEvent(new win.Event('change'));
+        const opened = await waitUntil(() => doc.querySelectorAll('.shape').length === 3
+          && !!doc.getElementById('conn-shape-1-shape-2') && !!doc.getElementById('conn-shape-2-shape-3-yes'));
+        win.requestAnimationFrame = importRaf;
+        doc.getElementById('message-modal')?.classList.remove('active');
+        addCheck(checks, 'save shortcuts: project with routes opened', opened, `shapes=${doc.querySelectorAll('.shape').length}`);
+
+        const ctrlS = await gesture(() => pressKey({ key: 's', ctrlKey: true }));
+        addCheck(checks, 'Ctrl+S saves the editable JSON project once', savedOnlyJson(ctrlS) && ctrlS.outcome.defaultPrevented,
+          `files=${ctrlS.files.join(',') || 'none'} png=${ctrlS.png} titleDialog=${saveTitleModal?.classList.contains('active')}`);
+        saveTitleModal?.classList.remove('active');
+
+        let restored = null;
+        if (ctrlS.blobs[0]) restored = win.FlowchartCore.parseProject(await ctrlS.blobs[0].text());
+        const customRoute = restored?.connections.find(conn => conn.id === 'conn-shape-2-shape-3-yes');
+        const verticalRoute = restored?.connections.find(conn => conn.id === 'conn-shape-1-shape-2');
+        addCheck(checks, 'Ctrl+S JSON restores blocks, connections and routes',
+          restored?.shapes.length === 3 && restored?.connections.length === 2
+            && verticalRoute?.routeMode === 'vertical'
+            && customRoute?.isCustom === true && customRoute.waypoints.length === 1
+            && customRoute.waypoints[0].x === 440 && customRoute.waypoints[0].y === 300
+            && customRoute.label === 'так',
+          restored ? `shapes=${restored.shapes.length} connections=${restored.connections.length}` : 'no JSON captured');
+
+        const ctrlShiftS = await gesture(() => pressKey({ key: 'S', ctrlKey: true, shiftKey: true }));
+        addCheck(checks, 'Ctrl+Shift+S is a Save alias (one JSON download)', savedOnlyJson(ctrlShiftS), `files=${ctrlShiftS.files.join(',') || 'none'} png=${ctrlShiftS.png}`);
+
+        const toolbarSave = await gesture(() => doc.querySelector('[data-office-command="save"]').click());
+        addCheck(checks, 'toolbar Save saves the JSON project once', savedOnlyJson(toolbarSave), `files=${toolbarSave.files.join(',') || 'none'}`);
+
+        const menuSave = await gesture(() => doc.querySelector('.menu-item[data-action="save-project"]').click());
+        addCheck(checks, 'menu Save saves the JSON project once', savedOnlyJson(menuSave), `files=${menuSave.files.join(',') || 'none'}`);
+
+        const exportDialog = await gesture(() => doc.querySelector('.menu-item[data-action="export-png"]').click());
+        const exportDialogOpen = !!saveTitleModal?.classList.contains('active');
+        addCheck(checks, 'PNG export is a separate command with its own dialog', exportDialogOpen && exportDialog.files.length === 0);
+
+        // Звичайний набір у полі діалогу не запускає збереження.
+        const titleInput = doc.getElementById('save-title-input');
+        const typing = await gesture(() => titleInput.dispatchEvent(new win.KeyboardEvent('keydown', { key: 's', bubbles: true, cancelable: true })));
+        addCheck(checks, 'typing in a dialog field does not save', typing.files.length === 0 && typing.png === 0 && saveTitleModal.classList.contains('active'));
+
+        // exportPng чекає кадр; під --virtual-time-budget rAF у headless ненадійний,
+        // тому на цей крок кадр підставляє таймер.
+        const originalRaf = win.requestAnimationFrame;
+        win.requestAnimationFrame = callback => win.setTimeout(() => callback(performance.now()), 16);
+        const png = await gesture(() => doc.getElementById('save-without-title').click());
+        await waitUntil(() => downloads.length > 0, 2000);
+        win.requestAnimationFrame = originalRaf;
+        addCheck(checks, 'PNG export downloads one image', downloads.length === 1 && downloads[0].name.endsWith('.png') && pngRenders >= 1,
+          `files=${downloads.map(item => item.name).join(',') || 'none'} png=${png.png}`);
+
+        const menuLabel = doc.querySelector('.menu-item[data-action="save-project"] .shortcut')?.textContent.trim();
+        const exportLabel = doc.querySelector('.menu-item[data-action="export-png"] .shortcut')?.textContent.trim() || '';
+        addCheck(checks, 'menu shows Ctrl+S on Save, not on PNG export', menuLabel === 'Ctrl+S' && exportLabel === '', `save=${menuLabel} png=${exportLabel}`);
+      } finally {
+        win.URL.createObjectURL = originalCreateObjectURL;
+        win.HTMLAnchorElement.prototype.click = originalAnchorClick;
+        win.html2canvas = originalHtml2canvas;
+        saveTitleModal?.classList.remove('active');
+      }
+      return checks;
+    }
+
     async function run() {
       const frame = await loadFrame();
       const win = frame.contentWindow;
       const doc = frame.contentDocument;
       const checks = [
         ...(await runEditorChecks(win, doc)),
-        ...runModuleChecks(win, doc)
+        ...runModuleChecks(win, doc),
+        ...(await runSaveShortcutChecks(win, doc))
       ];
 
       const failures = checks.filter(check => !check.ok);

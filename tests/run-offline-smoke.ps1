@@ -1,10 +1,17 @@
 param(
   [int]$Port = 0,
-  [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+  [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
+  # Wall-clock ліміт очікування маркера однієї фази; після нього Chrome цього
+  # запуску зупиняється.
+  [ValidateRange(1, 3600)]
+  [int]$PageTimeoutSeconds = 120,
+  # Порожнє значення — стандартне розташування Chrome.
+  [string]$ChromePath = ''
 )
 
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+. (Join-Path $PSScriptRoot 'test-process-helpers.ps1')
 
 function Get-ChromePath {
   foreach ($candidate in @(
@@ -35,31 +42,15 @@ function Join-ProcessArguments {
 }
 
 function Start-CapturedProcess {
-  param([string]$FilePath, [string[]]$ArgumentList, [switch]$Background)
-  $info = [System.Diagnostics.ProcessStartInfo]::new()
-  $info.FileName = $FilePath
-  $info.Arguments = Join-ProcessArguments $ArgumentList
-  $info.UseShellExecute = $false
-  $info.CreateNoWindow = $true
-  $info.RedirectStandardOutput = $true
-  $info.RedirectStandardError = $true
-  $process = [System.Diagnostics.Process]::new()
-  $process.StartInfo = $info
-  [void]$process.Start()
-  $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-  $stderrTask = $process.StandardError.ReadToEndAsync()
-  if ($Background) {
-    return [pscustomobject]@{ Process = $process; StdoutTask = $stdoutTask; StderrTask = $stderrTask }
-  }
-  $process.WaitForExit()
-  return [pscustomobject]@{ Process = $process; Stdout = $stdoutTask.Result; Stderr = $stderrTask.Result }
+  param([string]$FilePath, [string[]]$ArgumentList)
+  return Start-CapturedChildProcess -FilePath $FilePath -Arguments (Join-ProcessArguments $ArgumentList)
 }
 
 function Wait-ForServer {
   param([int]$PortNumber)
   for ($attempt = 0; $attempt -lt 40; $attempt += 1) {
     try {
-      Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$PortNumber/tests/offline-smoke.html" | Out-Null
+      Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 -Uri "http://127.0.0.1:$PortNumber/tests/offline-smoke.html" | Out-Null
       return
     } catch {
       Start-Sleep -Milliseconds 250
@@ -69,8 +60,8 @@ function Wait-ForServer {
 }
 
 function Invoke-CdpEvaluation {
-  param([int]$DebugPort, [string]$Expression)
-  $targets = Invoke-RestMethod -Uri "http://127.0.0.1:$DebugPort/json"
+  param([int]$DebugPort, [string]$Expression, [int]$TimeoutSeconds = 10)
+  $targets = Invoke-RestMethod -TimeoutSec $TimeoutSeconds -Uri "http://127.0.0.1:$DebugPort/json"
   $target = $null
   foreach ($candidate in $targets) {
     if ($candidate.type -eq 'page' -and $candidate.url -match '/tests/offline-smoke\.html') {
@@ -82,9 +73,12 @@ function Invoke-CdpEvaluation {
   $webSocketUrl = [string](@($target.webSocketDebuggerUrl)[0])
   if (-not $webSocketUrl) { throw 'Offline smoke DevTools WebSocket is not available yet.' }
 
+  # Завислий renderer не відповідає на Runtime.evaluate: без токена скасування
+  # ReceiveAsync чекав би вічно.
+  $cancellation = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
   $socket = [System.Net.WebSockets.ClientWebSocket]::new()
   try {
-    $token = [Threading.CancellationToken]::None
+    $token = $cancellation.Token
     [void]$socket.ConnectAsync([Uri]::new($webSocketUrl), $token).GetAwaiter().GetResult()
     $message = @{
       id = 1
@@ -110,27 +104,35 @@ function Invoke-CdpEvaluation {
     throw 'Chrome DevTools did not return the Runtime.evaluate response.'
   } finally {
     $socket.Dispose()
+    $cancellation.Dispose()
   }
 }
 
 function Wait-ForOfflineMarker {
-  param([int]$DebugPort, [string]$DatasetName, [string]$Name)
+  param([int]$DebugPort, [string]$DatasetName, [string]$Name, [System.Diagnostics.Process]$BrowserProcess)
   $lastResult = 'Waiting for page...'
-  for ($attempt = 0; $attempt -lt 240; $attempt += 1) {
+  $clock = [Diagnostics.Stopwatch]::StartNew()
+  while ($clock.Elapsed.TotalSeconds -lt $PageTimeoutSeconds) {
+    if ($BrowserProcess.HasExited) {
+      throw "$Name browser launch failed with exit code $($BrowserProcess.ExitCode); page checks did not run."
+    }
+    $remaining = [Math]::Max(1, [Math]::Min(10, [int]($PageTimeoutSeconds - $clock.Elapsed.TotalSeconds)))
+    $marker = ''
     try {
-      $marker = Invoke-CdpEvaluation -DebugPort $DebugPort -Expression "document.body.dataset.$DatasetName || ''"
-      $lastResult = Invoke-CdpEvaluation -DebugPort $DebugPort -Expression "document.getElementById('result')?.textContent || ''"
-      if ($marker -eq 'passed') {
-        Write-Host "$Name passed."
-        return
-      }
-      if ($marker -eq 'failed') { throw $lastResult }
+      $marker = Invoke-CdpEvaluation -DebugPort $DebugPort -TimeoutSeconds $remaining -Expression "document.body.dataset.$DatasetName || ''"
+      $lastResult = Invoke-CdpEvaluation -DebugPort $DebugPort -TimeoutSeconds $remaining -Expression "document.getElementById('result')?.textContent || ''"
     } catch {
       if ($_.Exception.Message -notmatch 'not available yet|actively refused') { $lastResult = $_.Exception.Message }
     }
+    if ($marker -eq 'passed') {
+      Write-Host "$Name passed."
+      return
+    }
+    # Помилку перевірки не ковтаємо до тайм-ауту: це assertion failure, а не зависання.
+    if ($marker -eq 'failed') { throw "$Name failed: $lastResult" }
     Start-Sleep -Milliseconds 250
   }
-  throw "$Name timed out: $lastResult"
+  throw "$Name timed out: no result within $PageTimeoutSeconds s wall-clock: $lastResult"
 }
 
 function Invoke-LiveOfflinePage {
@@ -146,26 +148,24 @@ function Invoke-LiveOfflinePage {
     '--enable-logging=stderr',
     '--log-level=0',
     $Url
-  ) -Background
+  )
 
   $failure = $null
+  $result = $null
   try {
-    Wait-ForOfflineMarker -DebugPort $debugPort -DatasetName $DatasetName -Name $Name
+    Wait-ForOfflineMarker -DebugPort $debugPort -DatasetName $DatasetName -Name $Name -BrowserProcess $capture.Process
   } catch {
     $failure = $_
   } finally {
-    if (-not $capture.Process.HasExited) {
-      Stop-Process -Id $capture.Process.Id -Force
-      $capture.Process.WaitForExit()
-    }
+    # Live-сторінка не завершується сама: зупиняємо лише дерево й профіль цього запуску.
+    [void](Stop-OwnedProcessTree -Capture $capture -OwnedMarker $resolvedProfile)
+    $result = Wait-CapturedProcess -Capture $capture -TimeoutSeconds 5 -OwnedMarker $resolvedProfile
   }
-  [void]$capture.StdoutTask.Result
-  $stderr = $capture.StderrTask.Result
-  if ($failure) { throw "$($failure.Exception.Message)`nChrome stderr:`n$stderr" }
+  if ($failure) { throw "$($failure.Exception.Message)`nChrome stderr:`n$($result.Stderr)" }
 }
 
 $Port = if ($Port -gt 0) { $Port } else { Get-FreeTcpPort }
-$chromePath = Get-ChromePath
+$chromePath = if ($ChromePath) { (Resolve-Path -LiteralPath $ChromePath).Path } else { Get-ChromePath }
 $profilePath = Join-Path $PSScriptRoot ('.offline-profile-' + [guid]::NewGuid().ToString())
 $resolvedTests = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\') + '\'
 $resolvedProfile = [IO.Path]::GetFullPath($profilePath)
@@ -182,7 +182,7 @@ try {
     '-File', (Join-Path $PSScriptRoot 'serve-office.ps1'),
     '-Port', $Port,
     '-Root', $Root
-  ) -Background
+  )
   $server = $serverCapture.Process
   Wait-ForServer -PortNumber $Port
 
@@ -190,7 +190,7 @@ try {
 
   if ($server -and -not $server.HasExited) {
     Stop-Process -Id $server.Id -Force
-    $server.WaitForExit()
+    [void]$server.WaitForExit(10000)
   }
   $server = $null
 
@@ -198,16 +198,18 @@ try {
 } catch {
   if ($server -and -not $server.HasExited) {
     Stop-Process -Id $server.Id -Force
-    $server.WaitForExit()
+    [void]$server.WaitForExit(10000)
   }
   $server = $null
-  $serverError = if ($serverCapture) { $serverCapture.StderrTask.Result } else { '' }
+  $serverError = if ($serverCapture -and (Wait-OutputTasks -Capture $serverCapture -TimeoutSeconds 5)) {
+    Get-CapturedText $serverCapture.StderrTask ''
+  } else { '' }
   if ($serverError) { throw "$($_.Exception.Message)`nServer stderr:`n$serverError" }
   throw
 } finally {
   if ($server -and -not $server.HasExited) {
     Stop-Process -Id $server.Id -Force
-    $server.WaitForExit()
+    [void]$server.WaitForExit(10000)
   }
   if (Test-Path -LiteralPath $resolvedProfile) {
     Remove-Item -LiteralPath $resolvedProfile -Recurse -Force -ErrorAction SilentlyContinue

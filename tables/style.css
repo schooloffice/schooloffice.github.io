@@ -1,6 +1,7 @@
 :root {
-  --accent: #16a34a;
-  --accent-dark: #15803d;
+  /* Білий текст шапки й кнопок має контраст >= 4.5:1 із --accent; світлі заливки виділення лишаються окремими. */
+  --accent: #15803d;
+  --accent-dark: #166534;
   --accent-soft: #dcfce7;
   --accent-soft-2: #f0fdf4;
   --bg: #e8edf3;
@@ -89,7 +90,8 @@ body {
 }
 
 .back-link:hover {
-  background: rgba(255, 255, 255, .30);
+  /* Іконка на світлішому hover-тлі має лишатися >= 3:1. */
+  background: rgba(255, 255, 255, .24);
 }
 
 .back-link:focus-visible,
@@ -143,7 +145,6 @@ body {
 #fileName {
   font-size: .82rem;
   font-weight: 700;
-  opacity: .92;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -226,6 +227,9 @@ body {
   top: calc(100% + 2px);
   left: 0;
   min-width: 240px;
+  /* На низькому вікні (zoom 200%) останні пункти прокручуються, а не зникають за краєм. */
+  max-height: 70vh;
+  overflow-y: auto;
   background: var(--panel);
   border: 1.5px solid var(--line);
   border-radius: .55rem;
@@ -1036,8 +1040,9 @@ th.col-header {
     max-width: 160px;
   }
 
+  /* Не overflow-x: прокручуваний menubar обрізає випадні меню (вузьке вікно, zoom 200%). */
   .menubar {
-    overflow-x: auto;
+    flex-wrap: wrap;
   }
 
   .statusbar {

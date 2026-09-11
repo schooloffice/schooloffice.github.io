@@ -74,12 +74,12 @@
   --office-color-danger: #dc2626;
   --office-color-danger-bg: #fee2e2;
   --office-color-success: #15803d;
-  --office-color-warning: #d97706;
+  --office-color-warning: #b45309;
 
-  /* Service accents */
+  /* Service accents: shell header puts white text on them, so each keeps >= 4.5:1 with #fff */
   --office-accent-text: #2563eb;
-  --office-accent-tables: #16a34a;
-  --office-accent-paint: #d97706;
+  --office-accent-tables: #15803d;
+  --office-accent-paint: #b45309;
   --office-accent-slides: #dc2626;
   --office-accent-flowcharts: #7c3aed;
   --office-accent-vector: #0f766e;

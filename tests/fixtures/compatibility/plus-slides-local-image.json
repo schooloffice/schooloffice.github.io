@@ -1,0 +1,13 @@
+{
+  "fileName": "Локальне зображення",
+  "slides": [
+    {
+      "id": "slide-image",
+      "background": "#ffffff",
+      "elements": [
+        { "id": "caption", "type": "text", "content": "Фото досліду", "x": 60, "y": 30, "w": 840, "h": 70, "style": { "fontSize": 32, "bold": true } },
+        { "id": "photo", "type": "image", "content": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==", "alt": "Червоний квадрат", "x": 280, "y": 130, "w": 400, "h": 300 }
+      ]
+    }
+  ]
+}

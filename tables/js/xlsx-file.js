@@ -40,7 +40,10 @@
 
   async function inflateRaw(bytes) {
     if (typeof DecompressionStream !== 'function') throw new Error('Цей браузер не підтримує розпакування XLSX');
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    // Байти вже в пам'яті: подаємо їх напряму, без Blob.stream(). Читання Blob іде через
+    // окремий канал браузера, якого headless Chrome не вважає незавершеною роботою.
+    const source = new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close(); } });
+    const stream = source.pipeThrough(new DecompressionStream('deflate-raw'));
     const reader = stream.getReader();
     const chunks = [];
     let length = 0;
@@ -371,7 +374,20 @@
     return time / 86400000 + 25569;
   }
 
-  function sheetXml(sheet, styles) {
+  // Формула з кешованим значенням того типу, який дав би Excel. Невідомий результат не
+  // записуємо як 0: без <v> програма рахує формулу сама (workbook має fullCalcOnLoad).
+  function formulaCellXml(ref, styleIndex, formula, cached) {
+    const f = `<f>${xmlEscape(formula)}</f>`;
+    switch (cached?.kind) {
+      case 'number': return `<c r="${ref}" s="${styleIndex}">${f}<v>${cached.value}</v></c>`;
+      case 'boolean': return `<c r="${ref}" s="${styleIndex}" t="b">${f}<v>${cached.value ? 1 : 0}</v></c>`;
+      case 'string': return `<c r="${ref}" s="${styleIndex}" t="str">${f}<v>${xmlEscape(cached.value)}</v></c>`;
+      case 'error': return `<c r="${ref}" s="${styleIndex}" t="e">${f}<v>${xmlEscape(cached.value)}</v></c>`;
+      default: return `<c r="${ref}" s="${styleIndex}">${f}</c>`;
+    }
+  }
+
+  function sheetXml(sheet, styles, cacheFor = () => ({ kind: 'unknown' })) {
     const styleMap = sheet.cellStyles || {};
     const refs = [...new Set([...Object.keys(sheet.cellData || {}), ...Object.keys(styleMap)])]
       .map(ref => ({ ref: ref.toUpperCase(), coords: cellCoords(ref) })).filter(item => item.coords)
@@ -381,7 +397,7 @@
       const raw = String(sheet.cellData?.[ref] ?? '');
       const s = styles.indexFor(styleMap[ref] || '');
       let cell;
-      if (raw.startsWith('=')) cell = `<c r="${ref}" s="${s}"><f>${xmlEscape(raw.slice(1))}</f><v>0</v></c>`;
+      if (raw.startsWith('=')) cell = formulaCellXml(ref, s, raw.slice(1), cacheFor(raw.slice(1)));
       else {
         const dateSerial = isoToSerial(raw);
         const isDateStyle = /style-num-date(?:time)?/.test(styleMap[ref] || '');
@@ -394,7 +410,8 @@
     });
     const cols = Object.entries(sheet.colWidths || {}).map(([index, px]) => `<col min="${Number(index) + 1}" max="${Number(index) + 1}" width="${Math.max(1, (Number(px) - 5) / 7).toFixed(2)}" customWidth="1"/>`).join('');
     const rowXml = [...rows.entries()].map(([r, cells]) => `<row r="${r}">${cells.join('')}</row>`).join('');
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols>${cols}</cols><sheetData>${rowXml}</sheetData></worksheet>`;
+    // Порожній <cols></cols> недопустимий за схемою OOXML: Microsoft Excel через нього не відкривав файл.
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${rowXml}</sheetData></worksheet>`;
   }
 
   function exportArrayBuffer(rawPayload) {
@@ -405,14 +422,17 @@
     ]).size, 0);
     if (populatedCells > MAX_POPULATED_CELLS) throw new Error(`Забагато заповнених клітинок для XLSX (максимум ${MAX_POPULATED_CELLS})`);
     const styles = buildStyles(sheets);
-    const sheetEntries = sheets.map((sheet, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sheet, styles)]);
+    // Кеш рахуємо з експортованої книги (усі аркуші), а не з живої сітки.
+    const evaluateForExport = window.TablesFormulaEngine?.evaluateFormulaForExport;
+    const sheetEntries = sheets.map((sheet, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sheet, styles,
+      formula => (typeof evaluateForExport === 'function' ? evaluateForExport(formula, sheets, i) : { kind: 'unknown' }))]);
     const workbookSheets = sheets.map((sheet, i) => `<sheet name="${xmlEscape(sheet.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
     const workbookRels = sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('') + `<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`;
     const overrides = sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('');
     const entries = [
       ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${overrides}</Types>`],
       ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
-      ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView activeTab="${payload.activeSheet || 0}"/></bookViews><sheets>${workbookSheets}</sheets><calcPr calcMode="auto"/></workbook>`],
+      ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView activeTab="${payload.activeSheet || 0}"/></bookViews><sheets>${workbookSheets}</sheets><calcPr calcMode="auto" fullCalcOnLoad="1"/></workbook>`],
       ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${workbookRels}</Relationships>`],
       ['xl/styles.xml', styles.xml],
       ...sheetEntries
@@ -425,19 +445,93 @@
     return { type: 'art-tables-workbook', version: 2, name: workbookName, activeSheet, sheets };
   }
 
-  function exportWorkbook() {
+  // Дозволені класи оформлення, яких XLSX v1 не переносить (решту мапить styleDescriptor).
+  const XLSX_LOST_STYLE_CLASSES = { 'style-num-currency-uah': 'грошовий формат ₴' };
+
+  // Що саме з ПОТОЧНОЇ книги не потрапить у XLSX. Об'єкти, відкинуті ще під час
+  // імпорту XLSX, у книзі вже відсутні, тож їх тут не згадуємо й не обіцяємо.
+  function describeExportLosses(rawPayload) {
+    const payload = window.TablesWorkbookFile?.validateWorkbookPayload ? window.TablesWorkbookFile.validateWorkbookPayload(rawPayload) : rawPayload;
+    const sheets = payload.sheets || [];
+    const losses = [];
+    const condSheets = sheets.filter(sheet => (sheet.condRules || []).length);
+    if (condSheets.length) {
+      const rules = condSheets.reduce((sum, sheet) => sum + sheet.condRules.length, 0);
+      losses.push(`умовне форматування (правил: ${rules}; аркуші: ${condSheets.map(sheet => sheet.name).join(', ')})`);
+    }
+    Object.entries(XLSX_LOST_STYLE_CLASSES).forEach(([className, label]) => {
+      let cells = 0;
+      const names = [];
+      sheets.forEach(sheet => {
+        const count = Object.values(sheet.cellStyles || {}).filter(value => String(value).split(/\s+/).includes(className)).length;
+        if (count) { cells += count; names.push(sheet.name); }
+      });
+      if (cells) losses.push(`${label} (клітинок: ${cells}; аркуші: ${names.join(', ')}) — значення лишаться звичайними числами`);
+    });
+    return losses;
+  }
+
+  function downloadXlsx(payload, { markSaved = true } = {}) {
     try {
-      const buffer = exportArrayBuffer(currentPayload());
+      const buffer = exportArrayBuffer(payload);
       const blob = new Blob([buffer], { type: MIME });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download = `${normalizeFileName(workbookName)}.xlsx`;
       document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
-      if (typeof setSaveBadge === 'function') setSaveBadge();
+      if (markSaved && typeof setSaveBadge === 'function') setSaveBadge();
     } catch (error) {
       showInfoModal(`Не вдалося створити XLSX: ${error?.message || 'помилка експорту'}`);
     }
+  }
+
+  let lossDialogBound = false;
+  let pendingLossyPayload = null;
+
+  function bindLossDialog() {
+    if (lossDialogBound) return;
+    lossDialogBound = true;
+    // Власні обробники діалогу: не залежимо від того, чи вже прив'язано глобальні data-close-modal.
+    document.getElementById('xlsxLossCancel')?.addEventListener('click', () => {
+      pendingLossyPayload = null;
+      closeModal('xlsxLossModal');
+    });
+    document.getElementById('xlsxLossExport')?.addEventListener('click', () => {
+      const payload = pendingLossyPayload;
+      pendingLossyPayload = null;
+      closeModal('xlsxLossModal');
+      // Книга збережена не повністю: втрачене лишається лише в документі й чернетці,
+      // тож стан «є незбережені зміни» не знімаємо.
+      if (payload) downloadXlsx(payload, { markSaved: false });
+    });
+    document.getElementById('xlsxLossSaveArttab')?.addEventListener('click', () => {
+      pendingLossyPayload = null;
+      closeModal('xlsxLossModal');
+      window.TablesWorkbookFile?.exportWorkbook?.();
+    });
+  }
+
+  // Без втрат — одразу XLSX. Зі втратами — спершу чесний перелік і вибір, файл не створюється.
+  function exportWorkbook() {
+    let payload;
+    let losses;
+    try {
+      payload = currentPayload();
+      losses = describeExportLosses(payload);
+    } catch (error) {
+      showInfoModal(`Не вдалося створити XLSX: ${error?.message || 'помилка експорту'}`);
+      return;
+    }
+    const text = document.getElementById('xlsxLossText');
+    if (!losses.length || !text) {
+      downloadXlsx(payload);
+      return;
+    }
+    bindLossDialog();
+    pendingLossyPayload = payload;
+    text.textContent = `У файлі XLSX не збережеться:\n• ${losses.join('\n• ')}\n\nФайл .arttab зберігає все це для подальшого редагування в ПЛЮС Таблицях.`;
+    openModal('xlsxLossModal');
   }
 
   function triggerImport() {
@@ -461,5 +555,5 @@
     }
   }
 
-  return { exportArrayBuffer, exportWorkbook, importArrayBuffer, importFile, triggerImport, MIME, MAX_BYTES };
+  return { describeExportLosses, exportArrayBuffer, exportWorkbook, importArrayBuffer, importFile, triggerImport, MIME, MAX_BYTES };
 }));

@@ -583,7 +583,22 @@
         && !doc.body.classList.contains('panel-collapsed')
         && workspaceWidth() === widthOpen;
 
+      // Escape скасовує перейменування: видалення сфокусованого поля запускає blur,
+      // який раніше вдруге викликав finish(true), зберігав назву й кидав NotFoundError.
+      const renameBefore = state.fileName;
+      doc.getElementById('fileName').click();
+      const renameInput = doc.querySelector('.filename-input');
+      if (renameInput) {
+        renameInput.value = 'не зберігати';
+        renameInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      }
+      const escapeCancelsRename = !!renameInput
+        && state.fileName === renameBefore
+        && doc.getElementById('fileName')?.textContent === renameBefore
+        && !doc.querySelector('.filename-input');
+
       const checks = baseChecks.concat([
+        check('Escape cancels file rename without saving the name', escapeCancelsRename),
         check('setDocumentSize sets dimensions', sizeSet),
         check('window resize keeps document size', docStableAfterResize),
         check('window resize keeps raster intact', rasterStableAfterResize),

@@ -242,6 +242,28 @@
         sheets: [{ name: 'Аркуш1', condRules: [{ op: 'gt', v1: 1, fill: '#fee2e2' }] }]
       })]);
 
+      // ---- B4: фінансова формула в реальній сітці — введення, undo/redo ----
+      const commitCell = (id, val) => {
+        setCell(id, val);
+        doc.getElementById('inp_' + id).dispatchEvent(new win.Event('blur'));
+      };
+      const cellText = id => doc.getElementById('inp_' + id)?.value || '';
+      commitCell('N1', '0.05');
+      commitCell('N2', '36');
+      commitCell('N3', '10000');
+      commitCell('N4', '=PMT(N1/12,N2,N3)');
+      await wait(50);
+      const pmtShown = cellText('N4');
+      win.undo();
+      await wait(50);
+      const pmtUndone = cellText('N4');
+      win.redo();
+      await wait(50);
+      const pmtRedone = cellText('N4');
+      checks.push(['PMT formula shows the Excel payment in the grid', /^-299[.,]7/.test(pmtShown)]);
+      checks.push(['undo removes the PMT formula', pmtUndone === '' && cellText('N3') !== '']);
+      checks.push(['redo restores the PMT result', /^-299[.,]7/.test(pmtRedone)]);
+
       const failures = checks.filter(([, ok]) => !ok).map(([name]) => name);
       result.className = failures.length ? 'fail' : 'pass';
       result.textContent = checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} ${name}`).join('\n') +

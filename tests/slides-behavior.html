@@ -1359,6 +1359,38 @@
       doc.querySelector('#transitionDuration').value = 'slow';
       doc.querySelector('#modalConfirm').click();
       await waitFor(() => doc.querySelector('#modalOverlay').classList.contains('hidden'), 'transition modal closes');
+
+      // Застереження PPTX (перехід не переноситься) показуються ДО запису файлу.
+      let warnedPptxWrites = 0;
+      const PptxBeforeWarning = win.PptxGenJS;
+      win.PptxGenJS = class {
+        constructor() {
+          this.ShapeType = { rect: 'rect', ellipse: 'ellipse', triangle: 'triangle', line: 'line' };
+          this.ChartType = { bar: 'bar', line: 'line', pie: 'pie' };
+        }
+        addSlide() {
+          return { addText() {}, addShape() {}, addImage() {}, addTable() {}, addChart() {}, addNotes() {} };
+        }
+        async writeFile() { warnedPptxWrites += 1; }
+      };
+      const slidesModalOpen = () => !doc.querySelector('#modalOverlay').classList.contains('hidden');
+      const pptxWarningShown = () => slidesModalOpen() && doc.querySelector('#modalConfirm').textContent.includes('Експортувати PPTX');
+      clickAction('export-pptx');
+      await waitFor(pptxWarningShown, 'pptx warning dialog opens before writing');
+      checks.push(check('PPTX warnings are shown before the file is written', warnedPptxWrites === 0 && doc.querySelector('#modalText').textContent.includes('Переходи')));
+      doc.querySelector('#modalCancel').click();
+      await wait(200);
+      checks.push(check('cancelling the PPTX warning writes nothing', warnedPptxWrites === 0 && !slidesModalOpen()));
+      clickAction('export-pptx');
+      await waitFor(pptxWarningShown, 'pptx warning dialog opens again');
+      doc.querySelector('#modalConfirm').click();
+      await waitFor(() => warnedPptxWrites === 1, 'confirmed pptx export writes file');
+      await waitFor(() => slidesModalOpen() && doc.querySelector('#modalTitle').textContent === 'PPTX створено', 'pptx result dialog');
+      checks.push(check('confirmed PPTX export writes once and does not repeat warnings', warnedPptxWrites === 1 && !doc.querySelector('#modalText').textContent.includes('Переходи')));
+      doc.querySelector('#modalConfirm').click();
+      await waitFor(() => !slidesModalOpen(), 'pptx result dialog closes');
+      win.PptxGenJS = PptxBeforeWarning;
+
       clickAction('present');
       await waitFor(() => !doc.querySelector('#presentOverlay').classList.contains('hidden'), 'presentation starts with transition');
       checks.push(check('presentation applies selected slide transition', doc.querySelector('#presentStageWrap .present-stage')?.classList.contains('present-transition-slide-left')));
@@ -1736,6 +1768,19 @@
       clickAction('undo');
       await waitFor(() => !doc.querySelector('#stage .slide-chart path'), 'chart edit undo');
       checks.push(check('chart editing participates in Undo', !doc.querySelector('#stage .slide-chart path')));
+
+      // Escape скасовує перейменування: видалення сфокусованого поля запускає blur,
+      // який раніше вдруге викликав finish(true), перейменовував і кидав NotFoundError.
+      const renameBefore = doc.querySelector('#fileName').textContent;
+      doc.querySelector('#fileName').click();
+      const renameInput = doc.querySelector('.filename-input');
+      if (renameInput) {
+        renameInput.value = 'не зберігати';
+        renameInput.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      }
+      checks.push(check('Escape cancels file rename without saving the name', !!renameInput
+        && doc.querySelector('#fileName')?.textContent === renameBefore
+        && !doc.querySelector('.filename-input')));
 
       // Restore-after-reload: збережена чернетка має відновитися на старті
       // (hydration). Зберігаємо маркерну чернетку й перезавантажуємо редактор.

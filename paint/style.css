@@ -1,6 +1,7 @@
 :root {
-  --accent: #d97706;
-  --accent-dark: #b45309;
+  /* Білий текст шапки має контраст >= 4.5:1 із --accent. */
+  --accent: #b45309;
+  --accent-dark: #92400e;
   --accent-soft: #fff2df;
   --accent-soft-2: #fffbf5;
   --blue-soft: #eff6ff;
@@ -140,7 +141,8 @@ button, input, select { font: inherit; }
   padding: 3px 8px;
   border: 1px solid rgba(255,255,255,.55);
   border-radius: 8px;
-  background: rgba(255,255,255,.18);
+  /* Темніше, а не світліше тло: білий текст поля перейменування >= 4.5:1. */
+  background: rgba(0,0,0,.18);
   color: #fff;
 }
 .filename-input::selection { background: rgba(255,255,255,.35); }
@@ -177,6 +179,9 @@ button, input, select { font: inherit; }
   top: calc(100% + 1px);
   left: 0;
   min-width: 260px;
+  /* На низькому вікні (зокрема browser zoom 200%) останні пункти не зникають за краєм. */
+  max-height: calc(100vh - var(--header-h) - var(--menubar-h) - 8px);
+  overflow-y: auto;
   padding: 6px;
   border: 1px solid var(--line);
   background: var(--panel);

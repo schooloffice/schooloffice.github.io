@@ -20,7 +20,6 @@
       redo,
       downloadProjectJson,
       openProjectFilePicker,
-      openSaveTitlePrompt,
       cycleSelectedConnectionRouteMode,
       snapToggleButton,
       closeMenus,
@@ -53,7 +52,10 @@
         runOfficeCommand?.('redo') || redo?.();
         return;
       }
-      if (mod && event.shiftKey && key === 's') {
+      // Ctrl/Cmd+S — стандартне збереження редагованого JSON-проєкту, як кнопка й меню.
+      // Ctrl+Shift+S лишається сумісним псевдонімом: раніше саме він зберігав JSON,
+      // тож стара звичка не підмінить проєкт картинкою. PNG — лише явний експорт у меню.
+      if (mod && key === 's') {
         event.preventDefault();
         runOfficeCommand?.('save') || downloadProjectJson?.();
         return;
@@ -61,11 +63,6 @@
       if (mod && key === 'o') {
         event.preventDefault();
         runOfficeCommand?.('open') || openProjectFilePicker?.();
-        return;
-      }
-      if (mod && key === 's') {
-        event.preventDefault();
-        openSaveTitlePrompt?.();
         return;
       }
       if (!mod && key === 'r' && state?.selectedConnId) {

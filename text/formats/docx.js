@@ -246,8 +246,8 @@ const ArtDocx = (() => {
       .join('');
   }
 
-  // Чесний перелік того, що формат .docx у нас поки спрощує. Показуємо його
-  // після збереження, щоб учитель не виявив втрату вже у Word.
+  // Чесний перелік того, що формат .docx у нас поки спрощує. Редактор показує
+  // його ДО збереження, щоб учитель не виявив втрату вже у Word.
   function describeExportLimits(html) {
     const box = document.createElement('div');
     box.innerHTML = html;

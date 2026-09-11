@@ -74,7 +74,6 @@ const ArtHistory = (() => {
     logical.querySelectorAll('.art-sel-marker, tr[data-art-table-repeat]').forEach(node => node.remove());
     logical.querySelectorAll('[data-art-flow-tail]').forEach(node => node.removeAttribute('data-art-flow-tail'));
     logical.querySelectorAll('.is-selected').forEach(node => node.classList.remove('is-selected'));
-    logical.querySelectorAll('mark.search-hit').forEach(mark => mark.replaceWith(...mark.childNodes));
 
     let node = logical.firstElementChild;
     while (node) {

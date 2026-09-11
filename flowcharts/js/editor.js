@@ -119,8 +119,8 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
   }
 
   if (saveButton) {
-    saveButton.setAttribute('aria-label', 'Зберегти зображення');
-    saveButton.title = 'Зберегти зображення (Ctrl+S)';
+    saveButton.setAttribute('aria-label', 'Експортувати PNG');
+    saveButton.title = 'Експортувати PNG';
   }
 
   let updateSnapButton = () => {};
@@ -867,11 +867,6 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     return window.OfficeShell?.registerCommands?.('flowcharts', commandMap) ||
       window.OfficeUI?.registerCommands?.(commandMap, { source: 'flowcharts' });
   };
-  const exportPng = projectBridge?.exportPng || (async function noopExportPng() {});
-  const openSaveTitlePrompt = projectBridge?.openSaveTitlePrompt || function fallbackOpenSaveTitlePrompt() {
-    exportPng();
-  };
-
   projectBridge?.bindProjectControls?.();
 
   // ================= VALIDATION =================
@@ -956,7 +951,6 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     redo,
     downloadProjectJson,
     openProjectFilePicker,
-    openSaveTitlePrompt,
     cycleSelectedConnectionRouteMode,
     snapToggleButton,
     // Контролер меню повертає UI.initMenus(...); локального closeMenus тут немає,

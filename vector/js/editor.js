@@ -27,6 +27,8 @@ window.ArtVector = window.ArtVector || {};
 
   const editor = {
     elements: {},
+    // Викликається після кожного рендеру: панель «Об'єкти» звіряє свій список зі сценою.
+    onRender: null,
 
     init(elements) {
       this.elements = elements;
@@ -44,8 +46,48 @@ window.ArtVector = window.ArtVector || {};
       this.renderAll();
     },
 
+    // Нові об'єкти отримують назву на кшталт «Прямокутник 3»; старі файли без
+    // назви показуються з типовою назвою за порядком, нічого не дописуючи у файл.
+    objectLabel(obj) {
+      if (!obj) return '';
+      if (obj.name) return obj.name;
+      const label = constants.OBJECT_LABELS[obj.type] || obj.type;
+      const sameType = state.objects.filter((item) => item.type === obj.type);
+      const ordinal = sameType.indexOf(obj);
+      return `${label} ${ordinal === -1 ? sameType.length + 1 : ordinal + 1}`;
+    },
+
+    nextObjectName(type) {
+      const label = constants.OBJECT_LABELS[type] || type;
+      const prefix = `${label} `;
+      const used = state.objects.map((item) => {
+        const name = item.name || '';
+        return name.startsWith(prefix) ? Number(name.slice(prefix.length)) || 0 : 0;
+      });
+      const count = state.objects.filter((item) => item.type === type).length;
+      return `${label} ${Math.max(count, ...used) + 1}`;
+    },
+
+    // Прихований об'єкт не видно, заблокований — захищений: обидва не змінюються
+    // з полотна чи панелі параметрів, лише з панелі «Об'єкти».
+    isEditable(obj) {
+      return !!obj && !obj.hidden && !obj.locked;
+    },
+
+    // Копія (дублювання, вставлення) — окремий новий об'єкт: видимий і незаблокований.
+    withFreshIdentity(obj) {
+      const copy = utils.deepClone(obj);
+      copy.id = utils.uid(copy.type);
+      copy.name = this.nextObjectName(copy.type);
+      copy.hidden = false;
+      copy.locked = false;
+      return copy;
+    },
+
     addObject(obj) {
-      state.objects.push(utils.deepClone(obj));
+      const next = utils.deepClone(obj);
+      if (!next.name) next.name = this.nextObjectName(next.type);
+      state.objects.push(next);
       this.renderAll();
     },
 
@@ -76,8 +118,7 @@ window.ArtVector = window.ArtVector || {};
     duplicateObject(id) {
       const obj = this.getObjectById(id);
       if (!obj) return null;
-      const copy = utils.deepClone(obj);
-      copy.id = utils.uid(obj.type);
+      const copy = this.withFreshIdentity(obj);
       if (constants.RECT_LIKE_TYPES.includes(copy.type) || copy.type === 'text') {
         copy.x += 20;
         copy.y += 20;
@@ -111,6 +152,17 @@ window.ArtVector = window.ArtVector || {};
       return true;
     },
 
+    // Крок у z-порядку: +1 — на одну позицію ближче до переднього плану.
+    moveObjectBy(id, delta) {
+      const index = state.objects.findIndex((item) => item.id === id);
+      const target = index + delta;
+      if (index < 0 || target < 0 || target >= state.objects.length) return false;
+      const [obj] = state.objects.splice(index, 1);
+      state.objects.splice(target, 0, obj);
+      this.renderAll();
+      return true;
+    },
+
     setDraft(obj) {
       state.draftObject = obj ? utils.deepClone(obj) : null;
       this.renderAll();
@@ -124,6 +176,7 @@ window.ArtVector = window.ArtVector || {};
     commitDraft() {
       if (!state.draftObject) return null;
       const obj = utils.deepClone(state.draftObject);
+      if (!obj.name) obj.name = this.nextObjectName(obj.type);
       state.objects.push(obj);
       state.selectedObjectId = obj.id;
       state.draftObject = null;
@@ -135,6 +188,7 @@ window.ArtVector = window.ArtVector || {};
       this.renderGuides();
       this.renderContent();
       this.renderSelection();
+      this.onRender?.();
     },
 
     renderGuides() {
@@ -167,7 +221,8 @@ window.ArtVector = window.ArtVector || {};
     },
 
     renderContent() {
-      const all = [...state.objects];
+      // Прихований об'єкт не малюється, тож і не ловить кліків на полотні.
+      const all = state.objects.filter((obj) => !obj.hidden);
       if (state.draftObject) all.push(state.draftObject);
       this.elements.contentLayer.replaceChildren(fragmentOf(all.map((obj) => this.objectNode(obj))));
     },
@@ -182,7 +237,7 @@ window.ArtVector = window.ArtVector || {};
     renderSelection() {
       const layer = this.elements.selectionLayer;
       const selected = this.getObjectById(state.selectedObjectId);
-      if (!selected) {
+      if (!selected || selected.hidden) {
         layer.replaceChildren();
         return;
       }
@@ -203,7 +258,8 @@ window.ArtVector = window.ArtVector || {};
       const h = box.height + pad * 2;
       const group = svgEl('g');
       group.appendChild(svgEl('rect', { class: 'selection-box', x, y, width: w, height: h, rx: 4 }));
-      if (selected.type !== 'text') {
+      // Заблокований об'єкт показуємо рамкою без ручок: змінити розмір не можна.
+      if (selected.type !== 'text' && !selected.locked) {
         const handles = [
           ['nw', x, y], ['n', x + w / 2, y], ['ne', x + w, y],
           ['e', x + w, y + h / 2], ['se', x + w, y + h], ['s', x + w / 2, y + h],
@@ -225,6 +281,7 @@ window.ArtVector = window.ArtVector || {};
     lineSelectionNode(obj) {
       const group = svgEl('g');
       group.appendChild(svgEl('line', { class: 'selection-line', x1: obj.x1, y1: obj.y1, x2: obj.x2, y2: obj.y2 }));
+      if (obj.locked) return group;
       group.appendChild(svgEl('circle', { class: 'selection-endpoint', 'data-handle': 'line-start', cx: obj.x1, cy: obj.y1, r: 6 }));
       group.appendChild(svgEl('circle', { class: 'selection-endpoint', 'data-handle': 'line-end', cx: obj.x2, cy: obj.y2, r: 6 }));
       return group;
@@ -240,7 +297,10 @@ window.ArtVector = window.ArtVector || {};
         ? svgEl('g')
         : svgEl('g', {
           'data-id': obj.id,
-          class: obj.id === state.selectedObjectId ? 'vector-object selected' : 'vector-object'
+          class: ['vector-object', obj.id === state.selectedObjectId ? 'selected' : '', obj.locked ? 'locked' : '']
+            .filter(Boolean).join(' '),
+          // Заблокований об'єкт пропускає клік до того, що лежить під ним.
+          'pointer-events': obj.locked ? 'none' : undefined
         });
       group.appendChild(shape);
       return group;
@@ -446,7 +506,10 @@ window.ArtVector = window.ArtVector || {};
 
       svg.appendChild(defs);
       svg.appendChild(svgEl('rect', { width: '100%', height: '100%', fill: '#ffffff' }));
-      svg.appendChild(fragmentOf(state.objects.map((obj) => this.objectNode(obj, { forExport: true }))));
+      // Експорт відповідає видимому результату: приховане не потрапляє, заблоковане — так.
+      svg.appendChild(fragmentOf(state.objects
+        .filter((obj) => !obj.hidden)
+        .map((obj) => this.objectNode(obj, { forExport: true }))));
       return svg;
     },
 

@@ -52,11 +52,11 @@
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="save-project" role="menuitem"><span><i
               class="fa-solid fa-file-arrow-down fa-fw"></i> Зберегти проєкт JSON</span><span
-            class="shortcut">Ctrl+Shift+S</span></button>
+            class="shortcut">Ctrl+S</span></button>
         <button class="menu-item" data-action="export-png" role="menuitem"><span><i class="fa-solid fa-image fa-fw"></i>
-            Зберегти як PNG</span><span class="shortcut">Ctrl+S</span></button>
+            Експортувати PNG…</span></button>
         <button class="menu-item" data-action="export-svg" role="menuitem"><span><i class="fa-solid fa-bezier-curve fa-fw"></i>
-            Зберегти як SVG</span></button>
+            Експортувати SVG</span></button>
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="print" role="menuitem"><span><i class="fa-solid fa-print fa-fw"></i>
             Друк…</span><span class="shortcut">Ctrl+P</span></button>
@@ -154,7 +154,7 @@
         <i class="fa-solid fa-folder-open"></i>
       </button>
       <button id="save-project-button" class="tb-btn" type="button" data-action="save-project" data-office-command="save" aria-label="Зберегти проєкт"
-        title="Зберегти проєкт (Ctrl+Shift+S)">
+        title="Зберегти проєкт (Ctrl+S)">
         <i class="fa-solid fa-floppy-disk"></i>
       </button>
     </div>
@@ -211,8 +211,8 @@
 
     <button id="clear-button" class="visually-hidden" type="button" aria-label="Очистити полотно"
       title="Очистити полотно"></button>
-    <button id="save-button" class="visually-hidden" type="button" aria-label="Зберегти зображення"
-      title="Зберегти зображення (Ctrl+S)"></button>
+    <button id="save-button" class="visually-hidden" type="button" aria-label="Експортувати PNG"
+      title="Експортувати PNG"></button>
   </div>
 
   <div class="app-shell">
@@ -291,8 +291,7 @@
       <span>Подвійний клік: редагувати текст</span>
     </div>
     <div class="status-right" data-office-status-slot="secondary">
-      <span>Ctrl+S: PNG</span>
-      <span>Ctrl+Shift+S: JSON</span>
+      <span>Ctrl+S: зберегти проєкт</span>
       <span>G: сітка</span>
     </div>
   </footer>
@@ -336,13 +335,13 @@
     <div class="modal-content">
       <button id="close-save-title" class="modal-close-btn" aria-label="Закрити"><i
           class="fa-solid fa-xmark"></i></button>
-      <h2 id="save-title-modal-title"><i class="fa-solid fa-floppy-disk"></i> Назва перед збереженням</h2>
-      <p>Введи назву блок-схеми або збережи картинку без назви.</p>
+      <h2 id="save-title-modal-title"><i class="fa-solid fa-image"></i> Експорт PNG</h2>
+      <p>Введи назву, яка буде на картинці, або експортуй картинку без назви. Щоб потім редагувати схему, збережи проєкт (Ctrl+S).</p>
       <input id="save-title-input" class="modal-input" type="text" maxlength="60"
         placeholder="Наприклад: Алгоритм сортування" aria-label="Назва блок-схеми перед збереженням">
       <div class="modal-buttons">
-        <button class="modal-btn cancel-btn" id="save-without-title">Зберегти без назви</button>
-        <button class="modal-btn ok-btn" id="save-with-title"><i class="fa-solid fa-check"></i> Зберегти</button>
+        <button class="modal-btn cancel-btn" id="save-without-title">Експортувати без назви</button>
+        <button class="modal-btn ok-btn" id="save-with-title"><i class="fa-solid fa-check"></i> Експортувати</button>
       </div>
     </div>
   </div>

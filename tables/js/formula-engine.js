@@ -54,8 +54,17 @@ function compareValues(left, right, op) {
   }
 }
 
+// Книга, яку зараз експортують у XLSX: міжаркушеві посилання беремо з неї, а не з живої сітки.
+let exportWorkbookSheets = null;
+
 // Контекст аркуша для міжаркушевого посилання (активний → живі глобали + його межі).
 function resolveSheetContext(name) {
+  if (exportWorkbookSheets) {
+    const key = String(name || '').trim().toLowerCase();
+    const exported = exportWorkbookSheets.find(s => String(s.name).trim().toLowerCase() === key);
+    if (!exported) throw formulaError(FORMULA_ERRORS.REF);
+    return { data: exported.cellData || {}, rows: exported.rows, cols: exported.cols };
+  }
   const sh = findSheetByName(name);
   if (!sh) throw formulaError(FORMULA_ERRORS.REF);
   if (sh === sheets[activeSheet]) return { data: cellData, rows: ROWS, cols: COL_COUNT };
@@ -170,4 +179,127 @@ function evaluateFormula(expr) {
   }
 }
 
-window.TablesFormulaEngine = { evaluateFormula };
+// ---- Кешовані значення для XLSX ----
+// Кеш пишемо лише тоді, коли Excel гарантовано отримає той самий результат того самого
+// типу. Функції поза цим набором (AVG, POW, CEIL, ROUND, MOD, FLOOR/CEILING з одним
+// аргументом, критерії *IF) у ПЛЮС рахуються інакше або відсутні в Excel.
+const EXCEL_EXACT_FUNCTIONS = new Set(['SUM', 'MAX', 'MIN', 'COUNT', 'COUNTA', 'AVERAGE', 'MEDIAN', 'ABS', 'INT', 'SQRT', 'POWER', 'DATE', 'TODAY', 'NOW', 'AND', 'OR', 'NOT', 'IF', 'PV', 'FV', 'PMT']);
+// PV/FV/PMT збігаються з Excel лише за 3–5 аргументів: іншу кількість Excel не приймає.
+const EXCEL_FINANCE_FUNCTIONS = new Set(['PV', 'FV', 'PMT']);
+const EXCEL_BOOLEAN_FUNCTIONS = new Set(['AND', 'OR', 'NOT']);
+const COMPARISON_OPERATORS = new Set(['=', '<>', '<', '>', '<=', '>=']);
+const EXCEL_ERROR_VALUES = new Set([FORMULA_ERRORS.DIV0, FORMULA_ERRORS.REF, FORMULA_ERRORS.NAME, FORMULA_ERRORS.VALUE, FORMULA_ERRORS.NUM]);
+const EXACT_CHECK_MAX_DEPTH = 40;
+const EXACT_CHECK_MAX_RANGE_CELLS = 10000;
+// «1,5» ПЛЮС читає як число, а Excel зберігає як текст.
+const COMMA_DECIMAL_RE = /^\s*-?\d+,\d+\s*$/;
+
+function cellIsExcelExact(ctx, col, row, depth) {
+  if (col < 0 || col >= ctx.cols || row < 1 || row > ctx.rows) return true;
+  const raw = ctx.data[indexToCol(col) + row];
+  if (raw === undefined || raw === null || String(raw) === '') return true;
+  const text = String(raw);
+  if (COMMA_DECIMAL_RE.test(text)) return false;
+  if (!text.startsWith('=')) return true;
+  if (depth > EXACT_CHECK_MAX_DEPTH) return false;
+  let ast;
+  try { ast = parseFormula(text.substring(1).trim()); } catch { return false; }
+  pushEvalContext(ctx);
+  try { return isExcelExactNode(ast, depth + 1); } finally { popEvalContext(); }
+}
+
+function contextForSheet(sheetName) {
+  if (!sheetName) return currentEvalContext();
+  try { return resolveSheetContext(sheetName); } catch { return null; }
+}
+
+function isExcelExactNode(node, depth = 0) {
+  if (depth > EXACT_CHECK_MAX_DEPTH) return false;
+  switch (node.type) {
+    case 'num':
+    case 'str':
+    case 'err':
+      return true;
+    case 'ref': {
+      const ctx = contextForSheet(node.sheet);
+      return !ctx || cellIsExcelExact(ctx, node.col, node.row, depth);
+    }
+    case 'range': {
+      const ctx = contextForSheet(node.start.sheet);
+      if (!ctx) return true;
+      const cMin = Math.min(node.start.col, node.end.col);
+      const cMax = Math.max(node.start.col, node.end.col);
+      const rMin = Math.min(node.start.row, node.end.row);
+      const rMax = Math.max(node.start.row, node.end.row);
+      if ((cMax - cMin + 1) * (rMax - rMin + 1) > EXACT_CHECK_MAX_RANGE_CELLS) return false;
+      for (let c = cMin; c <= cMax; c++) {
+        for (let r = rMin; r <= rMax; r++) {
+          if (!cellIsExcelExact(ctx, c, r, depth)) return false;
+        }
+      }
+      return true;
+    }
+    case 'unary':
+      return isExcelExactNode(node.operand, depth + 1);
+    case 'binary': {
+      if (!isExcelExactNode(node.left, depth + 1) || !isExcelExactNode(node.right, depth + 1)) return false;
+      if (!COMPARISON_OPERATORS.has(node.op)) return true;
+      // ПЛЮС порівнює текст із урахуванням регістру, Excel — без; текстовий літерал Excel
+      // вважає текстом навіть «12». Тож кешуємо лише порівняння двох чисел.
+      if (node.left.type === 'str' || node.right.type === 'str') return false;
+      try {
+        return toNumberOrNull(evalScalar(node.left)) !== null && toNumberOrNull(evalScalar(node.right)) !== null;
+      } catch {
+        return false;
+      }
+    }
+    case 'call': {
+      if (!EXCEL_EXACT_FUNCTIONS.has(node.name)) return false;
+      if (node.name === 'IF' && node.args.length !== 3) return false;
+      if (EXCEL_FINANCE_FUNCTIONS.has(node.name) && (node.args.length < 3 || node.args.length > 5)) return false;
+      if (!node.args.every(arg => isExcelExactNode(arg, depth + 1))) return false;
+      if (node.name === 'AVERAGE' || node.name === 'MEDIAN') {
+        // Без чисел ПЛЮС повертає 0, а Excel — #DIV/0! або #NUM!.
+        try { return numericValues(node.args, FORMULA_CTX).length > 0; } catch { return false; }
+      }
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
+// Результат формули для кешу XLSX: { kind: number|boolean|string|error|unknown, value }.
+// «unknown» означає, що кеш не пишемо взагалі, а не підставляємо 0.
+function evaluateFormulaForExport(expr, workbookSheets, sheetIndex) {
+  const sheet = workbookSheets?.[sheetIndex];
+  if (!sheet) return { kind: 'unknown' };
+  const previousSheets = exportWorkbookSheets;
+  exportWorkbookSheets = workbookSheets;
+  pushEvalContext({ data: sheet.cellData || {}, rows: sheet.rows, cols: sheet.cols });
+  try {
+    const src = String(expr || '').trim();
+    let ast;
+    try { ast = parseFormula(src); } catch { return { kind: 'unknown' }; }
+    if (!isExcelExactNode(ast)) return { kind: 'unknown' };
+    let value;
+    try {
+      calcDepth = 0;
+      value = evaluateFormula(src);
+    } catch (error) {
+      const code = error?.message;
+      return EXCEL_ERROR_VALUES.has(code) ? { kind: 'error', value: code } : { kind: 'unknown' };
+    }
+    if (typeof value === 'string') return { kind: 'string', value };
+    if (typeof value !== 'number' || !Number.isFinite(value)) return { kind: 'unknown' };
+    const isBoolean = (ast.type === 'binary' && COMPARISON_OPERATORS.has(ast.op))
+      || (ast.type === 'call' && EXCEL_BOOLEAN_FUNCTIONS.has(ast.name));
+    return isBoolean ? { kind: 'boolean', value: value ? 1 : 0 } : { kind: 'number', value };
+  } finally {
+    popEvalContext();
+    exportWorkbookSheets = previousSheets;
+    calcDepth = 0;
+  }
+}
+
+window.TablesFormulaEngine = { evaluateFormula, evaluateFormulaForExport };

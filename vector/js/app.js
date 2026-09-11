@@ -98,6 +98,13 @@ window.VectorApp = window.VectorApp || {};
     return editor.getObjectById(state.selectedObjectId);
   }
 
+  // Прихований або заблокований об'єкт можна вибрати в панелі «Об'єкти»,
+  // але змінювати його з полотна чи панелі параметрів не можна.
+  function getEditableSelected() {
+    const selected = getSelectedObject();
+    return editor.isEditable(selected) ? selected : null;
+  }
+
   function selectObject(id) {
     state.selectedObjectId = id;
     editor.renderAll();
@@ -136,7 +143,7 @@ window.VectorApp = window.VectorApp || {};
   function setNoFill() {
     state.currentFill = 'none';
     state.currentColorTarget = 'fill';
-    const selected = getSelectedObject();
+    const selected = getEditableSelected();
     if (selected && canHaveFill(selected.type)) {
       pushUndo();
       selected.fill = 'none';
@@ -151,7 +158,7 @@ window.VectorApp = window.VectorApp || {};
   }
 
   function applyStyleToSelection() {
-    const selected = getSelectedObject();
+    const selected = getEditableSelected();
     if (!selected) return;
     let changed = false;
     if (state.currentColorTarget === 'stroke' && selected.type !== 'text' && selected.stroke !== state.currentStroke) {
@@ -177,7 +184,7 @@ window.VectorApp = window.VectorApp || {};
 
   function updateStrokeWidth(value) {
     state.currentStrokeWidth = utils.clamp(Number(value), 1, 18);
-    const selected = getSelectedObject();
+    const selected = getEditableSelected();
     if (selected && selected.type !== 'text') {
       pushUndo();
       selected.strokeWidth = state.currentStrokeWidth;
@@ -190,7 +197,7 @@ window.VectorApp = window.VectorApp || {};
 
   function updateOpacity(value) {
     state.currentOpacity = utils.clamp(Number(value), 10, 100);
-    const selected = getSelectedObject();
+    const selected = getEditableSelected();
     if (selected) {
       pushUndo();
       selected.opacity = state.currentOpacity;
@@ -203,7 +210,7 @@ window.VectorApp = window.VectorApp || {};
 
   function updateFontSize(value) {
     state.currentFontSize = utils.clamp(Number(value), 12, 96);
-    const selected = getSelectedObject();
+    const selected = getEditableSelected();
     if (selected && selected.type === 'text') {
       pushUndo();
       selected.fontSize = state.currentFontSize;
@@ -391,7 +398,7 @@ window.VectorApp = window.VectorApp || {};
   }
 
   function deleteSelected() {
-    const selected = getSelectedObject();
+    const selected = getEditableSelected();
     if (!selected) return;
     pushUndo();
     editor.deleteObject(selected.id);
@@ -422,8 +429,50 @@ window.VectorApp = window.VectorApp || {};
     if (editor.sendToBack(selected.id)) markDirty();
   }
 
-  async function editSelectedText() {
+  // Панель «Об'єкти»: крок у z-порядку, назва, видимість і блокування.
+  // Порядок і назва — не зміна вмісту, тож доступні й для заблокованого об'єкта.
+  function reorderSelected(delta) {
     const selected = getSelectedObject();
+    if (!selected) return;
+    const target = state.objects.indexOf(selected) + delta;
+    if (target < 0 || target >= state.objects.length) return;
+    pushUndo();
+    editor.moveObjectBy(selected.id, delta);
+    markDirty();
+  }
+
+  async function renameSelected() {
+    const selected = getSelectedObject();
+    if (!selected) return;
+    const value = await ui.showDialog({
+      title: 'Назва об’єкта',
+      text: 'Порожня назва повертає типову.',
+      icon: '✏️',
+      confirmText: 'Застосувати',
+      inputValue: editor.objectLabel(selected),
+      multiline: false
+    });
+    if (value === false) return;
+    const name = projectIo.sanitizeObjectName(value);
+    if (name === (selected.name || '')) return;
+    pushUndo();
+    selected.name = name;
+    editor.renderAll();
+    markDirty();
+  }
+
+  function toggleObjectFlag(id, flag) {
+    const obj = editor.getObjectById(id);
+    if (!obj) return;
+    pushUndo();
+    obj[flag] = !obj[flag];
+    editor.renderAll();
+    ui.updateSelectionStatus(getSelectedObject());
+    markDirty();
+  }
+
+  async function editSelectedText() {
+    const selected = getEditableSelected();
     if (!selected || selected.type !== 'text') return;
     const value = await ui.showPromptModal('Редагувати текст', 'Змініть напис або вставте кілька рядків.', selected.text || '');
     if (value === false) return;
@@ -442,8 +491,7 @@ window.VectorApp = window.VectorApp || {};
   function pasteSelected() {
     if (!state.clipboard) return;
     pushUndo();
-    const copy = utils.deepClone(state.clipboard);
-    copy.id = utils.uid(copy.type);
+    const copy = editor.withFreshIdentity(state.clipboard);
     if (constants.RECT_LIKE_TYPES.includes(copy.type) || copy.type === 'text') {
       copy.x += 20; copy.y += 20;
     } else if (constants.LINE_TYPES.includes(copy.type)) {
@@ -581,7 +629,7 @@ window.VectorApp = window.VectorApp || {};
 
   function startMove(point, objectId) {
     const obj = editor.getObjectById(objectId);
-    if (!obj) return;
+    if (!editor.isEditable(obj)) return;
     pushUndo();
     selectObject(objectId);
     state.interaction = {
@@ -593,7 +641,7 @@ window.VectorApp = window.VectorApp || {};
   }
 
   function startResize(point, handle) {
-    const obj = getSelectedObject();
+    const obj = getEditableSelected();
     if (!obj) return;
     pushUndo();
     state.interaction = {
@@ -785,6 +833,10 @@ window.VectorApp = window.VectorApp || {};
       case 'zoom-in': zoomIn(); break;
       case 'fit-canvas': fitToWindow(); break;
       case 'toggle-panel': togglePropertiesPanel(); break;
+      case 'toggle-objects': ui.toggleObjectsPanel(); break;
+      case 'object-up': reorderSelected(1); break;
+      case 'object-down': reorderSelected(-1); break;
+      case 'object-rename': renameSelected(); break;
       case 'show-help':
         ui.showInfoModal('Довідка та поради', `Що вміє редактор
 • Редаговані векторні фігури, лінії та стрілки
@@ -866,6 +918,16 @@ window.VectorApp = window.VectorApp || {};
       });
     });
 
+    ui.elements.objectsList?.addEventListener('click', (event) => {
+      const control = event.target.closest('[data-object-action]');
+      const id = control?.closest('[data-object-id]')?.dataset.objectId;
+      if (!control || !id) return;
+      const action = control.dataset.objectAction;
+      if (action === 'select') selectObject(id);
+      else if (action === 'toggle-hidden') toggleObjectFlag(id, 'hidden');
+      else if (action === 'toggle-lock') toggleObjectFlag(id, 'locked');
+    });
+
     ui.elements.projectFileInput.addEventListener('change', (event) => {
       handleProjectFile(event.target.files?.[0]);
       event.target.value = '';
@@ -895,7 +957,9 @@ window.VectorApp = window.VectorApp || {};
         return;
       }
 
-      const objectNode = hitObjectNode(event.target);
+      // Прихований чи заблокований об'єкт полотно не «чіпляє»: клік іде як по фону.
+      const hitNode = hitObjectNode(event.target);
+      const objectNode = hitNode && editor.isEditable(editor.getObjectById(hitNode.dataset.id)) ? hitNode : null;
       if (objectNode && state.currentTool === 'select') {
         event.preventDefault();
         startMove(point, objectNode.dataset.id);
@@ -1042,6 +1106,7 @@ window.VectorApp = window.VectorApp || {};
 
   function initVectorEditor() {
     const elements = ui.init();
+    editor.onRender = () => ui.renderObjectsList();
     editor.init(elements);
     editor.resizeArtboard(state.canvasWidth, state.canvasHeight);
     bindUi();

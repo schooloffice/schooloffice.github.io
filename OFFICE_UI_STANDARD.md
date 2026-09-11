@@ -69,6 +69,7 @@ Dropdown, picker, popover і modal мають:
 - Локальні `style.css` не перевизначають `--office-*`.
 - Локальні `style.css` не перевизначають `.office-*` component selectors.
 - Акцент сервісу має відповідати `SERVICE_THEME_MAP.json`.
+- На акценті стоїть білий текст шапки, тож акцент тримає контраст ≥ 4.5:1 із `#fff` (див. `WORKSPACE_ACCESSIBILITY.md`).
 
 ## Перевірка
 

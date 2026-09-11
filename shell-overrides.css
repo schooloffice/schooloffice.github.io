@@ -65,7 +65,8 @@ body[data-office-service="slides"] .office-toolbar.toolbar::-webkit-scrollbar {
   border: 1px solid color-mix(in srgb, var(--office-color-success, #16803c) 30%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--office-color-success, #16803c) 10%, transparent);
-  color: var(--office-color-success, #166534);
+  /* Текст темніший за рамку й тло: на світлій плашці статус тримає >= 4.5:1. */
+  color: color-mix(in srgb, var(--office-color-success, #15803d) 80%, #000);
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
@@ -80,7 +81,7 @@ body[data-office-service="slides"] .office-toolbar.toolbar::-webkit-scrollbar {
 .office-storage-status[data-state="error"] {
   border-color: color-mix(in srgb, var(--office-color-danger, #b42318) 35%, transparent);
   background: color-mix(in srgb, var(--office-color-danger, #b42318) 10%, transparent);
-  color: var(--office-color-danger, #b42318);
+  color: color-mix(in srgb, var(--office-color-danger, #b42318) 80%, #000);
 }
 
 .office-offline-status {

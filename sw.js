@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v51';
+const CACHE_VERSION = 'office-plus-v61';
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_STATUS_CACHE = `${CACHE_VERSION}-offline-status`;
 const OFFLINE_STATUS_URL = new URL('./__offline_status__', self.registration.scope).href;
@@ -141,6 +141,7 @@ const ALL_LOCAL_ASSETS = [
   './text/js/runtime.js',
   './text/style.css',
   './text/ui/editor.js',
+  './text/ui/find.js',
   './text/ui/menu.js',
   './text/ui/modals.js',
   './text/ui/page.js',

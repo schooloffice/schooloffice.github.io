@@ -356,6 +356,70 @@ body.panel-collapsed .properties-panel {
 .panel-action span { min-width: 0; }
 .panel-action:hover { background: var(--accent-soft-2); border-color: var(--accent); }
 .panel-action.danger:hover { color: var(--danger); background: #fff5f5; border-color: #fecaca; }
+.panel-action:disabled { opacity: .45; cursor: default; }
+.panel-action:disabled:hover { background: var(--panel-2); border-color: var(--line); }
+
+/* Режим «Об'єкти»: параметри інструмента ховаються, список займає висоту панелі
+   й прокручується сам, тож панель не отримує власної смуги прокрутки. */
+body.panel-objects .panel-tool-area,
+body.panel-objects .panel-common { display: none; }
+.objects-panel { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+.objects-panel[hidden] { display: none; }
+.objects-empty { margin: 0; font-size: .74rem; color: var(--muted); }
+.objects-empty[hidden] { display: none; }
+.objects-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.object-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.object-row.selected { background: var(--accent-soft); border-color: var(--accent); }
+.object-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: .74rem;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+.object-name span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.object-row.is-hidden .object-name { font-style: italic; }
+.object-toggle {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.object-toggle:hover { background: var(--accent-soft-2); color: var(--accent-dark); }
+.object-row.is-locked [data-object-action="toggle-lock"] { color: var(--accent-dark); }
+.objects-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 
 .color-targets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .color-extra { display: flex; align-items: center; gap: 6px; }

@@ -385,7 +385,150 @@
         && scrollerNode.scrollHeight <= scrollerNode.clientHeight + 1;
       const fitWorks = Math.abs(state.zoom - expectedFit) < 0.01 && state.zoom < 2 && fitRemovesScrollbars;
 
+      // Escape скасовує перейменування: видалення сфокусованого поля запускає blur,
+      // який раніше вдруге викликав finish(true), зберігав назву й кидав NotFoundError.
+      const renameBefore = state.fileName;
+      doc.getElementById('fileName').click();
+      const renameInput = doc.querySelector('.filename-input');
+      if (renameInput) {
+        renameInput.value = 'не зберігати';
+        renameInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      }
+      const escapeCancelsRename = !!renameInput
+        && state.fileName === renameBefore
+        && doc.getElementById('fileName')?.textContent === renameBefore
+        && !doc.querySelector('.filename-input');
+
+      // --- B3: панель «Об'єкти» ---
+      const vectorUi = win.ArtVector.ui;
+      // Валідатор: нові поля й безпечні типові значення для старих файлів.
+      const flagsPayload = projectIo.normalizeProject({ objects: [
+        rectObject({ id: 'n1', name: '  Будинок' + String.fromCharCode(0) + '  ', hidden: true, locked: true }),
+        rectObject({ id: 'n2', name: 'x'.repeat(500), hidden: 'yes', locked: 1 }),
+        rectObject({ id: 'n3' })
+      ] });
+      const [namedObject, noisyObject, legacyObject] = flagsPayload.objects;
+      const importKeepsObjectFields = namedObject.name === 'Будинок' && namedObject.hidden === true && namedObject.locked === true
+        && noisyObject.name.length === projectIo.LIMITS.MAX_OBJECT_NAME_LENGTH
+        && noisyObject.hidden === false && noisyObject.locked === false
+        && legacyObject.name === '' && legacyObject.hidden === false && legacyObject.locked === false;
+
+      state.canvasWidth = 800;
+      state.canvasHeight = 400;
+      state.snapToGrid = false;
+      editor.resizeArtboard(state.canvasWidth, state.canvasHeight);
+      vectorUi.updateCanvasInfo();
+      state.objects = [
+        rectObject({ id: 'back', x: 40, y: 40, w: 200, h: 160, fill: '#22c55e', name: 'Трава' }),
+        rectObject({ id: 'middle', x: 300, y: 40, w: 200, h: 160, fill: '#ef4444' }),
+        rectObject({ id: 'front', x: 560, y: 40, w: 200, h: 160, fill: '#3b82f6', name: 'Небо' })
+      ];
+      state.selectedObjectId = null;
+      state.undoStack = [];
+      state.redoStack = [];
+      doc.querySelector('.rail-tool[data-tool="select"]').click();
+      editor.renderAll();
+      const describeObjects = () => JSON.stringify(state.objects.map(obj => [obj.id, obj.name || '', !!obj.hidden, !!obj.locked]));
+      const initialObjects = describeObjects();
+
+      doc.querySelector('#objectsToggleBtn').click();
+      await wait(50);
+      const objectRows = () => Array.from(doc.querySelectorAll('#objectsList .object-row'));
+      const rowIds = () => objectRows().map(row => row.dataset.objectId).join(',');
+      const rowControl = (id, action) => doc.querySelector(`#objectsList .object-row[data-object-id="${id}"] [data-object-action="${action}"]`);
+      const objectsPanelLists = !doc.querySelector('#objectsPanel').hidden
+        && doc.body.classList.contains('panel-objects')
+        && doc.querySelector('#objectsToggleBtn').getAttribute('aria-pressed') === 'true'
+        && rowIds() === 'front,middle,back'
+        && rowControl('middle', 'select').textContent.trim() === 'Прямокутник 2'
+        && objectRows().every(row => row.querySelectorAll('button[type="button"]').length === 3)
+        && panel.scrollHeight <= panel.clientHeight + 1;
+
+      rowControl('middle', 'select').click();
+      const listSelects = state.selectedObjectId === 'middle'
+        && rowControl('middle', 'select').getAttribute('aria-current') === 'true';
+
+      // Порядок — звичайними кнопками, тож доступний з клавіатури; фокус лишається на кнопці.
+      rowControl('back', 'select').click();
+      const upButton = doc.querySelector('.objects-actions [data-action="object-up"]');
+      const downButton = doc.querySelector('.objects-actions [data-action="object-down"]');
+      upButton.focus();
+      upButton.click();
+      const raisedOnce = state.objects.map(obj => obj.id).join(',') === 'middle,back,front'
+        && rowIds() === 'front,back,middle' && doc.activeElement === upButton && !upButton.disabled;
+      downButton.focus();
+      downButton.click();
+      const loweredBack = state.objects.map(obj => obj.id).join(',') === 'back,middle,front'
+        && downButton.disabled && doc.activeElement !== doc.body;
+      const reorderWorks = raisedOnce && loweredBack;
+
+      rowControl('front', 'toggle-hidden').click();
+      rowControl('middle', 'toggle-lock').click();
+      const togglesExposeState = state.objects[2].hidden === true && state.objects[1].locked === true
+        && rowControl('front', 'toggle-hidden').getAttribute('aria-pressed') === 'false'
+        && rowControl('middle', 'toggle-lock').getAttribute('aria-pressed') === 'true'
+        && state.unsavedChanges === true;
+      const hiddenNotDrawn = !editor.findObjectNode('front') && !!editor.findObjectNode('middle');
+
+      rowControl('back', 'select').click();
+      doc.querySelector('.objects-actions [data-action="object-rename"]').click();
+      await wait(50);
+      doc.querySelector('#modalInput').value = 'Луг';
+      doc.querySelector('#modalConfirm').click();
+      await wait(50);
+      const renameWorks = state.objects[0].name === 'Луг' && rowControl('back', 'select').textContent.includes('Луг');
+      const editedObjects = describeObjects();
+      const undoDepth = state.undoStack.length;
+
+      // Заблоковане: без ручок, Delete і полотно його не змінюють.
+      rowControl('middle', 'select').click();
+      const lockedHasNoHandles = !!doc.querySelector('#selectionLayer .selection-box')
+        && !doc.querySelector('#selectionLayer [data-handle]');
+      doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+      const lockedNotDeleted = state.objects.some(obj => obj.id === 'middle');
+      const lockedNode = editor.findObjectNode('middle');
+      const svgBox = svgNode.getBoundingClientRect();
+      const atCanvas = point => ({
+        clientX: svgBox.left + point.x * (svgBox.width / state.canvasWidth),
+        clientY: svgBox.top + point.y * (svgBox.height / state.canvasHeight)
+      });
+      lockedNode.firstChild.dispatchEvent(new PointerEvent('pointerdown', { ...atCanvas({ x: 400, y: 120 }), button: 0, pointerId: 3, bubbles: true }));
+      svgNode.dispatchEvent(new PointerEvent('pointermove', { ...atCanvas({ x: 460, y: 180 }), pointerId: 3, bubbles: true }));
+      doc.dispatchEvent(new PointerEvent('pointerup', { ...atCanvas({ x: 460, y: 180 }), pointerId: 3, bubbles: true }));
+      const lockedObject = state.objects.find(obj => obj.id === 'middle');
+      const lockedStays = lockedHasNoHandles && lockedNotDeleted
+        && lockedObject.x === 300 && lockedObject.y === 40
+        && lockedNode.getAttribute('pointer-events') === 'none'
+        && state.undoStack.length === undoDepth;
+
+      // Експорт відповідає видимому: прихований синій відсутній, заблокований червоний є.
+      const exportedFlagsDoc = new DOMParser().parseFromString(
+        editor.exportSvgMarkup().replace(/^<\?xml[^>]*\?>\s*/, ''), 'image/svg+xml');
+      const exportedFills = Array.from(exportedFlagsDoc.querySelectorAll('rect')).map(node => node.getAttribute('fill'));
+      const svgMatchesVisible = exportedFills.includes('#ef4444') && exportedFills.includes('#22c55e')
+        && !exportedFills.includes('#3b82f6');
+      // PNG рендериться з цього самого SVG (контракт у static-ui-audit.ps1). Розкодування
+      // зображення headless Chrome під --virtual-time-budget не чекає, тож пікселі PNG
+      // перевіряються в браузері вручну, а не тут.
+
+      // Undo/redo проходять усі п'ять кроків: вище, нижче, сховати, заблокувати, назва.
+      for (let step = 0; step < 5; step += 1) doc.querySelector('.header-btn[data-action="undo"]').click();
+      await wait(30);
+      const undoRestoresObjects = describeObjects() === initialObjects;
+      for (let step = 0; step < 5; step += 1) doc.querySelector('.header-btn[data-action="redo"]').click();
+      await wait(30);
+      const redoRestoresObjects = describeObjects() === editedObjects;
+
+      const savedObjects = JSON.stringify(editor.buildProjectPayload());
+      const reopenedObjects = projectIo.parseProjectText(savedObjects);
+      editor.restoreProject(reopenedObjects.payload);
+      const saveOpenKeepsObjects = reopenedObjects.ok && describeObjects() === editedObjects
+        && rowIds() === 'front,middle,back';
+
+      // Drawer на вузькому екрані перевіряє responsive-smoke.html (iframe 390×844).
+
       const checks = [
+        check('Escape cancels file rename without saving the name', escapeCancelsRename),
         check('VectorApp boot exported', typeof win.VectorApp?.boot === 'function'),
         check('tools live in a left rail, not a top toolbar', layoutOk),
         check('editor boots once (one click = one action)', oneClickOneStep),
@@ -431,7 +574,18 @@
         check('project save/open round-trips', roundTrips),
         check('legacy project without format still opens', legacyOpens),
         check('draft storage layer wired (IndexedDB + reconciliation)', storageReconciles),
-        check('draft uses versioned storage key', usesOwnStorageKey)
+        check('draft uses versioned storage key', usesOwnStorageKey),
+        check('import keeps object name, hidden and locked with safe defaults', importKeepsObjectFields),
+        check('objects panel lists objects from front to back with default names', objectsPanelLists),
+        check('selecting in the objects list selects the object', listSelects),
+        check('raise and lower buttons reorder objects and keep keyboard focus', reorderWorks),
+        check('hide and lock toggles expose pressed state and mark changes', togglesExposeState),
+        check('hidden objects are not drawn on the canvas', hiddenNotDrawn),
+        check('rename sets the object name', renameWorks),
+        check('locked object has no handles and cannot be deleted or moved from the canvas', lockedStays),
+        check('SVG export matches the visible result', svgMatchesVisible),
+        check('undo and redo restore names, order, hidden and locked', undoRestoresObjects && redoRestoresObjects),
+        check('save and open keep names, order, hidden and locked', saveOpenKeepsObjects)
       ];
 
       result.className = 'pass';

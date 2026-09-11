@@ -150,7 +150,8 @@ button {
 #saveBadge {
   font-size: .74rem;
   font-weight: 800;
-  color: #dcfce7;
+  /* #dcfce7 на червоній шапці давав 4.40:1. */
+  color: #fff;
   white-space: nowrap;
 }
 

@@ -38,6 +38,11 @@
       throw new Error(`${name}: expected ${expected}, got ${actual}`);
     }
 
+    function assertClose(name, actual, expected, tolerance = 1e-9) {
+      if (typeof actual === 'number' && Math.abs(actual - expected) <= tolerance) return `PASS ${name}`;
+      throw new Error(`${name}: expected ${expected}, got ${actual}`);
+    }
+
     function assertThrows(name, fn, expectedMessage) {
       try {
         fn();
@@ -232,6 +237,85 @@
       checks.push(assertThrows('error #NAME?', () => evaluateFormula('FOO(1)'), '#NAME?'));
       checks.push(assertThrows('error #NUM! sqrt', () => evaluateFormula('SQRT(-1)'), '#NUM!'));
       checks.push(assertThrows('error #CIRC!', () => evaluateFormula('E1'), '#CIRC!'));
+
+      // B4: фінансові функції. Контрольні значення й коди помилок — Microsoft Excel 16.0
+      // (build 17932), обчислені через COM 2026-09-11; збіг до 1e-9.
+      cellData = { R1: '1e-300' };
+      const excelFinanceValues = [
+        ['PMT(0.05/12,36,10000)', -299.70897104665477],
+        ['PMT(0.05/12,36,10000,0,1)', -298.46536535766455],
+        ['PMT(0.05/12,36,10000,-2000)', -248.10051017065715],
+        ['PMT(0,36,10000)', -277.77777777777777],
+        ['PMT(0,36,10000,0,1)', -277.77777777777777],
+        ['PMT(0,36,10000,-2000)', -222.22222222222223],
+        ['PMT(0.1,10,1000,0,2)', -147.95035898410148],
+        ['PMT(0.1,10,1000,0,-1)', -147.95035898410148],
+        ['FV(0.06/12,120,-100)', 16387.934680645605],
+        ['FV(0.06/12,120,-100,-500,1)', 17379.572721064971],
+        ['FV(0,120,-100,-500)', 12500],
+        ['FV(0,10,-100,0,1)', 1000],
+        ['FV(-1,10,-100)', 100],
+        ['PV(0.08/12,240,-500)', 59777.145851187823],
+        ['PV(0.08/12,240,-500,0,1)', 60175.660156862396],
+        ['PV(0,240,-500,1000)', 119000],
+        ['PV(0.08/12,240,-500,10000,1)', 58145.946270354107],
+        ['PV(0.1,0,-100)', 0],
+        // Граничні випадки (друга партія з Excel).
+        ['PMT(-0.5,10,1000)', -0.48875855327468232],
+        ['PMT(0.1,-10,1000)', 62.745394882511611],
+        ['PMT(0.1,10.5,1000)', -158.12804303627419],
+        ['PMT(0.1,100000,1000)', -100],
+        ['PMT(0.1,10,0)', 0],
+        // Excel: PMT(1E-300,10,1000). Експоненційний запис у формулі ПЛЮС не розбирає,
+        // тож крихітна ставка йде через клітинку R1 = 1e-300.
+        ['PMT(R1,10,1000)', -100.00000000000001],
+        ['PMT(0,-10,1000)', 100],
+        ['PMT(0.05/12,36,10000,0,0.5)', -298.46536535766455],
+        ['FV(-2,10,-100)', 0],
+        ['FV(0.1,-10,-100)', -614.45671057046854],
+        ['FV(0.1,0,-100,-500)', 500],
+        ['FV(-1,10,-100,0,1)', 0],
+        ['FV(-0.5,10,-100,-1000,1)', 100.87890625],
+        ['FV(0.1,10.5,-100)', 1720.3400420274984],
+        ['PV(-2,10,100)', 0],
+        ['PV(0.1,-10,-100)', -1593.7424601000018],
+        ['PV(-0.5,10,-100,1000,1)', -921700]
+      ];
+      excelFinanceValues.forEach(([formula, expected]) => {
+        checks.push(assertClose(`Excel ${formula}`, evaluateFormula(formula), expected));
+      });
+      const excelFinanceErrors = [
+        ['PMT(0.1,0,1000)', '#NUM!'],
+        ['PMT(0,0,1000)', '#NUM!'],
+        ['PMT(-1,10,1000)', '#NUM!'],
+        ['PMT(0.1,10,"abc")', '#VALUE!'],
+        ['FV(0.1,100000,-1)', '#NUM!'],
+        ['PV(-1,10,100)', '#DIV/0!'],
+        ['PMT(-2,10,1000)', '#NUM!'],
+        ['PMT(-1,10,1000,0,1)', '#NUM!'],
+        ['PMT(-1,0,1000)', '#NUM!'],
+        ['FV(-1,0,-100)', '#NUM!'],
+        ['PV(0.1,100000,-1)', '#NUM!'],
+        ['PV(-1,10,100,0,1)', '#DIV/0!'],
+        ['PV(-1,0,-100)', '#NUM!']
+      ];
+      excelFinanceErrors.forEach(([formula, code]) => {
+        checks.push(assertThrows(`Excel ${formula}`, () => evaluateFormula(formula), code));
+      });
+      checks.push(assertThrows('PMT with too few arguments', () => evaluateFormula('PMT(0.1,10)'), '#VALUE!'));
+      checks.push(assertThrows('FV with too many arguments', () => evaluateFormula('FV(0.1,10,-100,0,1,1)'), '#VALUE!'));
+
+      // Формула через посилання: порожня клітинка ставки — нульова ставка, як у Excel.
+      cellData = { A1: '0.05', B1: '36', C1: '10000', D1: '=PMT(A1/12,B1,C1)', A2: '0', B2: '36', C2: '10000' };
+      checks.push(assertClose('PMT through cell references', evaluateFormula('D1'), -299.70897104665477));
+      checks.push(assertClose('empty rate cell counts as zero rate', evaluateFormula('PMT(E1/12,B1,C1)'), -277.77777777777777));
+      // Копіювання формули зсуває відносні посилання на наступну позику.
+      selStart = { c: 3, r: 1 };
+      selEnd = { c: 3, r: 1 };
+      TablesClipboard.copySelectionToClipboard();
+      TablesClipboard.applyTsvToGridData(TablesClipboard.serializeSelectionToTsv(), 3, 2);
+      checks.push(assertEqual('copied PMT shifts relative references', cellData.D2, '=PMT(A2/12,B2,C2)'));
+      checks.push(assertClose('copied PMT evaluates the next row', evaluateFormula('D2'), -277.77777777777777));
 
       result.className = 'pass';
       result.textContent = checks.join('\n') + '\n\nPASSED';

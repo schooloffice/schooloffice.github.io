@@ -63,13 +63,15 @@ const ArtMenu = (() => {
       case 'copy': await ArtSelection.copy(document.getElementById('editor')); break;
       case 'paste': { const editor = document.getElementById('editor'); await ArtSelection.pastePlainText(editor); editor.dispatchEvent(new Event('input', { bubbles: true })); requestAnimationFrame(() => ArtHistory.pushNow()); break; }
       case 'select-all': ArtSelection.selectAll(document.getElementById('editor')); break;
-      case 'find': ArtModals.open('modalFind'); break;
+      case 'find': ArtFind.open('find'); break;
+      case 'replace': ArtFind.open('replace'); break;
       case 'orient-portrait': ArtEditor.setOrientation('portrait'); break;
       case 'orient-landscape': ArtEditor.setOrientation('landscape'); break;
       case 'zoom-75': ArtEditor.setZoom(75); break;
       case 'zoom-100': ArtEditor.setZoom(100); break;
       case 'zoom-125': ArtEditor.setZoom(125); break;
       case 'zoom-150': ArtEditor.setZoom(150); break;
+      case 'toggle-spellcheck': ArtEditor.toggleSpellcheck(); break;
       case 'insert-hr': ArtToolbar.run(() => ArtSelection.insertHorizontalRule(document.getElementById('editor'))); break;
       case 'insert-table': ArtModals.open('modalTable'); break;
       case 'insert-image': ArtEditor.openImageDialog(); break;

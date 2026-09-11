@@ -16,6 +16,7 @@ const ArtState = (() => {
     pageSize:    DEFAULT_DOCUMENT.pageSize,       // 'a4' | 'a5' | 'letter'
     margins:     { ...DEFAULT_DOCUMENT.margins }, // см, як у шкільних роботах
     zoom:        100,           // %
+    spellcheck:  true,          // перевірка правопису браузером — вигляд, не документ
     fontFamily:  'Times New Roman',
     fontSize:    14,            // pt
   };

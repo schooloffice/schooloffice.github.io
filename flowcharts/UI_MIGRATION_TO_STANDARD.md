@@ -26,4 +26,4 @@
 
 - Після додавання runtime-модуля синхронізувати `flowcharts/index.html`, `sw.js` і `tests/flowcharts-behavior.html`.
 - Зберігати контракт маршрутизації `custom → smart → decision → merge → default` або явно змінювати його разом із тестами.
-- Виняток `Ctrl+S = PNG` лишається свідомою локальною поведінкою; JSON save — toolbar Save і `Ctrl+Shift+S`.
+- Виняток `Ctrl+S = PNG` скасовано (2026-09-11): `Ctrl+S` зберігає JSON-проєкт, `Ctrl+Shift+S` — сумісний псевдонім, PNG — лише «Експортувати PNG…». `tests/flowcharts-behavior.html` перевіряє це на справжньому редакторі.

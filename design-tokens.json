@@ -92,12 +92,12 @@
     "danger": "#dc2626",
     "dangerBg": "#fee2e2",
     "success": "#15803d",
-    "warning": "#d97706"
+    "warning": "#b45309"
   },
   "serviceAccent": {
     "text": "#2563eb",
-    "tables": "#16a34a",
-    "paint": "#d97706",
+    "tables": "#15803d",
+    "paint": "#b45309",
     "slides": "#dc2626",
     "flowcharts": "#7c3aed",
     "vector": "#0f766e"

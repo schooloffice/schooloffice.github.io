@@ -6,6 +6,7 @@ const ArtEditor = (() => {
   const MAX_DOCX_FILE_BYTES = 20 * 1024 * 1024;
   const MAX_IMAGE_FILE_BYTES = 8 * 1024 * 1024;
   const MAX_IMAGE_PIXELS = 16_777_216;
+  const SPELLCHECK_PREF_KEY = 'office_text_spellcheck';
   const DOCUMENT_MIME_TYPES = {
     txt: new Set(['', 'text/plain']),
     rtf: new Set(['', 'application/rtf', 'text/rtf', 'text/richtext', 'application/x-rtf']),
@@ -20,7 +21,6 @@ const ArtEditor = (() => {
   };
   let _editor = null;
   let _announcer = null;
-  let _findState = { query: '', index: -1, matches: [] };
   let _layoutQueued = 0;
   let _layoutTimer = 0;
   let _layoutLock = false;
@@ -72,6 +72,7 @@ const ArtEditor = (() => {
     });
     ArtState.on('change:orientation', _applyOrientation);
     ArtState.on('change:zoom', _applyZoom);
+    ArtState.on('change:spellcheck', _applySpellcheck);
     ArtState.on('change', change => {
       if (['fileName', 'fileFormat', 'orientation', 'pageSize', 'margins'].includes(change?.key)) {
         _documentRevision += 1;
@@ -91,6 +92,8 @@ const ArtEditor = (() => {
     _buildEmptyDocument();
     _applyOrientation(ArtState.get('orientation'));
     _applyZoom(ArtState.get('zoom'));
+    ArtState.set('spellcheck', _readSpellcheckPref());
+    _applySpellcheck(ArtState.get('spellcheck'));
     _updateFileName();
     _syncView();
     ArtSelection.focusEditor(_editor);
@@ -145,9 +148,29 @@ const ArtEditor = (() => {
     }
   }
 
-  async function saveAs(format) {
+  // Набір спрощень .docx, який користувач уже підтвердив у цій сесії: Ctrl+S
+  // не питає щоразу, а нове спрощення знову показується до збереження.
+  let _acknowledgedDocxLimits = '';
+
+  async function saveAs(format, { limitsConfirmed = false } = {}) {
     ArtModals.close('modalSave');
     const html = _getExportHTML();
+    if (format === 'docx' && !limitsConfirmed) {
+      const notes = ArtDocx.describeExportLimits?.(html) || [];
+      const signature = notes.join('\n');
+      if (notes.length && signature !== _acknowledgedDocxLimits) {
+        ArtModals.confirm(
+          `У .docx частину оформлення буде спрощено:\n• ${notes.join('\n• ')}\n\nДокумент на екрані й чернетка не зміняться.`,
+          () => {
+            _acknowledgedDocxLimits = signature;
+            saveAs('docx', { limitsConfirmed: true });
+          },
+          null,
+          { yesText: 'Зберегти .docx' }
+        );
+        return;
+      }
+    }
     try {
       let blob, ext;
       if (format === 'txt') {
@@ -169,20 +192,9 @@ const ArtEditor = (() => {
       ArtHistory.markSaved();
       _flashSaved();
       _announce(`Збережено як ${ArtState.get('fileName')}.${ext}`);
-      _warnAboutFormatLimits(format, html);
     } catch (err) {
       ArtModals.info('Помилка збереження', err.message || String(err));
     }
-  }
-
-  // Чесно попереджаємо про спрощення, а не мовчки втрачаємо оформлення.
-  function _warnAboutFormatLimits(format, html) {
-    const notes = format === 'docx' ? (ArtDocx.describeExportLimits?.(html) || []) : [];
-    if (!notes.length) return;
-    ArtModals.info(
-      'Збережено з застереженнями',
-      `Документ збережено, але деяке оформлення спрощено:\n• ${notes.join('\n• ')}`
-    );
   }
 
   function setOrientation(value) {
@@ -195,6 +207,25 @@ const ArtEditor = (() => {
   // перекомпонування — але без збереження позиції каретки маркерами.
   function refreshLayout() { _queueRepaginate(false); }
   function setZoom(value) { ArtState.set('zoom', value); }
+  function setSpellcheck(enabled) { ArtState.set('spellcheck', !!enabled); }
+  function toggleSpellcheck() { setSpellcheck(!ArtState.get('spellcheck')); }
+
+  // Правопис перевіряє сам браузер словником браузера чи ОС. Атрибут стоїть на
+  // єдиному editing host: сторінки, нові аркуші й клітинки його успадковують.
+  // Це налаштування вигляду — не документ, тож undo і позначку змін не зачіпає.
+  function _applySpellcheck(enabled) {
+    const on = !!enabled;
+    _editor.spellcheck = on;
+    document.querySelectorAll('[data-action="toggle-spellcheck"]').forEach(item => {
+      item.classList.toggle('checked', on);
+      item.setAttribute('aria-checked', String(on));
+    });
+    try { localStorage.setItem(SPELLCHECK_PREF_KEY, on ? 'on' : 'off'); } catch { }
+  }
+
+  function _readSpellcheckPref() {
+    try { return localStorage.getItem(SPELLCHECK_PREF_KEY) !== 'off'; } catch { return true; }
+  }
 
   function _applyOrientation(value) {
     const pages = document.querySelector('.pages-wrap');
@@ -892,7 +923,6 @@ const ArtEditor = (() => {
     page.className = 'page';
     const content = document.createElement('div');
     content.className = 'page-content';
-    content.spellcheck = true;
     content.dataset.placeholder = 'Почни вводити текст…';
     content.setAttribute('aria-label', 'Сторінка документа');
     page.appendChild(content);
@@ -933,12 +963,6 @@ const ArtEditor = (() => {
     _mergeAdjacentTables(temp);
     temp.querySelectorAll('tr[data-art-table-repeat]').forEach(row => row.remove());
     temp.querySelectorAll('table[data-art-table-part]').forEach(table => table.removeAttribute('data-art-table-part'));
-
-    temp.querySelectorAll('mark.search-hit').forEach(mark => {
-      const parent = mark.parentNode;
-      while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
-      mark.remove();
-    });
 
     temp.querySelectorAll('figure.art-image-block').forEach(figure => {
       const img = figure.querySelector('img');
@@ -1111,6 +1135,7 @@ const ArtEditor = (() => {
     // Великий документ (вставка, відкритий .docx) не вміщається в один прохід:
     // ліміт перестановок захищає від зависання, тож доганяємо наступним кадром.
     if (incomplete) _queueRepaginate(preserveSelection);
+    else _editor.dispatchEvent(new Event('art:paginated'));
   }
 
   function _runPagination(preserveSelection) {
@@ -1180,12 +1205,20 @@ const ArtEditor = (() => {
 
     const first = blocks[index];
 
+    // Продовження розрізаного блока стає на початок наступного аркуша, тож
+    // блоки під ним переносимо туди заздалегідь: інакше, коли коротша частина
+    // звільнить місце, вони опинилися б між частиною та продовженням.
+    const splitFirst = () => {
+      _moveBlocksToNext(next, blocks, index + 1);
+      return _splitBlock(current, first, next);
+    };
+
     // Блок, вищий за саму сторінку, переносити немає сенсу — на наступній він
     // так само не вміститься. Такий ділимо на місці.
-    if (_isTallerThanPage(first, current) && _splitBlock(current, first, next)) return true;
+    if (_isTallerThanPage(first, current) && splitFirst()) return true;
 
     if (index === 0) {
-      if (_splitBlock(current, first, next)) return true;
+      if (splitFirst()) return true;
       if (blocks.length === 1) {
         _showOversizeBlock(current, first);
         return false;
@@ -1597,73 +1630,9 @@ const ArtEditor = (() => {
     _updateEmptyState();
   }
 
-  function findNext(query) {
-    query = String(query || '').trim();
-    if (!query) return;
-    if (_findState.query !== query) {
-      _findState = { query, index: -1, matches: [] };
-      clearFindHighlights();
-      _findState.matches = _collectMatches(query);
-      _paintMatches();
-    }
-    if (!_findState.matches.length) {
-      ArtModals.info('Пошук', 'Нічого не знайдено.');
-      return;
-    }
-    _findState.index = (_findState.index + 1) % _findState.matches.length;
-    const target = _editor.querySelectorAll('mark.search-hit')[_findState.index];
-    if (!target) return;
-    _editor.querySelectorAll('mark.search-hit.current').forEach(el => el.classList.remove('current'));
-    target.classList.add('current');
-    const range = document.createRange();
-    range.selectNodeContents(target);
-    ArtSelection.restore(range);
-    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }
-
-  function _collectMatches(query) {
-    const textNodes = [];
-    const walker = document.createTreeWalker(_editor, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        return node.parentElement?.closest('mark.search-hit') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
-      }
-    });
-    let n;
-    while ((n = walker.nextNode())) if ((n.textContent || '').trim()) textNodes.push(n);
-    const matches = [];
-    const q = query.toLowerCase();
-    textNodes.forEach(node => {
-      let from = 0;
-      const lower = node.textContent.toLowerCase();
-      while (true) {
-        const idx = lower.indexOf(q, from);
-        if (idx === -1) break;
-        matches.push({ node, start: idx, end: idx + q.length });
-        from = idx + q.length;
-      }
-    });
-    return matches;
-  }
-
-  function _paintMatches() {
-    [..._findState.matches].reverse().forEach(match => {
-      const range = document.createRange();
-      range.setStart(match.node, match.start);
-      range.setEnd(match.node, match.end);
-      const mark = document.createElement('mark');
-      mark.className = 'search-hit';
-      try { range.surroundContents(mark); } catch { }
-    });
-  }
-
+  // Пошук і заміна — у ui/find.js; редактор лише скидає їх під час зміни документа.
   function clearFindHighlights() {
-    if (!_editor) return;
-    _editor.querySelectorAll('mark.search-hit').forEach(mark => {
-      const parent = mark.parentNode;
-      while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
-      parent.removeChild(mark);
-    });
-    _findState = { query: '', index: -1, matches: [] };
+    ArtFind.reset();
   }
 
   function editFileName() {
@@ -1842,8 +1811,8 @@ const ArtEditor = (() => {
 
   return {
     init, newDoc, saveAs, setOrientation, setZoom, hasSelectedImage, setSelectedImageLayout,
-    insertTable, tableAction, toggleTableMenu, hideTableMenu, refreshLayout, openImageDialog, findNext, clearFindHighlights, editFileName,
-    getDraftPayload, restoreDraft, clearDocument, getDocumentRevision,
+    insertTable, tableAction, toggleTableMenu, hideTableMenu, refreshLayout, openImageDialog, clearFindHighlights, editFileName,
+    getDraftPayload, restoreDraft, clearDocument, getDocumentRevision, setSpellcheck, toggleSpellcheck,
     MAX_TEXT_FILE_BYTES, MAX_DOCX_FILE_BYTES, MAX_IMAGE_FILE_BYTES, MAX_IMAGE_PIXELS,
     // Логічний (не сторінковий) HTML документа — те, що йде у файл.
     // Відкрито для поведінкових тестів експорту.

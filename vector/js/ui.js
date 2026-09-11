@@ -8,6 +8,8 @@ window.ArtVector = window.ArtVector || {};
   const ui = {
     elements: {},
     openMenuName: null,
+    panelMode: 'properties',
+    objectsListKey: '',
 
     init() {
       this.cacheElements();
@@ -80,6 +82,14 @@ window.ArtVector = window.ArtVector || {};
         shapeToolName: utils.$('shapeToolName'),
         propText: utils.$('propText'),
         propObject: utils.$('propObject'),
+        objectsPanel: utils.$('objectsPanel'),
+        objectsList: utils.$('objectsList'),
+        objectsEmpty: utils.$('objectsEmpty'),
+        objectsCount: utils.$('objectsCount'),
+        objectsToggleBtn: utils.$('objectsToggleBtn'),
+        objectUpBtn: document.querySelector('.objects-actions [data-action="object-up"]'),
+        objectDownBtn: document.querySelector('.objects-actions [data-action="object-down"]'),
+        objectRenameBtn: document.querySelector('.objects-actions [data-action="object-rename"]'),
 
         statusCoords: utils.$('statusCoords'),
         statusTool: utils.$('statusTool'),
@@ -172,6 +182,125 @@ window.ArtVector = window.ArtVector || {};
       return collapsed;
     },
 
+    // Панель має два режими: параметри інструмента й «Об'єкти». Список живе в тій
+    // самій панелі, тож на вузькому екрані він так само відкривається як drawer.
+    setPanelMode(mode) {
+      this.panelMode = mode === 'objects' ? 'objects' : 'properties';
+      const objects = this.panelMode === 'objects';
+      document.body.classList.toggle('panel-objects', objects);
+      if (this.elements.objectsPanel) this.elements.objectsPanel.hidden = !objects;
+      this.elements.propertiesPanel?.setAttribute('aria-label', objects ? 'Об’єкти' : 'Параметри інструмента');
+      const button = this.elements.objectsToggleBtn;
+      if (button) {
+        button.classList.toggle('active', objects);
+        button.setAttribute('aria-pressed', String(objects));
+      }
+      if (objects) this.renderObjectsList({ force: true });
+    },
+
+    toggleObjectsPanel() {
+      if (document.body.classList.contains('panel-collapsed')) {
+        this.setPanelMode('objects');
+        this.applyPanelState(false, { persist: !this.panelMedia?.matches });
+      } else {
+        this.setPanelMode(this.panelMode === 'objects' ? 'properties' : 'objects');
+      }
+      return this.panelMode;
+    },
+
+    // Список від переднього плану до заднього, як у звичних графічних редакторах.
+    // Вузли будуються DOM API: назва з файла потрапляє лише в textContent/атрибути.
+    renderObjectsList({ force = false } = {}) {
+      const list = this.elements.objectsList;
+      if (!list || this.panelMode !== 'objects') return;
+      const { editor } = window.ArtVector;
+      const key = JSON.stringify([
+        state.selectedObjectId,
+        state.objects.map((obj) => [obj.id, obj.type, obj.name || '', !!obj.hidden, !!obj.locked])
+      ]);
+      if (!force && key === this.objectsListKey) return;
+      this.objectsListKey = key;
+
+      // Перебудова не має збивати фокус клавіатури з кнопки рядка.
+      const active = document.activeElement;
+      const focusId = list.contains(active) ? active.closest('[data-object-id]')?.dataset.objectId : null;
+      const focusAction = focusId ? active.dataset.objectAction : null;
+
+      const rows = [];
+      for (let index = state.objects.length - 1; index >= 0; index -= 1) {
+        const obj = state.objects[index];
+        rows.push(this.objectRow(obj, editor.objectLabel(obj)));
+      }
+      list.replaceChildren(...rows);
+
+      const total = state.objects.length;
+      const selectedIndex = state.objects.findIndex((obj) => obj.id === state.selectedObjectId);
+      if (this.elements.objectsCount) this.elements.objectsCount.textContent = String(total);
+      if (this.elements.objectsEmpty) this.elements.objectsEmpty.hidden = total > 0;
+
+      const { objectUpBtn: up, objectDownBtn: down, objectRenameBtn: rename } = this.elements;
+      const focusedAction = [up, down].includes(document.activeElement) ? document.activeElement : null;
+      if (up) up.disabled = selectedIndex < 0 || selectedIndex === total - 1;
+      if (down) down.disabled = selectedIndex <= 0;
+      if (rename) rename.disabled = selectedIndex < 0;
+
+      if (focusId) {
+        rows.find((row) => row.dataset.objectId === focusId)
+          ?.querySelector(`[data-object-action="${focusAction}"]`)?.focus();
+      } else if (focusedAction?.disabled) {
+        // Кнопка «Вище» на верхньому об'єкті вимикається — фокус переходить на рядок.
+        rows.find((row) => row.dataset.objectId === state.selectedObjectId)
+          ?.querySelector('[data-object-action="select"]')?.focus();
+      }
+    },
+
+    objectRow(obj, label) {
+      const selected = obj.id === state.selectedObjectId;
+      const row = document.createElement('li');
+      row.className = 'object-row';
+      row.dataset.objectId = obj.id;
+      row.classList.toggle('selected', selected);
+      row.classList.toggle('is-hidden', !!obj.hidden);
+      row.classList.toggle('is-locked', !!obj.locked);
+
+      const name = document.createElement('button');
+      name.type = 'button';
+      name.className = 'object-name';
+      name.dataset.objectAction = 'select';
+      name.title = label;
+      if (selected) name.setAttribute('aria-current', 'true');
+      const icon = document.createElement('i');
+      icon.className = constants.TOOLS[obj.type]?.icon || 'fa-solid fa-shapes';
+      icon.setAttribute('aria-hidden', 'true');
+      const text = document.createElement('span');
+      text.textContent = label;
+      name.append(icon, text);
+
+      row.append(
+        this.objectToggle('toggle-hidden', !obj.hidden, `Показувати «${label}»`,
+          obj.hidden ? 'Показати' : 'Сховати', obj.hidden ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye'),
+        name,
+        this.objectToggle('toggle-lock', !!obj.locked, `Заблокувати «${label}»`,
+          obj.locked ? 'Розблокувати' : 'Заблокувати', obj.locked ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open')
+      );
+      return row;
+    },
+
+    objectToggle(action, pressed, ariaLabel, title, iconClass) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'object-toggle';
+      button.dataset.objectAction = action;
+      button.setAttribute('aria-pressed', String(pressed));
+      button.setAttribute('aria-label', ariaLabel);
+      button.title = title;
+      const icon = document.createElement('i');
+      icon.className = iconClass;
+      icon.setAttribute('aria-hidden', 'true');
+      button.appendChild(icon);
+      return button;
+    },
+
     renderPalette() {
       this.elements.colorPalette.replaceChildren();
       constants.COLOR_PALETTE.forEach((hex) => {
@@ -199,6 +328,7 @@ window.ArtVector = window.ArtVector || {};
       this.updateZoomUI();
       this.updateCanvasInfo();
       this.updateSelectionStatus();
+      this.renderObjectsList();
     },
 
     // Rail показує п'ять груп; конкретний підінструмент групи (яка саме фігура,
@@ -398,7 +528,12 @@ window.ArtVector = window.ArtVector || {};
       input.focus();
       input.select();
 
+      // Enter/Escape прибирають поле з DOM, а видалення сфокусованого поля запускає
+      // blur: без прапорця другий finish(true) зберігав би назву навіть після Escape.
+      let finished = false;
       const finish = (commit) => {
+        if (finished) return;
+        finished = true;
         const next = commit ? (input.value.trim() || constants.DEFAULT_FILE_NAME) : current;
         state.fileName = next;
         const span = document.createElement('span');

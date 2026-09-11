@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "updated": "2026-09-11",
+  "machine": "Windows 11 Pro 10.0.26200, Microsoft Office 16.0 build 17932 (Excel, Word, PowerPoint)",
+  "notes": [
+    "Корпус починається з 9 синтетичних випадків і розширюється лише під реальні файли.",
+    "Автоматичні перевірки працюють офлайн у browser smoke; відкриття в Office виконує check-office-readers.ps1 і не входить у CI.",
+    "Другої незалежної офісної програми (LibreOffice, Google-переглядач) у середовищі перевірки не було: кожен формат перевірено лише одним зовнішнім читачем."
+  ],
+  "cases": [
+    {
+      "id": "xlsx-formulas-types",
+      "format": "xlsx",
+      "file": "excel-formulas-types.xlsx",
+      "origin": "Microsoft Excel 16.0 build 17932 через COM (generate-office-fixtures.ps1)",
+      "supportedProperties": ["числа й текст", "формули A1/A2, A1>A2, IF із текстовим результатом, SUM", "логічне значення TRUE"],
+      "expectedLosses": [],
+      "automatedTest": "tests/xlsx-behavior.html: Excel fixture checks + PLUS computes the same typed results",
+      "result": "passed: формули, текст і TRUE імпортуються; ПЛЮС рахує 2.5, TRUE, «більше», 14 — як Excel"
+    },
+    {
+      "id": "xlsx-two-sheets",
+      "format": "xlsx",
+      "file": "excel-two-sheets.xlsx",
+      "origin": "Microsoft Excel 16.0 build 17932 через COM (generate-office-fixtures.ps1)",
+      "supportedProperties": ["два аркуші з кириличними назвами", "міжаркушеві SUM і MAX"],
+      "expectedLosses": [],
+      "automatedTest": "tests/xlsx-behavior.html: Excel fixture: two sheets and cross-sheet formulas",
+      "result": "passed: аркуші «Дані»/«Підсумок» і формули =SUM(Дані!B2:B3), =MAX(Дані!B2:B3); ПЛЮС рахує 20"
+    },
+    {
+      "id": "xlsx-formatting-chart",
+      "format": "xlsx",
+      "file": "excel-formatting-chart.xlsx",
+      "origin": "Microsoft Excel 16.0 build 17932 через COM (generate-office-fixtures.ps1)",
+      "supportedProperties": ["жирний заголовок", "числа 10.5 і 11.25", "ширина колонки"],
+      "expectedLosses": ["діаграма (попередження після імпорту)", "точна заливка й числовий формат 0,00 можуть спроститися"],
+      "automatedTest": "tests/xlsx-behavior.html: Excel fixture: bold header, numbers and column width; chart is reported as not transferred",
+      "result": "passed: оформлення й ширина імпортуються, діаграма названа у попередженні"
+    },
+    {
+      "id": "docx-formatted-text",
+      "format": "docx",
+      "file": null,
+      "origin": "pending: має бути створений Microsoft Word",
+      "supportedProperties": ["заголовок 1", "жирний, курсив", "маркований список"],
+      "expectedLosses": ["підкреслення й колір тексту (mammoth без styleMap для них)"],
+      "automatedTest": null,
+      "result": "not produced: Word 16.0 через COM у середовищі перевірки не завершував SaveAs2 (прихований діалог; ізольована проба з тим самим вмістом зберігала). Потрібно створити файл у Word вручну"
+    },
+    {
+      "id": "docx-table",
+      "format": "docx",
+      "file": null,
+      "origin": "pending: має бути створений Microsoft Word",
+      "supportedProperties": ["таблиця 3×3", "рядок заголовка"],
+      "expectedLosses": [],
+      "automatedTest": null,
+      "result": "not produced: див. docx-formatted-text"
+    },
+    {
+      "id": "docx-image-two-pages",
+      "format": "docx",
+      "file": null,
+      "origin": "pending: має бути створений Microsoft Word",
+      "supportedProperties": ["вбудоване PNG", "текст на двох сторінках"],
+      "expectedLosses": ["розрив сторінки (ПЛЮС Текст перерозбиває сторінки сам)"],
+      "automatedTest": null,
+      "result": "not produced: див. docx-formatted-text"
+    },
+    {
+      "id": "pptx-text-shapes",
+      "format": "pptx",
+      "file": "plus-exports/plus-slides-text-shapes.pptx",
+      "source": "plus-slides-text-shapes.json",
+      "origin": "експорт ПЛЮС Слайди (PptxGenJS 4.0.1) через tests/compatibility-export.html",
+      "supportedProperties": ["редаговані текстові блоки", "прямокутник і коло"],
+      "expectedLosses": [],
+      "automatedTest": "tests/slides-domain-behavior.html: pptx corpus: text and shapes become editable slide objects",
+      "externalCheck": { "program": "Microsoft PowerPoint 16.0 build 17932", "result": "opened: 4 фігури, текст «Кругообіг води», AutoShapeType 1 (прямокутник) і 9 (овал)" },
+      "result": "passed"
+    },
+    {
+      "id": "pptx-local-image",
+      "format": "pptx",
+      "file": "plus-exports/plus-slides-local-image.pptx",
+      "source": "plus-slides-local-image.json",
+      "origin": "експорт ПЛЮС Слайди (PptxGenJS 4.0.1) через tests/compatibility-export.html",
+      "supportedProperties": ["локальне PNG як медіа", "підпис"],
+      "expectedLosses": [],
+      "automatedTest": "tests/slides-domain-behavior.html: pptx corpus: local image is embedded as media",
+      "externalCheck": { "program": "Microsoft PowerPoint 16.0 build 17932", "result": "opened: текст і рисунок (Shape.Type 13)" },
+      "result": "passed"
+    },
+    {
+      "id": "pptx-table-chart-link",
+      "format": "pptx",
+      "file": "plus-exports/plus-slides-table-chart-link.pptx",
+      "source": "plus-slides-table-chart-link.json",
+      "origin": "експорт ПЛЮС Слайди (PptxGenJS 4.0.1) через tests/compatibility-export.html",
+      "supportedProperties": ["таблиця", "нативна стовпчаста діаграма", "посилання на інший слайд"],
+      "expectedLosses": [],
+      "automatedTest": "tests/slides-domain-behavior.html: pptx corpus: table, native chart and slide link are exported",
+      "externalCheck": { "program": "Microsoft PowerPoint 16.0 build 17932", "result": "opened: 2 слайди, HasTable, HasChart, дія посилання 7 на тексті" },
+      "result": "passed"
+    }
+  ],
+  "plusExportChecks": [
+    {
+      "file": "plus-exports/plus-tables-formulas.xlsx",
+      "origin": "експорт ПЛЮС Таблиці через tests/compatibility-export.html",
+      "externalCheck": {
+        "program": "Microsoft Excel 16.0 build 17932",
+        "result": "opened after fix: до виправлення Excel не відкривав файл через порожній <cols></cols>. Excel прочитав 2.5 (Double), TRUE (Boolean), «більше» (String), #DIV/0! (Error), 3 і 7; ROUND без кешу перерахував у 3.33"
+      },
+      "automatedTest": "tests/xlsx-behavior.html: cached value checks + sheet without column widths has no empty <cols>",
+      "result": "passed"
+    },
+    {
+      "file": "plus-exports/plus-text-formatted.docx",
+      "origin": "експорт ПЛЮС Текст через tests/compatibility-export.html",
+      "externalCheck": {
+        "program": "Microsoft Word 16.0",
+        "result": "opened: перший абзац «Звіт ПЛЮС» зі стилем «Заголовок 1», 1 таблиця з 2 рядками, 2 абзаци списку, жирне «жирний»"
+      },
+      "automatedTest": "tests/text-behavior.html: docx round-trip keeps table structure and line breaks",
+      "result": "passed"
+    }
+  ],
+  "rawResults": "office-reader-results.json"
+}

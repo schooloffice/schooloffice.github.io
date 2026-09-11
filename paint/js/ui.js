@@ -616,7 +616,12 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       input.focus();
       input.select();
 
+      // Enter/Escape прибирають поле з DOM, а видалення сфокусованого поля запускає
+      // blur: без прапорця другий finish(true) зберігав би назву навіть після Escape.
+      let finished = false;
       const finish = (commit) => {
+        if (finished) return;
+        finished = true;
         const next = commit ? (input.value.trim() || constants.DEFAULT_FILE_NAME) : current;
         state.fileName = next;
         const span = document.createElement('span');

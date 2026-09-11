@@ -129,6 +129,10 @@
           <span><i class="fa-solid fa-magnifying-glass fa-fw"></i> Знайти…</span>
           <span class="shortcut">Ctrl+F</span>
         </button>
+        <button class="menu-item" data-action="replace" role="menuitem">
+          <span><i class="fa-solid fa-right-left fa-fw"></i> Замінити…</span>
+          <span class="shortcut">Ctrl+H</span>
+        </button>
       </div>
     </div>
 
@@ -167,6 +171,11 @@
         <button class="menu-item checked" data-action="zoom-100" role="menuitem">100%</button>
         <button class="menu-item" data-action="zoom-125" role="menuitem">125%</button>
         <button class="menu-item" data-action="zoom-150" role="menuitem">150%</button>
+        <div class="menu-sep"></div>
+        <button class="menu-item checked" data-action="toggle-spellcheck" role="menuitemcheckbox" aria-checked="true"
+          title="Словник надає браузер або система; докладніше — «Про ПЛЮС Текст»">
+          <span><i class="fa-solid fa-spell-check fa-fw"></i> Перевірка правопису браузером</span>
+        </button>
       </div>
     </div>
 
@@ -517,22 +526,28 @@
     </div>
   </div>
 
-  <!-- Пошук -->
-  <div id="modalFind" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalFindTitle">
-    <div class="modal-box">
+  <!-- Пошук і заміна -->
+  <div id="modalFind" class="modal-overlay find-overlay" role="dialog" aria-modal="true" aria-labelledby="modalFindTitle">
+    <div class="modal-box find-box">
       <div class="modal-title" id="modalFindTitle">
         <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-        Знайти
+        Знайти й замінити
       </div>
-      <div class="find-row">
-        <input type="search" id="findInput" placeholder="Введи слово для пошуку…" data-autofocus aria-label="Пошук"
-          data-find-input>
-        <button class="btn-primary" data-find-next>
-          Знайти
-        </button>
+      <div class="find-fields">
+        <label class="find-field" for="findInput">Знайти
+          <input type="search" id="findInput" placeholder="Слово або фраза" data-autofocus autocomplete="off" spellcheck="false">
+        </label>
+        <label class="find-field" for="replaceInput">Замінити на
+          <input type="text" id="replaceInput" placeholder="Новий текст" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="find-option"><input type="checkbox" id="findMatchCase"> Враховувати регістр</label>
       </div>
-      <div class="modal-actions">
+      <p class="find-status" id="findStatus" role="status" aria-live="polite"></p>
+      <div class="modal-actions find-actions">
         <button class="btn-secondary" data-close-modal="modalFind">Закрити</button>
+        <button class="btn-secondary" data-replace-all>Замінити всі</button>
+        <button class="btn-secondary" data-replace-one>Замінити</button>
+        <button class="btn-primary" data-find-next>Знайти далі</button>
       </div>
     </div>
   </div>
@@ -631,6 +646,7 @@
         <kbd>Ctrl+O</kbd><span>Відкрити файл</span>
         <kbd>Ctrl+P</kbd><span>Друк</span>
         <kbd>Ctrl+F</kbd><span>Пошук</span>
+        <kbd>Ctrl+H</kbd><span>Знайти й замінити</span>
         <kbd>Ctrl+A</kbd><span>Виділити все</span>
         <kbd>Ctrl+X</kbd><span>Вирізати</span>
         <kbd>Ctrl+C</kbd><span>Копіювати</span>
@@ -660,6 +676,11 @@
         Частина пакету <strong>Офіс ПЛЮС</strong>.<br><br>
         Підтримує .txt, .rtf, .docx.<br>
         Без реєстрації та хмарного сховища.
+      </p>
+      <p class="modal-text" id="spellcheckHelp">
+        Правопис перевіряє сам браузер. Українські слова підкреслюються, лише якщо в браузері чи системі
+        встановлено український словник; без мережі він доступний не завжди. Розширену хмарну перевірку
+        ПЛЮС Текст не вмикає. Вимкнути перевірку можна в меню «Перегляд».
       </p>
       <a href="https://itnauka.org/office" class="modal-link">
         itnauka.org/office
@@ -729,6 +750,7 @@
   <script src="ui/modals.js"></script>
   <script src="ui/toolbar.js"></script>
   <script src="ui/menu.js"></script>
+  <script src="ui/find.js"></script>
   <script src="ui/editor.js"></script>
   <script src="ui/page.js"></script>
   <script src="js/app.js"></script>

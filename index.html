@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:;">
   <title>Офіс ПЛЮС — Онлайн-редактори для школи</title>
   <!-- Favicons -->
@@ -142,8 +142,17 @@
 
     /* Card Customization */
     .office-card {
+      /* --card-accent лишається декоративним (рамка, іконка). Для тексту й кнопок
+         беремо затемнений відтінок: білий текст і текст на світлій плашці >= 4.5:1. */
+      --card-accent-strong: color-mix(in srgb, var(--card-accent) 62%, #000);
+      --card-accent-text: var(--card-accent-strong);
       border-top: 4px solid var(--card-accent);
       padding: 16px;
+    }
+
+    body.dark-mode .office-card {
+      /* На темній картці текст має бути світлим; кнопка лишається темною з білим текстом. */
+      --card-accent-text: color-mix(in srgb, var(--card-accent) 45%, #fff);
     }
 
     .office-card-icon {
@@ -167,7 +176,7 @@
     .office-card .card-subtitle {
       font-size: 0.75rem;
       font-weight: 800;
-      color: var(--card-accent);
+      color: var(--card-accent-text);
       text-transform: uppercase;
       letter-spacing: 1px;
       margin-bottom: 4px;
@@ -229,13 +238,13 @@
       font-weight: 800;
       padding: 4px 8px;
       background: var(--card-accent-light);
-      color: var(--card-accent);
+      color: var(--card-accent-text);
       border-radius: 6px;
       text-transform: lowercase;
     }
 
     .btn-office {
-      background-color: var(--card-accent);
+      background-color: var(--card-accent-strong, var(--card-accent));
       color: white;
       padding: 9px 18px;
       border-radius: 10px;
@@ -249,7 +258,8 @@
     }
 
     .btn-office:hover {
-      filter: brightness(1.1);
+      /* Темніше, а не світліше: білий текст на hover лишається >= 4.5:1. */
+      filter: brightness(.92);
       transform: translateX(3px);
       box-shadow: 0 4px 12px var(--card-accent-light);
     }
@@ -543,7 +553,7 @@
         <!-- ПЛЮС Вектор -->
         <article class="card office-card"
           style="--card-accent: var(--office-fuchsia); --card-accent-light: var(--office-fuchsia-light);">
-          <span class="status-badge status-soon">soon</span>
+          <span class="status-badge status-soon">beta</span>
           <div class="office-card-icon">
             <i class="fas fa-bezier-curve"></i>
           </div>

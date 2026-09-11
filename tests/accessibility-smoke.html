@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office PLUS Accessibility Smoke</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #b91c1c; }
+    iframe { position: fixed; left: 0; top: 0; border: 0; opacity: .01; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <h1>Office PLUS Accessibility Smoke</h1>
+  <pre id="result">Running...</pre>
+  <script>
+    // Автоматизована частина A1: контраст computed styles (WCAG 1.4.3) і досяжність
+    // команд у viewport 683x384 CSS px — layout-еквівалент browser zoom 200% на
+    // 1366x768. Це не заміна ручної перевірки справжнього zoom і не CSS zoom.
+    const result = document.getElementById('result');
+    const lines = [];
+    const failures = [];
+    const services = ['text', 'tables', 'paint', 'slides', 'flowcharts', 'vector'];
+    const zoom200 = { width: 683, height: 384 };
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+    function expect(name, ok, details = '') {
+      if (ok) lines.push(`PASS ${name}`);
+      else failures.push(`FAIL ${name}${details ? `\n    ${details}` : ''}`);
+    }
+
+    function parseColor(value) {
+      const text = String(value).trim();
+      let match = text.match(/^rgba?\(([^)]+)\)$/);
+      if (match) {
+        const parts = match[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+        return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
+      }
+      match = text.match(/^color\(srgb\s+([^)]+)\)$/);
+      if (match) {
+        const parts = match[1].split(/[\s/]+/).filter(Boolean).map(Number);
+        return { r: parts[0] * 255, g: parts[1] * 255, b: parts[2] * 255, a: parts.length > 3 ? parts[3] : 1 };
+      }
+      return null;
+    }
+
+    const blend = (fg, bg, alpha) => ({ r: fg.r * alpha + bg.r * (1 - alpha), g: fg.g * alpha + bg.g * (1 - alpha), b: fg.b * alpha + bg.b * (1 - alpha), a: 1 });
+    const channel = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    const luminance = c => 0.2126 * channel(c.r) + 0.7152 * channel(c.g) + 0.0722 * channel(c.b);
+    const contrast = (a, b) => { const l1 = luminance(a), l2 = luminance(b); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); };
+    const hex = c => '#' + [c.r, c.g, c.b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+    const describe = node => node.tagName.toLowerCase() + (node.id ? `#${node.id}` : '') + [...node.classList].slice(0, 2).map(name => `.${name}`).join('');
+
+    function backgroundOf(win, element) {
+      const layers = [];
+      for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
+        const style = win.getComputedStyle(node);
+        // Градієнт або зображення під текстом не рахуємо автоматично.
+        if (style.backgroundImage && style.backgroundImage !== 'none') return null;
+        const color = parseColor(style.backgroundColor);
+        if (color && color.a > 0) {
+          layers.push(color);
+          if (color.a >= 1) break;
+        }
+      }
+      let background = { r: 255, g: 255, b: 255, a: 1 };
+      for (let index = layers.length - 1; index >= 0; index -= 1) background = blend(layers[index], background, layers[index].a);
+      return background;
+    }
+
+    // Видимий текст документа: власні текстові вузли або значення полів.
+    function contrastFailures(win, doc) {
+      const found = [];
+      for (const element of doc.body.querySelectorAll('*')) {
+        const ownText = [...element.childNodes].filter(node => node.nodeType === 3).map(node => node.textContent).join('').trim();
+        const isField = element.matches('select, textarea, input:not([type=hidden]):not([type=range]):not([type=color]):not([type=checkbox]):not([type=radio]):not([type=file])');
+        const text = ownText || (isField ? String(element.value || '').trim() : '');
+        if (!text || element.closest('script, style, noscript, canvas, svg')) continue;
+        if (!element.getClientRects().length) continue;
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 1 || rect.height <= 1) continue;
+        const style = win.getComputedStyle(element);
+        if (style.visibility !== 'visible') continue;
+        // WCAG 1.4.3 не поширюється на неактивні елементи.
+        if (element.closest(':disabled, [aria-disabled="true"], .disabled')) continue;
+        let opacity = 1;
+        for (let node = element; node && node.nodeType === 1; node = node.parentElement) opacity *= Number(win.getComputedStyle(node).opacity);
+        if (opacity < 0.1) continue;
+        const background = backgroundOf(win, element);
+        const color = parseColor(style.color);
+        if (!background || !color) continue;
+        const foreground = blend(color, background, color.a * opacity);
+        const size = parseFloat(style.fontSize);
+        const need = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700) ? 3 : 4.5;
+        const ratio = contrast(foreground, background);
+        if (ratio + 1e-6 < need) found.push(`${describe(element)} "${text.slice(0, 28)}" ${hex(foreground)} on ${hex(background)} = ${ratio.toFixed(2)} < ${need}`);
+      }
+      return [...new Set(found)];
+    }
+
+    function expectContrast(name, frame) {
+      const found = contrastFailures(frame.contentWindow, frame.contentDocument);
+      expect(`${name}: text contrast`, found.length === 0, found.slice(0, 12).join('\n    '));
+    }
+
+    // Частка площі елемента, не обрізана viewport і overflow-предками.
+    function visibleFraction(win, element, width, height) {
+      const rect = element.getBoundingClientRect();
+      let left = Math.max(rect.left, 0);
+      let top = Math.max(rect.top, 0);
+      let right = Math.min(rect.right, width);
+      let bottom = Math.min(rect.bottom, height);
+      for (let node = element.parentElement; node && node !== element.ownerDocument.documentElement; node = node.parentElement) {
+        const style = win.getComputedStyle(node);
+        const box = node.getBoundingClientRect();
+        if (style.overflowX !== 'visible') { left = Math.max(left, box.left); right = Math.min(right, box.right); }
+        if (style.overflowY !== 'visible') { top = Math.max(top, box.top); bottom = Math.min(bottom, box.bottom); }
+      }
+      const area = rect.width * rect.height;
+      return area > 0 ? Math.max(0, right - left) * Math.max(0, bottom - top) / area : 0;
+    }
+
+    function hitVisible(win, element, width, height) {
+      if (visibleFraction(win, element, width, height) < 0.9) return false;
+      const rect = element.getBoundingClientRect();
+      const hit = element.ownerDocument.elementFromPoint(rect.left + rect.width / 2, rect.top + Math.min(rect.height / 2, 10));
+      return !!hit && (hit === element || element.contains(hit));
+    }
+
+    // Досяжний: видимий одразу або після прокрутки сторінки чи контейнера достатнього
+    // розміру. Прокрутка вузької смуги, у яку елемент ледве вміщається, не рахується.
+    function isReachable(win, element, width, height) {
+      if (!element.getClientRects().length) return false;
+      if (hitVisible(win, element, width, height)) return true;
+      const doc = element.ownerDocument;
+      const chain = [];
+      for (let node = element.parentElement; node; node = node.parentElement) chain.push([node, node.scrollTop, node.scrollLeft]);
+      // Центр, а не край: край вікна може перекривати sticky-шапка чи фіксований статус.
+      element.scrollIntoView({ block: 'center', inline: 'nearest' });
+      const rect = element.getBoundingClientRect();
+      for (const [node, top, left] of chain) {
+        if (node === doc.documentElement || node === doc.body) continue;
+        if (node.scrollTop !== top && node.clientHeight < rect.height * 3) return false;
+        if (node.scrollLeft !== left && node.clientWidth < rect.width * 1.5) return false;
+      }
+      return hitVisible(win, element, width, height);
+    }
+
+    function expectReachable(name, win, elements, width, height) {
+      const missing = elements
+        .filter(element => !isReachable(win, element, width, height))
+        .map(element => {
+          const rect = element.getBoundingClientRect();
+          const hit = element.ownerDocument.elementFromPoint(rect.left + rect.width / 2, rect.top + Math.min(rect.height / 2, 10));
+          const label = (element.getAttribute('title') || element.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+          return `${describe(element)} "${label}" at ${Math.round(rect.left)},${Math.round(rect.top)} ${Math.round(rect.width)}x${Math.round(rect.height)}; visible ${visibleFraction(win, element, width, height).toFixed(2)}; hit ${hit ? describe(hit) : 'none'}`;
+        });
+      expect(name, elements.length > 0 && missing.length === 0, elements.length ? missing.join('\n    ') : 'no elements found');
+    }
+
+    async function loadFrame(url, viewport) {
+      const frame = document.createElement('iframe');
+      frame.style.width = `${viewport.width}px`;
+      frame.style.height = `${viewport.height}px`;
+      document.body.appendChild(frame);
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${url}: load timeout`)), 10000);
+        frame.addEventListener('load', () => { clearTimeout(timer); resolve(); }, { once: true });
+        frame.src = url;
+      });
+      // Нативний діалог (наприклад, prompt перейменування в Таблицях) блокує headless Chrome.
+      Object.assign(frame.contentWindow, { prompt: () => null, confirm: () => false, alert: () => {} });
+      await wait(700);
+      // Заміряємо кінцеві кольори, а не середину CSS transition.
+      const freeze = frame.contentDocument.createElement('style');
+      freeze.textContent = '*, *::before, *::after { transition: none !important; animation: none !important; }';
+      frame.contentDocument.head.appendChild(freeze);
+      await wait(50);
+      return frame;
+    }
+
+    const menuTitles = doc => [...(doc.querySelector('.office-menubar')?.querySelectorAll('button, [role=menuitem]') || [])]
+      .filter(node => !node.closest('[role=menu], .menu-dropdown, .office-dropdown'));
+    const openMenuItems = doc => [...doc.querySelectorAll('[role=menu] button, [role=menu] [role=menuitem], .menu-dropdown button, .office-dropdown button')]
+      .filter(node => node.getClientRects().length);
+
+    async function openFileMenu(doc) {
+      const title = menuTitles(doc)[0];
+      title?.click();
+      await wait(150);
+      return openMenuItems(doc);
+    }
+
+    async function closeMenus(doc) {
+      doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      doc.body.click();
+      await wait(80);
+    }
+
+    async function checkLanding() {
+      let frame = await loadFrame('../index.html', { width: 1366, height: 768 });
+      const viewportMeta = frame.contentDocument.querySelector('meta[name=viewport]')?.content || '';
+      const maxScale = viewportMeta.match(/maximum-scale\s*=\s*([\d.]+)/i);
+      expect('landing: viewport allows user zoom', !/user-scalable\s*=\s*(no|0)/i.test(viewportMeta) && (!maxScale || Number(maxScale[1]) >= 2), viewportMeta);
+      expectContrast('landing light 1366x768', frame);
+      frame.contentDocument.body.classList.add('dark-mode');
+      await wait(50);
+      expectContrast('landing dark 1366x768', frame);
+      frame.remove();
+
+      frame = await loadFrame('../index.html', zoom200);
+      const doc = frame.contentDocument;
+      expect('landing 683x384: no horizontal overflow', doc.documentElement.scrollWidth <= zoom200.width + 2, `${doc.documentElement.scrollWidth}px`);
+      expectContrast('landing 683x384', frame);
+      expectReachable('landing 683x384: every editor link reachable', frame.contentWindow, [...doc.querySelectorAll('.btn-office')], zoom200.width, zoom200.height);
+      frame.remove();
+    }
+
+    async function checkEditor(service) {
+      let frame = await loadFrame(`../${service}/index.html`, { width: 1366, height: 768 });
+      let doc = frame.contentDocument;
+      expectContrast(`${service} 1366x768`, frame);
+
+      const badge = doc.getElementById('saveBadge');
+      if (badge) {
+        badge.style.opacity = '1';
+        badge.style.display = '';
+        expectContrast(`${service}: save badge shown`, frame);
+      }
+      const storageStatus = doc.querySelector('[data-office-storage-status]');
+      for (const state of ['saved', 'saving', 'error']) {
+        if (!storageStatus) break;
+        storageStatus.dataset.state = state;
+        expectContrast(`${service}: storage status ${state}`, frame);
+      }
+
+      await openFileMenu(doc);
+      expectContrast(`${service}: file menu open`, frame);
+      await closeMenus(doc);
+
+      const fileName = doc.getElementById('fileName');
+      // Inline-поле перейменування є лише в Малюнках; Таблиці перейменовують через prompt.
+      if (fileName && service === 'paint') {
+        fileName.click();
+        await wait(120);
+        const input = doc.querySelector('.filename-input');
+        if (input) {
+          expectContrast(`${service}: rename field`, frame);
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        }
+      }
+      frame.remove();
+
+      frame = await loadFrame(`../${service}/index.html`, zoom200);
+      doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      expect(`${service} 683x384: no horizontal overflow`, doc.documentElement.scrollWidth <= zoom200.width + 2, `${doc.documentElement.scrollWidth}px`);
+      expectReachable(`${service} 683x384: menu titles reachable`, win, menuTitles(doc), zoom200.width, zoom200.height);
+      const headerControls = [...doc.querySelectorAll('.office-header button, .office-header a')].filter(node => node.getClientRects().length);
+      if (headerControls.length) expectReachable(`${service} 683x384: header controls reachable`, win, headerControls, zoom200.width, zoom200.height);
+      const items = await openFileMenu(doc);
+      expectReachable(`${service} 683x384: every File menu command reachable`, win, items, zoom200.width, zoom200.height);
+      await closeMenus(doc);
+      frame.remove();
+    }
+
+    async function run() {
+      await checkLanding();
+      for (const service of services) await checkEditor(service);
+      if (failures.length) throw new Error(`${failures.length} accessibility check(s) failed:\n${failures.join('\n')}`);
+      result.className = 'pass';
+      result.textContent = `${lines.join('\n')}\n\nPASSED`;
+      document.body.dataset.accessibility = 'passed';
+    }
+
+    run().catch(error => {
+      result.className = 'fail';
+      result.textContent = `${String(error?.message || error)}\n\n${lines.join('\n')}`;
+      document.body.dataset.accessibility = 'failed';
+    });
+  </script>
+</body>
+</html>

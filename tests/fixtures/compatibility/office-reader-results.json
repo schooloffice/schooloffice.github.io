@@ -1,0 +1,179 @@
+{
+    "checkedAt":  "2026-09-11T15:47:11",
+    "machine":  "LEGION",
+    "excel":  {
+                  "program":  "Microsoft Excel 16.0 build 17932",
+                  "file":  "plus-tables-formulas.xlsx",
+                  "cells":  {
+                                "B2":  {
+                                           "formula":  "=A2/A3",
+                                           "value":  2.5,
+                                           "type":  "Double"
+                                       },
+                                "B3":  {
+                                           "formula":  "=A2\u003eA3",
+                                           "value":  true,
+                                           "type":  "Boolean"
+                                       },
+                                "B4":  {
+                                           "formula":  "=IF(A2\u003eA3,\"більше\",\"менше\")",
+                                           "value":  "більше",
+                                           "type":  "String"
+                                       },
+                                "B5":  {
+                                           "formula":  "=A2/0",
+                                           "value":  "#DIV/0!",
+                                           "type":  "Error"
+                                       },
+                                "B6":  {
+                                           "formula":  "=ROUND(A2/3,2)",
+                                           "value":  3.33,
+                                           "type":  "Double"
+                                       },
+                                "B7":  {
+                                           "formula":  "=SUM(Підсумок!A1:A2)",
+                                           "value":  3,
+                                           "type":  "Double"
+                                       },
+                                "B8":  {
+                                           "formula":  "=AVERAGE(A2:A3)",
+                                           "value":  7,
+                                           "type":  "Double"
+                                       }
+                            },
+                  "sheets":  [
+                                 "Дані",
+                                 "Підсумок"
+                             ]
+              },
+    "word":  {
+                 "program":  "Microsoft Word 16.0",
+                 "file":  "plus-text-formatted.docx",
+                 "paragraphs":  11,
+                 "tables":  1,
+                 "tableRows":  2,
+                 "firstParagraph":  "Звіт ПЛЮС",
+                 "firstParagraphStyle":  "Заголовок 1",
+                 "listParagraphs":  2,
+                 "boldWords":  [
+                                   "жирний"
+                               ]
+             },
+    "powerpoint":  {
+                       "program":  "Microsoft PowerPoint 16.0 build 17932",
+                       "files":  {
+                                     "plus-slides-text-shapes.pptx":  {
+                                                                          "slides":  [
+                                                                                         {
+                                                                                             "index":  1,
+                                                                                             "shapes":  [
+                                                                                                            {
+                                                                                                                "type":  1,
+                                                                                                                "hasTable":  false,
+                                                                                                                "hasChart":  false,
+                                                                                                                "text":  "Кругообіг води",
+                                                                                                                "autoShapeType":  1,
+                                                                                                                "linkAction":  0
+                                                                                                            },
+                                                                                                            {
+                                                                                                                "type":  1,
+                                                                                                                "hasTable":  false,
+                                                                                                                "hasChart":  false,
+                                                                                                                "text":  "Випаровування, конденсація, опади",
+                                                                                                                "autoShapeType":  1,
+                                                                                                                "linkAction":  0
+                                                                                                            },
+                                                                                                            {
+                                                                                                                "type":  1,
+                                                                                                                "hasTable":  false,
+                                                                                                                "hasChart":  false,
+                                                                                                                "text":  "",
+                                                                                                                "autoShapeType":  1,
+                                                                                                                "linkAction":  0
+                                                                                                            },
+                                                                                                            {
+                                                                                                                "type":  1,
+                                                                                                                "hasTable":  false,
+                                                                                                                "hasChart":  false,
+                                                                                                                "text":  "",
+                                                                                                                "autoShapeType":  9,
+                                                                                                                "linkAction":  0
+                                                                                                            }
+                                                                                                        ]
+                                                                                         }
+                                                                                     ]
+                                                                      },
+                                     "plus-slides-local-image.pptx":  {
+                                                                          "slides":  [
+                                                                                         {
+                                                                                             "index":  1,
+                                                                                             "shapes":  [
+                                                                                                            {
+                                                                                                                "type":  1,
+                                                                                                                "hasTable":  false,
+                                                                                                                "hasChart":  false,
+                                                                                                                "text":  "Фото досліду",
+                                                                                                                "autoShapeType":  1,
+                                                                                                                "linkAction":  0
+                                                                                                            },
+                                                                                                            {
+                                                                                                                "type":  13,
+                                                                                                                "hasTable":  false,
+                                                                                                                "hasChart":  false,
+                                                                                                                "text":  "",
+                                                                                                                "autoShapeType":  1,
+                                                                                                                "linkAction":  null
+                                                                                                            }
+                                                                                                        ]
+                                                                                         }
+                                                                                     ]
+                                                                      },
+                                     "plus-slides-table-chart-link.pptx":  {
+                                                                               "slides":  [
+                                                                                              {
+                                                                                                  "index":  1,
+                                                                                                  "shapes":  [
+                                                                                                                 {
+                                                                                                                     "type":  1,
+                                                                                                                     "hasTable":  false,
+                                                                                                                     "hasChart":  false,
+                                                                                                                     "text":  "Перейти до висновків",
+                                                                                                                     "autoShapeType":  1,
+                                                                                                                     "linkAction":  7
+                                                                                                                 },
+                                                                                                                 {
+                                                                                                                     "type":  19,
+                                                                                                                     "hasTable":  true,
+                                                                                                                     "hasChart":  false,
+                                                                                                                     "text":  "",
+                                                                                                                     "autoShapeType":  -2,
+                                                                                                                     "linkAction":  null
+                                                                                                                 },
+                                                                                                                 {
+                                                                                                                     "type":  3,
+                                                                                                                     "hasTable":  false,
+                                                                                                                     "hasChart":  true,
+                                                                                                                     "text":  "",
+                                                                                                                     "autoShapeType":  -2,
+                                                                                                                     "linkAction":  null
+                                                                                                                 }
+                                                                                                             ]
+                                                                                              },
+                                                                                              {
+                                                                                                  "index":  2,
+                                                                                                  "shapes":  [
+                                                                                                                 {
+                                                                                                                     "type":  1,
+                                                                                                                     "hasTable":  false,
+                                                                                                                     "hasChart":  false,
+                                                                                                                     "text":  "Висновки",
+                                                                                                                     "autoShapeType":  1,
+                                                                                                                     "linkAction":  0
+                                                                                                                 }
+                                                                                                             ]
+                                                                                              }
+                                                                                          ]
+                                                                           }
+                                 }
+                   }
+}

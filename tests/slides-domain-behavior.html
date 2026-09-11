@@ -339,6 +339,43 @@
       const realPptxBlob = await realPptx.presentation.write({ outputType: 'blob', compression: true });
       checks.push(check('vendored PptxGenJS builds a non-empty presentation offline', realPptxBlob instanceof Blob && realPptxBlob.size > 1000));
 
+      // Корпус сумісності PPTX: проєкти ПЛЮС → справжній PptxGenJS → XML пакета.
+      // Відкриття цих файлів у зовнішній програмі фіксується в fixtures/compatibility/registry.json.
+      const corpusPptx = {};
+      for (const name of ['plus-slides-text-shapes', 'plus-slides-local-image', 'plus-slides-table-chart-link']) {
+        const project = normalizePresentation(await (await fetch(`fixtures/compatibility/${name}.json`, { cache: 'no-store' })).json());
+        const built = buildPptxPresentation(name, project.slides, window.PptxGenJS);
+        const zip = await window.JSZip.loadAsync(await built.presentation.write({ outputType: 'blob', compression: true }));
+        const files = Object.keys(zip.files);
+        const slidePaths = files.filter(path => /^ppt\/slides\/slide\d+\.xml$/.test(path)).sort();
+        corpusPptx[name] = {
+          files,
+          slides: await Promise.all(slidePaths.map(path => zip.file(path).async('string'))),
+          report: built.report
+        };
+      }
+      // При падінні в назві перевірки лишаються факти з XML, щоб не відтворювати пакет вручну.
+      const pptxFacts = entry => JSON.stringify({
+        slides: entry.slides.length,
+        sp: entry.slides.map(xml => (xml.match(/<p:sp[\s>]/g) || []).length),
+        pic: entry.slides.map(xml => (xml.match(/<p:pic[\s>]/g) || []).length),
+        prst: [...new Set(entry.slides.flatMap(xml => xml.match(/prst="[^"]+"/g) || []))],
+        media: entry.files.filter(path => /^ppt\/(media|charts)\//.test(path)),
+        warnings: entry.report.warnings
+      });
+      const factCheck = (label, ok, entry) => check(ok ? label : `${label} ${pptxFacts(entry)}`, ok);
+      const corpusShapes = corpusPptx['plus-slides-text-shapes'];
+      checks.push(factCheck('pptx corpus: text and shapes become editable slide objects', corpusShapes.slides.length === 1
+        && corpusShapes.slides[0].includes('Кругообіг води') && (corpusShapes.slides[0].match(/<p:sp[\s>]/g) || []).length >= 4
+        && corpusShapes.slides[0].includes('prst="ellipse"'), corpusShapes));
+      const corpusImage = corpusPptx['plus-slides-local-image'];
+      checks.push(factCheck('pptx corpus: local image is embedded as media', corpusImage.files.some(path => /^ppt\/media\/.+\.png$/.test(path))
+        && /<p:pic[\s>]/.test(corpusImage.slides[0]), corpusImage));
+      const corpusRich = corpusPptx['plus-slides-table-chart-link'];
+      checks.push(factCheck('pptx corpus: table, native chart and slide link are exported', corpusRich.slides.length === 2
+        && corpusRich.slides[0].includes('<a:tbl>') && corpusRich.files.some(path => /^ppt\/charts\/chart\d+\.xml$/.test(path))
+        && corpusRich.slides[0].includes('ppaction://hlinksldjump'), corpusRich));
+
       const roundTripFixture = {
         schemaVersion: SCHEMA_VERSION,
         textModelVersion: TEXT_MODEL_VERSION,

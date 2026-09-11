@@ -138,6 +138,225 @@
       await wait(150);
     }
 
+    // B2: перевірка правопису браузером — налаштування вигляду, а не документа.
+    async function runSpellcheckChecks(win, doc, editor) {
+      const item = doc.querySelector('.menu-item[data-action="toggle-spellcheck"]');
+      const pagesInherit = expected => pageContents(doc)
+        .every(page => page.spellcheck === expected && !page.hasAttribute('spellcheck'));
+
+      await resetDocument(win, doc);
+      const langInherited = doc.documentElement.lang === 'uk'
+        && editor.closest('[lang]')?.lang === 'uk'
+        && pageContents(doc).every(page => page.closest('[lang]')?.lang === 'uk');
+      const defaultOn = editor.spellcheck === true && editor.getAttribute('spellcheck') === 'true' && pagesInherit(true)
+        && item?.getAttribute('role') === 'menuitemcheckbox'
+        && item.getAttribute('aria-checked') === 'true' && item.classList.contains('checked');
+
+      pageContents(doc)[0].innerHTML = '<p>Учень написав твір.</p><table><tbody><tr><td>клітинка</td></tr></tbody></table>';
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await wait(300);
+      win.art.history.init(editor);
+      win.art.history.markSaved();
+      const before = win.art.editor.getExportHTML();
+
+      item.click();
+      await wait(100);
+      const cell = doc.querySelector('#editor td');
+      const turnedOff = editor.spellcheck === false && editor.getAttribute('spellcheck') === 'false' && pagesInherit(false)
+        && cell?.spellcheck === false
+        && item.getAttribute('aria-checked') === 'false' && !item.classList.contains('checked')
+        && win.localStorage.getItem('office_text_spellcheck') === 'off';
+      const viewSettingKeepsDocument = win.art.editor.getExportHTML() === before
+        && !win.art.state.isDirty() && !win.art.history.canUndo();
+
+      // Нові аркуші успадковують вимкнену перевірку.
+      pageContents(doc)[0].insertAdjacentHTML('beforeend', Array.from({ length: 70 }, (_, index) => `<p>Абзац ${index + 1} перевірки правопису на нових сторінках.</p>`).join(''));
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await waitFor(() => pageContents(doc).length > 1, 'spellcheck pagination', 20000);
+      await wait(300);
+      const newPagesInherit = pageContents(doc).length > 1 && pagesInherit(false);
+
+      // Undo повертає текст, але не налаштування вигляду.
+      win.art.history.undo();
+      await wait(300);
+      const undoKeepsSetting = editor.spellcheck === false && item.getAttribute('aria-checked') === 'false';
+
+      win.art.menu.dispatch('toggle-spellcheck');
+      await wait(100);
+      const turnedBackOn = editor.spellcheck === true && pagesInherit(true) && item.getAttribute('aria-checked') === 'true'
+        && win.localStorage.getItem('office_text_spellcheck') === 'on';
+      const helpExplainsDictionary = /словник/.test(doc.getElementById('spellcheckHelp')?.textContent || '')
+        && /браузер/.test(item.getAttribute('title') || '');
+
+      return {
+        diagnostics: { langInherited, defaultOn, turnedOff, viewSettingKeepsDocument, newPagesInherit, undoKeepsSetting, turnedBackOn },
+        checks: [
+          check('document pages inherit lang="uk"', langInherited),
+          check('browser spellcheck is on by default with a checked menu item', defaultOn),
+          check('turning spellcheck off applies to pages and table cells and updates the menu state', turnedOff),
+          check('spellcheck setting does not change the document, dirty state or undo', viewSettingKeepsDocument && undoKeepsSetting),
+          check('new pages inherit the spellcheck setting', newPagesInherit),
+          check('spellcheck can be turned back on and the choice is remembered', turnedBackOn),
+          check('help explains that the dictionary comes from the browser or system', helpExplainsDictionary)
+        ]
+      };
+    }
+
+    // B1: пошук і заміна. Буквальний текст, регістр, inline-вузли, кілька сторінок,
+    // клітинки таблиці, undo/redo і відсутність службових позначок у документі.
+    async function runFindReplaceChecks(win, doc, editor) {
+      const find = win.art.find;
+      const findInput = doc.getElementById('findInput');
+      const replaceInput = doc.getElementById('replaceInput');
+      const status = () => doc.getElementById('findStatus').textContent;
+      const exportHTML = () => win.art.editor.getExportHTML();
+      const selectionText = () => win.getSelection().toString();
+      const diagnostics = {};
+
+      async function load(html) {
+        await resetDocument(win, doc);
+        pageContents(doc)[0].innerHTML = html;
+        editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+        await waitFor(() => pageContents(doc).length > 1, 'find document pagination', 20000);
+        let settled = pageContents(doc).length;
+        await waitFor(() => {
+          const now = pageContents(doc).length;
+          const stable = now === settled;
+          settled = now;
+          return stable;
+        }, 'find document pagination to settle', 20000);
+        await wait(300);
+        win.art.history.init(editor);
+        win.art.history.markSaved();
+      }
+
+      const filler = Array.from({ length: 70 }, (_, index) => `<p>Абзац ${index + 1} для перевірки пошуку на кількох сторінках.</p>`).join('');
+      await load(`<p>При<strong>віт</strong>, світ! Привіт ще раз.</p><p>ПРИВІТ великими.</p><p>Текст &lt;img src=x&gt; тут.</p>${filler}<p>Кінець: привіт.</p>`);
+      const original = exportHTML();
+      diagnostics.pages = pageContents(doc).length;
+      const ignoreCaseCount = find.collect('привіт').length;
+      const matchCaseCount = find.collect('Привіт', { matchCase: true }).length;
+      const literalImgCount = find.collect('<img src=x>').length;
+
+      win.art.menu.dispatch('find');
+      await wait(250);
+      findInput.value = 'привіт';
+      doc.querySelector('[data-find-next]').click();
+      const firstStatus = status();
+      const firstSelection = selectionText();
+      const painted = find.paintedCount();
+      const findKeepsDocument = exportHTML() === original
+        && win.art.editor.getDraftPayload().html === original
+        && !editor.innerHTML.includes('<mark')
+        && !win.art.state.isDirty()
+        && !win.art.history.canUndo();
+      for (let i = 0; i < 3; i++) doc.querySelector('[data-find-next]').click();
+      const lastNode = win.getSelection().anchorNode;
+      const lastElement = lastNode?.nodeType === 1 ? lastNode : lastNode?.parentElement;
+      const lastPage = pageContents(doc).indexOf(lastElement?.closest('.page-content'));
+      const lastBlock = lastElement?.closest('p')?.textContent || '';
+      const lastMatchOnLaterPage = status() === 'Збіг 4 з 4.' && lastPage > 0 && lastBlock.startsWith('Кінець');
+      diagnostics.navigation = { firstStatus, firstSelection, painted, lastStatus: status(), lastPage, lastBlock };
+
+      findInput.value = '';
+      doc.querySelector('[data-find-next]').click();
+      const emptyQueryHandled = status() === 'Введіть текст для пошуку.' && exportHTML() === original;
+      findInput.value = 'немає-такого-слова';
+      doc.querySelector('[data-find-next]').click();
+      const noMatchHandled = status() === 'Нічого не знайдено.' && !doc.getElementById('modalInfo').classList.contains('active');
+
+      const inlineElementsBefore = editor.querySelectorAll('b,strong,img').length;
+      const literal = find.replaceAll('<img src=x>', '<b>жирний</b>');
+      const literalReplaceIsText = literal.replaced === 1
+        && editor.querySelectorAll('b,strong,img').length === inlineElementsBefore
+        && exportHTML().includes('&lt;b&gt;жирний&lt;/b&gt;');
+      win.art.history.undo();
+      await wait(250);
+      const literalUndo = exportHTML() === original;
+
+      findInput.value = 'привіт';
+      replaceInput.value = 'Добрий день';
+      doc.querySelector('[data-replace-all]').click();
+      const replaceStatus = status();
+      await wait(300);
+      const replacedHTML = exportHTML();
+      const firstParagraph = pageContents(doc)[0].querySelector('p');
+      const replaceAllWorks = replaceStatus === 'Замінено: 4. Більше збігів немає.' && find.collect('привіт').length === 0;
+      const replacementTakesFirstCharFormat = firstParagraph.innerHTML.startsWith('Добрий день, світ') && !firstParagraph.querySelector('strong');
+      const replaceMarksDirty = win.art.state.isDirty() && win.art.history.canUndo();
+      diagnostics.replaceAll = { status: replaceStatus, firstParagraph: firstParagraph.innerHTML };
+      win.art.history.undo();
+      await wait(300);
+      const replaceAllSingleUndo = exportHTML() === original;
+      win.art.history.redo();
+      await wait(300);
+      const replaceAllRedo = exportHTML() === replacedHTML;
+      const noSearchMarkupInFile = !/<mark|search-hit|highlight/i.test(exportHTML() + win.art.editor.getDraftPayload().html);
+
+      // Таблиця на кількох сторінках: повторений заголовок і сусідні клітинки.
+      win.art.modals.close('modalFind');
+      const rows = Array.from({ length: 50 }, (_, index) => `<tr><td>${index === 0 ? 'кі' : `Рядок ${index + 1}`}</td><td>${index === 0 ? 'т' : index === 40 ? 'кіт у клітинці' : 'дані'}</td></tr>`).join('');
+      await load(`<p>кіт кіт кіт</p><table><thead><tr><th>Заголовок</th><th>Колонка</th></tr></thead><tbody>${rows}</tbody></table>`);
+      const repeatedHeaders = doc.querySelectorAll('#editor tr[data-art-table-repeat]').length;
+      const headerCount = find.collect('Заголовок').length;
+      const catCount = find.collect('кіт').length;
+      diagnostics.table = { repeatedHeaders, headerCount, catCount };
+
+      setCaretAtStart(win, pageContents(doc)[0].firstElementChild);
+      editor.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'h', ctrlKey: true, bubbles: true, cancelable: true }));
+      await wait(250);
+      const ctrlHOpensReplace = doc.getElementById('modalFind').classList.contains('active') && doc.activeElement === replaceInput;
+
+      findInput.value = 'кіт';
+      replaceInput.value = 'пес';
+      const firstPress = find.replaceCurrent('кіт', 'пес');
+      const firstPressOnlySelects = firstPress.replaced === undefined && firstPress.current === 0 && exportHTML().includes('кіт кіт кіт');
+      const secondPress = find.replaceCurrent('кіт', 'пес');
+      const secondPressReplaces = secondPress.replaced === 1 && secondPress.total === 3
+        && exportHTML().includes('пес кіт кіт') && selectionText() === 'кіт';
+      await wait(300);
+      const thirdPress = find.replaceCurrent('кіт', 'пес');
+      const replaceContinuesAfterPagination = thirdPress.replaced === 1 && exportHTML().includes('пес пес кіт');
+      editor.dispatchEvent(new win.InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+      const afterEdit = find.replaceCurrent('кіт', 'пес');
+      const editResetsCurrentMatch = afterEdit.replaced === undefined && exportHTML().includes('пес пес кіт');
+      diagnostics.replaceOne = { firstPress, secondPress, thirdPress, afterEdit };
+
+      const catCell = [...editor.querySelectorAll('td')].find(cell => cell.textContent === 'кіт у клітинці');
+      const emptied = find.replaceAll('кіт у клітинці', '');
+      await wait(300);
+      const emptyReplacementKeepsCell = emptied.replaced === 1 && !!catCell?.isConnected && catCell.innerHTML === '<br>';
+
+      win.art.modals.close('modalFind');
+      await wait(100);
+      const closeClearsHighlights = find.paintedCount() === 0;
+
+      return {
+        diagnostics,
+        checks: [
+          check('find matches text split between plain and bold, ignoring case', ignoreCaseCount === 4 && firstSelection === 'Привіт' && firstStatus === 'Збіг 1 з 4.'),
+          check('match case option narrows the matches', matchCaseCount === 2),
+          check('find treats <img ...> as literal text', literalImgCount === 1),
+          check('find highlights matches without touching the document, draft or history', findKeepsDocument && painted === 4),
+          check('find next reaches the last match on a later page', lastMatchOnLaterPage),
+          check('empty search query changes nothing and explains why', emptyQueryHandled),
+          check('no matches is reported inside the find dialog', noMatchHandled),
+          check('replacement is inserted as literal text, not HTML', literalReplaceIsText && literalUndo),
+          check('replace all replaces every match and marks the document changed', replaceAllWorks && replaceMarksDirty),
+          check('replacement takes the formatting of the first matched character', replacementTakesFirstCharFormat),
+          check('replace all is a single undo step and redo restores it', replaceAllSingleUndo && replaceAllRedo),
+          check('search leaves no markup in the file or draft', noSearchMarkupInFile),
+          check('repeated table headers are not searched', repeatedHeaders > 0 && headerCount === 1),
+          check('a match does not join neighbouring table cells', catCount === 4),
+          check('Ctrl+H opens find and replace with the replace field focused', ctrlHOpensReplace),
+          check('Replace first shows the match, then replaces it and moves on', firstPressOnlySelects && secondPressReplaces && replaceContinuesAfterPagination),
+          check('editing the document resets the current match', editResetsCurrentMatch),
+          check('empty replacement keeps the table cell editable', emptyReplacementKeepsCell),
+          check('closing the find dialog clears highlights', closeClearsHighlights)
+        ]
+      };
+    }
+
     async function run() {
       await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
 
@@ -392,6 +611,41 @@
       const exportRows = exportBox.querySelectorAll('tr').length;
       const exportKeepsHeaderOnce = exportBox.querySelectorAll('th').length === 4;
 
+      // ── Блок після розрізаного блока йде після його продовження ─────────
+      // Якщо розрізана таблиця, абзац чи список звільняють місце на аркуші,
+      // наступний блок однаково не може стати між частиною та продовженням.
+      async function paginateWithTrailingParagraph(html) {
+        await resetDocument(win, doc);
+        pageContents(doc)[0].innerHTML = `${html}<p>Кінець</p>`;
+        editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+        await waitFor(() => pageContents(doc).length > 1, 'trailing block pagination', 20000);
+        let settled = pageContents(doc).length;
+        await waitFor(() => {
+          const now = pageContents(doc).length;
+          const stable = now === settled;
+          settled = now;
+          return stable;
+        }, 'trailing block pagination to settle', 20000);
+        await wait(300);
+        const pages = pageContents(doc);
+        const endParagraph = Array.from(doc.querySelectorAll('#editor p')).find(p => p.textContent === 'Кінець');
+        const box = doc.createElement('div');
+        box.innerHTML = win.art.editor.getExportHTML();
+        const exportLast = Array.from(box.children).filter(el => (el.textContent || '').trim()).pop();
+        return {
+          endOnLastPage: !!endParagraph && endParagraph.closest('.page-content') === pages[pages.length - 1],
+          exportEndsWithParagraph: exportLast?.tagName === 'P' && exportLast.textContent === 'Кінець',
+          exportTables: box.querySelectorAll('table').length,
+          layout: pages.map(page => Array.from(page.children)
+            .map(child => `${child.tagName}${child.dataset.artTablePart ? '(cont)' : ''}`).join(' '))
+        };
+      }
+      // Рядки по 400 px: частина таблиці на першому аркуші лишає місце для абзацу.
+      const tallRows = Array.from({ length: 6 }, (_, index) => `<tr><td style="height:400px">Високий рядок ${index + 1}</td><td>дані</td></tr>`).join('');
+      const trailingAfterTable = await paginateWithTrailingParagraph(`<p>Вступ</p><table><thead><tr><th>Заголовок</th><th>Колонка</th></tr></thead><tbody>${tallRows}</tbody></table>`);
+      const trailingAfterText = await paginateWithTrailingParagraph(`<p>${Array.from({ length: 1400 }, (_, index) => `слово${index}`).join(' ')}</p>`);
+      const trailingAfterList = await paginateWithTrailingParagraph(`<ul>${Array.from({ length: 80 }, (_, index) => `<li>Пункт ${index + 1}</li>`).join('')}</ul>`);
+
       // ── DOCX round-trip таблиці ─────────────────────────────────────────
       const docxSource = '<p>До таблиці</p><table><tbody>'
         + '<tr><th>Заголовок A</th><th>Заголовок B</th></tr>'
@@ -454,6 +708,55 @@
         && exportedPage?.margin?.right === 1134
         && exportedPage?.margin?.bottom === 1701
         && exportedPage?.margin?.left === 2268;
+
+      // Спрощення .docx показуються ДО збереження; скасування нічого не завантажує.
+      const docxApi = win.art.formats.docx;
+      const realDescribeLimits = docxApi.describeExportLimits;
+      const realExportDocx = docxApi.exportDocx;
+      const realAnchorClick = win.HTMLAnchorElement.prototype.click;
+      const docxDownloads = [];
+      let docxExports = 0;
+      const docxWarning = {};
+      try {
+        docxApi.describeExportLimits = () => ['колір виділення тексту у Word стане жовтим'];
+        docxApi.exportDocx = async () => { docxExports += 1; return new win.Blob(['docx']); };
+        win.HTMLAnchorElement.prototype.click = function captureDocxDownload() {
+          if (this.download) {
+            docxDownloads.push(this.download);
+            return undefined;
+          }
+          return realAnchorClick.call(this);
+        };
+        const confirmModal = doc.getElementById('modalConfirm');
+        const confirmOpen = () => confirmModal.classList.contains('active');
+        win.art.state.setDirty(true);
+
+        await win.art.editor.saveAs('docx');
+        docxWarning.askedFirst = confirmOpen() && docxExports === 0 && docxDownloads.length === 0
+          && doc.getElementById('modalConfirmText').textContent.includes('жовтим');
+        win.art.modals.confirmNo();
+        await wait(50);
+        docxWarning.cancelKeepsState = !confirmOpen() && docxExports === 0 && docxDownloads.length === 0 && win.art.state.isDirty();
+
+        await win.art.editor.saveAs('docx');
+        win.art.modals.confirmYes();
+        await waitFor(() => docxDownloads.length === 1, 'confirmed docx save downloads', 3000);
+        docxWarning.confirmSaves = docxExports === 1 && docxDownloads[0].endsWith('.docx') && !win.art.state.isDirty();
+
+        await win.art.editor.saveAs('docx');
+        await waitFor(() => docxDownloads.length === 2, 'acknowledged docx limits save directly', 3000);
+        docxWarning.acknowledgedOnce = !confirmOpen() && docxExports === 2;
+      } catch (error) {
+        docxWarning.error = error?.message || String(error);
+      } finally {
+        docxApi.describeExportLimits = realDescribeLimits;
+        docxApi.exportDocx = realExportDocx;
+        win.HTMLAnchorElement.prototype.click = realAnchorClick;
+        win.art.modals.close?.('modalConfirm');
+        win.art.modals.close?.('modalInfo');
+      }
+      const docxWarnsBeforeSaving = !!(docxWarning.askedFirst && docxWarning.cancelKeepsState
+        && docxWarning.confirmSaves && docxWarning.acknowledgedOnce);
 
       // Rowspan, що перетинає межу сторінки, не можна рознести по двох
       // незалежних таблицях. Така таблиця має лишитися цілою і видимою.
@@ -663,6 +966,9 @@
       win.art.page.setMargins({ top: 2, right: 1.5, bottom: 2, left: 3 });
       await wait(600);
 
+      const spellcheck = await runSpellcheckChecks(win, doc, editor);
+      const findReplace = await runFindReplaceChecks(win, doc, editor);
+
       win.art.state.set('pageSize', 'letter');
       win.art.state.set('orientation', 'landscape');
       win.art.page.setMargins({ top: 4, right: 4, bottom: 4, left: 4 });
@@ -707,8 +1013,15 @@
         check('Tab on a repeated header does not add a row', repeatedHeaderTabSafe),
         check('table does not push a blank page in front of itself', firstPageHasContent),
         check('export merges the split table back', exportTables === 1 && exportRows === 50 && exportKeepsHeaderOnce),
+        check('paragraph after a split table follows the table continuation',
+          trailingAfterTable.endOnLastPage && trailingAfterTable.exportEndsWithParagraph && trailingAfterTable.exportTables === 1),
+        check('paragraph after a split paragraph follows its continuation',
+          trailingAfterText.endOnLastPage && trailingAfterText.exportEndsWithParagraph),
+        check('paragraph after a split list follows the list continuation',
+          trailingAfterList.endOnLastPage && trailingAfterList.exportEndsWithParagraph),
         check('docx round-trip keeps table structure and line breaks', docxTableRoundTripWorks),
         check('docx export keeps page size, orientation and margins', docxKeepsPageGeometry),
+        check('docx simplifications are confirmed before saving', docxWarnsBeforeSaving),
         check('rowspan table stays structurally whole and visible', rowspanTableStaysWhole),
         check('unsafe actions are disabled for merged cells', mergedActionsDisabled),
         check('a single tall table row remains visible', tallRowVisible),
@@ -724,7 +1037,9 @@
         check('Undo restores page geometry and saved state', pageSetupUndoWorks),
         check('Redo restores changed page geometry', pageSetupRedoWorks),
         check('margins change how much fits on a page', marginsChangePageCapacity),
-        check('new document restores default page geometry', newDocumentResetsGeometry)
+        check('new document restores default page geometry', newDocumentResetsGeometry),
+        ...findReplace.checks,
+        ...spellcheck.checks
       ];
 
       const failed = checks.filter(item => !item.ok);
@@ -743,6 +1058,9 @@
         `table clipped rows: ${clippedRows}`,
         `repeated header rows: ${repeatedHeaders}`,
         `export tables/rows: ${exportTables}/${exportRows}`,
+        `trailing block after table: ${JSON.stringify(trailingAfterTable)}`,
+        `trailing block after paragraph: ${JSON.stringify(trailingAfterText)}`,
+        `trailing block after list: ${JSON.stringify(trailingAfterList)}`,
         `docx round-trip: ${JSON.stringify(docxRoundTrip)}`,
         `tall row: ${JSON.stringify(tallRowDiagnostics)}`,
         `page setup undo: ${JSON.stringify(pageSetupUndoState)}`,
@@ -755,7 +1073,9 @@
         `page setup controls outside the modal: ${setupOverflow.length}`,
         `comma margin accepted: ${commaMarginAccepted}`,
         `pages with normal/wide margins: ${pagesWithNormalMargins}/${pagesWithWideMargins}`,
-        `ruler: ${JSON.stringify(rulerDiagnostics)}`
+        `ruler: ${JSON.stringify(rulerDiagnostics)}`,
+        `find/replace: ${JSON.stringify(findReplace.diagnostics)}`,
+        `spellcheck: ${JSON.stringify(spellcheck.diagnostics)}`
       ];
 
       result.textContent = checks

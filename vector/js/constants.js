@@ -47,5 +47,17 @@ window.ArtVector.constants = {
     lines: 'Рядки'
   },
   RECT_LIKE_TYPES: ['rect', 'ellipse', 'triangle', 'diamond', 'star'],
-  LINE_TYPES: ['line', 'arrow']
+  LINE_TYPES: ['line', 'arrow'],
+  // Типові назви в панелі «Об'єкти».
+  OBJECT_LABELS: {
+    rect: 'Прямокутник',
+    ellipse: 'Еліпс',
+    triangle: 'Трикутник',
+    diamond: 'Ромб',
+    star: 'Зірка',
+    line: 'Лінія',
+    arrow: 'Стрілка',
+    pen: 'Малюнок олівцем',
+    text: 'Текст'
+  }
 };

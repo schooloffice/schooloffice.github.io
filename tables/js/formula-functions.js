@@ -64,6 +64,42 @@ function makeCriteriaPredicate(criteria) {
   };
 }
 
+// ---- Фінансові функції PV/FV/PMT ----
+// Сигнатури й формули — як у Microsoft Excel (контрольні значення в
+// tests/tables-formula-behavior.html отримано з Excel 16):
+//   PV(rate, nper, pmt, [fv], [type])   FV(rate, nper, pmt, [pv], [type])
+//   PMT(rate, nper, pv, [fv], [type])
+// rate — ставка за період (річна / 12 для щомісячних платежів), nper — кількість
+// періодів. Знак грошового потоку: сплачене — від'ємне, отримане — додатне.
+// type: 0 (або пропущено) — платіж наприкінці періоду; будь-яке інше число — на початку.
+function financeArgs(a, ctx) {
+  if (a.length < 3 || a.length > 5) throw formulaError(FORMULA_ERRORS.VALUE);
+  const values = a.map(node => ctx.num(node));
+  return {
+    rate: values[0],
+    nper: values[1],
+    third: values[2],
+    fourth: a.length > 3 ? values[3] : 0,
+    type: a.length > 4 && values[4] !== 0 ? 1 : 0
+  };
+}
+
+// (1 + rate)^nper з правилами POWER у Excel: 0^0 — #NUM!, 0 у від'ємному степені —
+// #DIV/0!, переповнення — #NUM!, а не нескінченність чи 0.
+function financeGrowth(rate, nper) {
+  const base = 1 + rate;
+  if (base === 0 && nper === 0) throw formulaError(FORMULA_ERRORS.NUM);
+  if (base === 0 && nper < 0) throw formulaError(FORMULA_ERRORS.DIV0);
+  const growth = Math.pow(base, nper);
+  if (!Number.isFinite(growth)) throw formulaError(FORMULA_ERRORS.NUM);
+  return growth;
+}
+
+function financeResult(value) {
+  if (!Number.isFinite(value)) throw formulaError(FORMULA_ERRORS.NUM);
+  return value;
+}
+
 // ---- Date serials (Excel-сумісні: дні від 1899-12-30) ----
 const DATE_EPOCH_UTC = Date.UTC(1899, 11, 30);
 
@@ -192,7 +228,39 @@ const FORMULA_FUNCTIONS = {
   // Дати (повертають серійний номер; формат «Дата» показує DD.MM.YYYY)
   TODAY: () => todaySerial(),
   NOW: () => nowSerial(),
-  DATE: (a, ctx) => ymdToSerial(ctx.num(a[0]), ctx.num(a[1]), ctx.num(a[2]))
+  DATE: (a, ctx) => ymdToSerial(ctx.num(a[0]), ctx.num(a[1]), ctx.num(a[2])),
+
+  // Фінансові (див. financeArgs вище)
+  PV: (a, ctx) => {
+    const { rate, nper, third: pmt, fourth: fv, type } = financeArgs(a, ctx);
+    if (rate === 0) return financeResult(-(fv + pmt * nper));
+    const growth = financeGrowth(rate, nper);
+    // Excel: PV зі ставкою −1 (нульовий дисконт-множник) — #DIV/0!.
+    if (growth === 0) throw formulaError(FORMULA_ERRORS.DIV0);
+    return financeResult(-(fv + pmt * (1 + rate * type) * (growth - 1) / rate) / growth);
+  },
+  FV: (a, ctx) => {
+    const { rate, nper, third: pmt, fourth: pv, type } = financeArgs(a, ctx);
+    if (rate === 0) return financeResult(-(pv + pmt * nper));
+    const growth = financeGrowth(rate, nper);
+    return financeResult(-(pv * growth + pmt * (1 + rate * type) * (growth - 1) / rate));
+  },
+  PMT: (a, ctx) => {
+    const { rate, nper, third: pv, fourth: fv, type } = financeArgs(a, ctx);
+    // Excel: нуль періодів і ставка ≤ −1 — #NUM!, а не ділення на нуль.
+    if (nper === 0 || rate <= -1) throw formulaError(FORMULA_ERRORS.NUM);
+    if (rate === 0) return financeResult(-(pv + fv) / nper);
+    // Excel рахує PMT без переповнення: PMT(0,1;100000;1000) = −100, а крихітна ставка
+    // не вироджується в ділення на нуль. Тому (1+rate)^nper − 1 беремо через expm1/log1p,
+    // а при зростанні ділимо чисельник і знаменник на (1+rate)^nper.
+    const logGrowth = nper * Math.log1p(rate);
+    const factor = 1 + rate * type;
+    if (logGrowth > 0) {
+      const inverse = Math.exp(-logGrowth);
+      return financeResult(-(rate * (pv + fv * inverse)) / (factor * -Math.expm1(-logGrowth)));
+    }
+    return financeResult(-(rate * (pv * Math.exp(logGrowth) + fv)) / (factor * Math.expm1(logGrowth)));
+  }
 };
 
 window.TablesFormulaFunctions = { FORMULA_FUNCTIONS, isFormulaNumber };

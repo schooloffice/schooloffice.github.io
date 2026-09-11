@@ -42,6 +42,7 @@ $requiredRootFiles = @(
   'sw.js',
   'tests/offline-smoke.html',
   'tests/run-offline-smoke.ps1',
+  'tests/test-process-helpers.ps1',
   'tests/responsive-smoke.html'
 )
 
@@ -850,6 +851,14 @@ if (Test-Path $vectorRuntimePath) {
   Assert-True ($vectorRuntime -match 'window\.VectorApp\?\.boot\?\.') "vector/js/runtime.js: runtime should boot through VectorApp"
 }
 
+$vectorEditorPath = Join-Path $Root 'vector/js/editor.js'
+if (Test-Path $vectorEditorPath) {
+  $vectorEditor = Get-Content -Raw -Encoding UTF8 $vectorEditorPath
+  # PNG і друк мають відповідати перевіреному SVG: приховані об'єкти не експортуються.
+  Assert-True ($vectorEditor -match 'async exportPngBlob\(\)\s*\{\s*const svgMarkup = this\.exportSvgMarkup\(\)') 'vector/js/editor.js: PNG export must render the same SVG markup as SVG export'
+  Assert-True ($vectorEditor -match 'exportSvgNode\(\)[\s\S]*?\.filter\(\(obj\) => !obj\.hidden\)') 'vector/js/editor.js: SVG export must skip hidden objects'
+}
+
 $vectorAppPath = Join-Path $Root 'vector/js/app.js'
 if (Test-Path $vectorAppPath) {
   $vectorApp = Get-Content -Raw -Encoding UTF8 $vectorAppPath
@@ -997,6 +1006,8 @@ if (Test-Path $xlsxAdapterPath) {
   $xlsxAdapter = Get-Content -Raw -Encoding UTF8 $xlsxAdapterPath
   Assert-True ($xlsxAdapter -match 'root\.TablesXlsxFile\s*=') 'tables/js/xlsx-file.js: should expose TablesXlsxFile'
   Assert-True ($xlsxAdapter -match 'DecompressionStream') 'tables/js/xlsx-file.js: should decompress locally in the browser'
+  # Blob.stream() читається поза подіями сторінки: headless smoke під virtual-time-budget знімав DOM до кінця імпорту.
+  Assert-True ($xlsxAdapter -notmatch 'Blob\([^)]*\)\.stream\(\)') 'tables/js/xlsx-file.js: should feed DecompressionStream from bytes, not Blob.stream()'
   Assert-True ($xlsxAdapter -notmatch 'https?://[^"'']+\.js') 'tables/js/xlsx-file.js: must not load a CDN dependency'
 }
 
@@ -1256,6 +1267,24 @@ if (Test-Path $textEditorPath) {
   Assert-True ($textEditor -match 'createImageBitmap' -and $textEditor -match 'URL\.revokeObjectURL') "text/ui/editor.js: image dimensions must be decoded safely and object URLs revoked"
 }
 
+$textFindPath = Join-Path $Root 'text/ui/find.js'
+Assert-True (Test-Path $textFindPath) 'text/ui/find.js: search and replace module must exist'
+if (Test-Path $textFindPath) {
+  $textFind = Get-Content -Raw -Encoding UTF8 $textFindPath
+  # Пошук не змінює документ: підсвітка через CSS Custom Highlight API, а не <mark> у DOM.
+  Assert-True ($textFind -match 'CSS\.highlights') 'text/ui/find.js: match highlights must not mutate the document DOM'
+  Assert-True ($textFind -notmatch 'surroundContents|search-hit|innerHTML') 'text/ui/find.js: must not wrap matches or write HTML'
+  Assert-True ($textFind -match 'tr\[data-art-table-repeat\]') 'text/ui/find.js: repeated table headers must be excluded from search'
+}
+
+$textIndexPath = Join-Path $Root 'text/index.html'
+if (Test-Path $textIndexPath) {
+  $textIndex = Get-Content -Raw -Encoding UTF8 $textIndexPath
+  # Перемикач правопису має реальний checked-стан, а пояснення не обіцяє офлайн-словник.
+  Assert-True ($textIndex -match '<button[^>]*data-action="toggle-spellcheck"[^>]*role="menuitemcheckbox"[^>]*aria-checked="(true|false)"') 'text/index.html: spellcheck toggle must be a menuitemcheckbox with aria-checked'
+  Assert-True ($textIndex -match 'id="spellcheckHelp"') 'text/index.html: help must explain where the spellcheck dictionary comes from'
+}
+
 $textHistoryPath = Join-Path $Root 'text/core/history.js'
 if (Test-Path $textHistoryPath) {
   $textHistory = Get-Content -Raw -Encoding UTF8 $textHistoryPath
@@ -1390,6 +1419,43 @@ if (Test-Path $offlineSmokeRunnerPath) {
   Assert-True ($offlineSmokeRunner -match 'StartsWith\(\$resolvedTests') "run-offline-smoke.ps1: profile cleanup must validate its owning tests directory"
   Assert-True ($offlineSmokeRunner -match 'Remove-Item -LiteralPath \$resolvedProfile') "run-offline-smoke.ps1: cleanup must target only the resolved temporary profile"
 }
+
+# Browser/offline smoke мають завершуватися контрольовано навіть із завислим Chrome.
+$processHelpers = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/test-process-helpers.ps1')
+Assert-True ($processHelpers -match 'WaitForExit\(\$TimeoutSeconds \* 1000\)') "test-process-helpers.ps1: browser wait must use a wall-clock timeout"
+Assert-True ($processHelpers -match 'Task\]::WaitAll\(\$tasks, \$TimeoutSeconds \* 1000\)') "test-process-helpers.ps1: stdout/stderr reads must be bounded"
+Assert-True ($processHelpers -match 'ParentProcessId' -and $processHelpers -match '\$OwnedMarker') "test-process-helpers.ps1: only this run's process tree and profile may be stopped"
+Assert-True ($processHelpers -notmatch '(?i)taskkill[^\r\n]*/IM|Get-Process\s+(-Name\s+)?chrome|Name\s*=\s*''chrome\.exe''') "test-process-helpers.ps1: must not stop every chrome.exe"
+foreach ($runnerName in @('run-browser-smoke.ps1', 'run-offline-smoke.ps1')) {
+  $runner = Get-Content -Raw -Encoding UTF8 (Join-Path $Root "tests/$runnerName")
+  Assert-True ($runner -match '\[int\]\$PageTimeoutSeconds = \d+') "${runnerName}: configurable wall-clock page timeout is required"
+  Assert-True ($runner -match 'test-process-helpers\.ps1') "${runnerName}: must use bounded process helpers"
+  Assert-True ($runner -notmatch '\.WaitForExit\(\)|\.(?:StdoutTask|StderrTask)\.Result') "${runnerName}: unbounded process or output waits are forbidden"
+}
+$browserSmokeRunner = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')
+Assert-True ($browserSmokeRunner -match 'Wait-CapturedProcess -Capture \$capture -TimeoutSeconds \$PageTimeoutSeconds') "run-browser-smoke.ps1: every Chrome page must run under the wall-clock timeout"
+Assert-True ($browserSmokeRunner -notmatch 'Get-ChildItem[^\r\n]*\.browser-profile-\*') "run-browser-smoke.ps1: cleanup must remove only profiles created by this run"
+
+# Головна сторінка не блокує масштабування; контраст і zoom 200% перевіряє browser smoke.
+$landingHtml = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'index.html')
+$landingViewport = [regex]::Match($landingHtml, '<meta\s+name="viewport"\s+content="([^"]*)"')
+Assert-True $landingViewport.Success 'index.html: viewport meta is required'
+Assert-True ($landingViewport.Groups[1].Value -notmatch '(?i)user-scalable\s*=\s*(no|0)|maximum-scale\s*=\s*1(\.0)?\b') 'index.html: viewport must not block user zoom'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')) -match 'accessibility-smoke\.html') 'run-browser-smoke.ps1: contrast and zoom smoke must be registered'
+Assert-True ($landingHtml -notmatch 'status-badge[^>]*>\s*soon\s*<') 'index.html: editor cards must not show a stale "soon" status'
+
+# XLSX: невідомий результат формули не записується як 0, аркуш без ширин не має порожнього <cols>.
+$xlsxAdapter = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/js/xlsx-file.js')
+Assert-True ($xlsxAdapter -notmatch '</f><v>0</v>') 'tables/js/xlsx-file.js: formulas must not be cached as a made-up zero'
+Assert-True ($xlsxAdapter -match 'fullCalcOnLoad="1"') 'tables/js/xlsx-file.js: exported workbooks must ask for recalculation on load'
+Assert-True ($xlsxAdapter -notmatch '<cols>\$\{cols\}</cols><sheetData>') 'tables/js/xlsx-file.js: an empty <cols> element makes Excel refuse the file'
+Assert-True (Test-Path (Join-Path $Root 'tests/fixtures/compatibility/registry.json')) 'tests/fixtures/compatibility/registry.json: compatibility registry is required'
+
+# Ctrl/Cmd+S у Схемах зберігає JSON-проєкт; PNG лишається окремим експортом у меню.
+$flowchartsShortcuts = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'flowcharts/js/keyboard-shortcuts.js')
+Assert-True ($flowchartsShortcuts -notmatch 'openSaveTitlePrompt|exportPng') 'flowcharts/js/keyboard-shortcuts.js: Ctrl+S must save the project, not export PNG'
+Assert-True ($flowchartsShortcuts -match "key === 's'[\s\S]{0,120}runOfficeCommand\?\.\('save'\)") 'flowcharts/js/keyboard-shortcuts.js: Ctrl+S must run the shared save command'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'KEYBOARD_SHORTCUTS.md')) -notmatch 'Поточний допустимий виняток') 'KEYBOARD_SHORTCUTS.md: the Ctrl+S exception must stay removed'
 
 $responsiveSmoke = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/responsive-smoke.html')
 foreach ($viewport in @('390, height: 844', '768, height: 1024', '1366, height: 768')) {

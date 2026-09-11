@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Office PLUS Compatibility Export</title>
+  <script src="../vendor/pptxgenjs/pptxgen.bundle.js"></script>
+</head>
+<body data-export="running">
+  <h1>Office PLUS Compatibility Export</h1>
+  <p>Інструмент для tests/fixtures/compatibility/check-office-readers.ps1: створює справжні файли експорту ПЛЮС і віддає їх як base64. У browser smoke не входить.</p>
+  <pre id="exports"></pre>
+  <pre id="result">Running...</pre>
+  <script type="module">
+    import { normalizePresentation } from '../slides/js/project.js';
+    import { buildPptxPresentation } from '../slides/js/pptx-export.js';
+
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const toBase64 = async blobOrBuffer => {
+      // Blob з iframe редактора належить іншому realm, тож instanceof Blob тут хибний.
+      const bytes = new Uint8Array(typeof blobOrBuffer?.arrayBuffer === 'function' ? await blobOrBuffer.arrayBuffer() : blobOrBuffer);
+      let binary = '';
+      for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+      return btoa(binary);
+    };
+    const loadFrame = src => new Promise((resolve, reject) => {
+      const frame = document.createElement('iframe');
+      frame.hidden = true;
+      frame.addEventListener('load', () => resolve(frame), { once: true });
+      frame.addEventListener('error', reject, { once: true });
+      frame.src = src;
+      document.body.appendChild(frame);
+    });
+    const waitFor = async (predicate, label, timeout = 15000) => {
+      const start = performance.now();
+      while (performance.now() - start < timeout) {
+        if (predicate()) return;
+        await wait(50);
+      }
+      throw new Error(label);
+    };
+
+    async function run() {
+      const exportsOut = {};
+      // Проєкти для PPTX завантажуємо до iframe редакторів (service worker).
+      const projects = {};
+      for (const name of ['plus-slides-text-shapes', 'plus-slides-local-image', 'plus-slides-table-chart-link']) {
+        projects[name] = await (await fetch(`fixtures/compatibility/${name}.json`, { cache: 'no-store' })).json();
+      }
+
+      for (const [name, project] of Object.entries(projects)) {
+        const built = buildPptxPresentation(name, normalizePresentation(project).slides, window.PptxGenJS);
+        exportsOut[`${name}.pptx`] = await toBase64(await built.presentation.write({ outputType: 'blob', compression: true }));
+      }
+
+      const tables = await loadFrame('../tables/index.html');
+      await waitFor(() => !!tables.contentWindow.TablesXlsxFile?.exportArrayBuffer && !!tables.contentWindow.TablesFormulaEngine?.evaluateFormulaForExport, 'tables ready');
+      exportsOut['plus-tables-formulas.xlsx'] = await toBase64(tables.contentWindow.TablesXlsxFile.exportArrayBuffer({
+        type: 'art-tables-workbook', version: 2, name: 'Формули ПЛЮС', activeSheet: 0,
+        sheets: [
+          { name: 'Дані', rows: 60, cols: 30, colWidths: { 0: 160 }, condRules: [], cellStyles: { A1: 'style-text-bold' }, cellData: {
+            A1: 'Показник', A2: '10', A3: '4', A4: 'Текст',
+            B1: 'Формула', B2: '=A2/A3', B3: '=A2>A3', B4: '=IF(A2>A3,"більше","менше")', B5: '=A2/0',
+            B6: '=ROUND(A2/3,2)', B7: '=SUM(Підсумок!A1:A2)', B8: '=AVERAGE(A2:A3)'
+          } },
+          { name: 'Підсумок', rows: 60, cols: 30, colWidths: {}, condRules: [], cellStyles: {}, cellData: { A1: '1', A2: '2' } }
+        ]
+      }));
+
+      const text = await loadFrame('../text/index.html');
+      await waitFor(() => !!text.contentWindow.art?.formats?.docx?.exportDocx && typeof text.contentWindow.docx !== 'undefined', 'text ready');
+      const docxHtml = '<h1>Звіт ПЛЮС</h1><p>Звичайний, <strong>жирний</strong> і <em>курсив</em>.</p>'
+        + '<ul><li>Перший пункт</li><li>Другий пункт</li></ul>'
+        + '<table><tbody><tr><th>День</th><th>Урок</th></tr><tr><td>Понеділок</td><td>Інформатика</td></tr></tbody></table>';
+      exportsOut['plus-text-formatted.docx'] = await toBase64(await text.contentWindow.art.formats.docx.exportDocx(docxHtml, {}));
+
+      document.getElementById('exports').textContent = JSON.stringify(exportsOut);
+      document.getElementById('result').textContent = `exported ${Object.keys(exportsOut).length} files`;
+      document.body.dataset.export = 'done';
+    }
+
+    run().catch(error => {
+      document.getElementById('result').textContent = String(error?.stack || error);
+      document.body.dataset.export = 'failed';
+    });
+  </script>
+</body>
+</html>

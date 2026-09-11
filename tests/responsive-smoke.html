@@ -108,6 +108,19 @@
       await waitFor(() => !body.classList.contains('panel-collapsed'), `${service}: drawer did not open`);
       check(`${service} mobile: properties opens as overlay`, getComputedStyle(panel).position === 'fixed' && panel.getAttribute('aria-hidden') === 'false');
       check(`${service} mobile: drawer does not squeeze canvas`, workspace.getBoundingClientRect().width >= editorBody.getBoundingClientRect().width - 4);
+      // Вектор: список «Об'єкти» — режим тієї самої панелі, тож на телефоні це теж drawer.
+      const objectsToggle = doc.querySelector('#objectsToggleBtn');
+      if (service === 'vector' && objectsToggle) {
+        objectsToggle.click();
+        await waitFor(() => doc.body.classList.contains('panel-objects'), 'vector: objects mode did not open');
+        const objectsPanel = doc.querySelector('#objectsPanel');
+        const panelBox = panel.getBoundingClientRect();
+        check('vector mobile: objects list opens in the drawer', !objectsPanel.hidden
+          && getComputedStyle(panel).position === 'fixed'
+          && objectsPanel.getBoundingClientRect().width > 200);
+        check('vector mobile: objects drawer fits the viewport', panelBox.left >= -1 && panelBox.right <= viewport.width + 1);
+        objectsToggle.click();
+      }
     }
 
     function checkFlowcharts(doc, viewport) {

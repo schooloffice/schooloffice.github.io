@@ -47,8 +47,10 @@ const ArtModals = (() => {
     open('modalInfo');
   }
 
-  function confirm(text, onYes, onNo = null) {
+  function confirm(text, onYes, onNo = null, { yesText = 'Продовжити' } = {}) {
     document.getElementById('modalConfirmText').textContent = text;
+    const yesButton = document.querySelector('#modalConfirm [data-confirm-choice="yes"]');
+    if (yesButton) yesButton.textContent = yesText;
     _confirmCb = { yes: onYes, no: onNo };
     open('modalConfirm');
   }
