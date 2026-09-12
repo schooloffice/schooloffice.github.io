@@ -286,6 +286,9 @@ function addElement(slide, element, pptx, slideNumberById, report) {
   if (element.link && (element.type === 'table' || element.type === 'chart')) {
     report.warnings.add('Гіперпосилання на таблицях і діаграмах не переносяться у PPTX.');
   }
+  if (element.action || element.startHidden) {
+    report.warnings.add('Дії при кліку (показати чи сховати об’єкт) не переносяться у PPTX: усі об’єкти експортовано видимими.');
+  }
   if (element.type === 'text') addText(slide, element, slideNumberById, report);
   else if (element.type === 'shape') addShape(slide, element, pptx, slideNumberById, report);
   else if (element.type === 'image') addImage(slide, element, slideNumberById, report);

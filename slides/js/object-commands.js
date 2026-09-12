@@ -28,6 +28,22 @@ export function remapGroupIds(elements, createId = uid) {
   return groupIds.size > 0;
 }
 
+// Копії зберігають дію при кліку: якщо ціль скопійовано разом, дія переходить на
+// копію цілі; інакше лишається стара ціль, а normalizeSlideActions прибере дію,
+// коли цієї цілі немає на слайді вставки. sourceIds[i] — ID оригіналу copies[i].
+export function remapActionTargets(copies, sourceIds) {
+  if (!Array.isArray(copies) || !Array.isArray(sourceIds)) return false;
+  const copyIds = new Map(sourceIds.map((id, index) => [id, copies[index]?.id]));
+  let changed = false;
+  copies.forEach(copy => {
+    const targetId = copy.action ? copyIds.get(copy.action.targetId) : null;
+    if (!targetId) return;
+    copy.action = { ...copy.action, targetId };
+    changed = true;
+  });
+  return changed;
+}
+
 export function createSelectionUnits(elements, getBounds) {
   if (!Array.isArray(elements) || typeof getBounds !== 'function') return [];
 

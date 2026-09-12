@@ -1,5 +1,5 @@
 ﻿import { DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, FONT_FAMILIES, FONT_SIZES, LAYOUTS, LAYOUT_KEYS, LIMITS, LINE_SHAPE_TYPES, STAGE_HEIGHT, STAGE_WIDTH, TEXT_SHAPE_TYPES, THEMES, THEME_KEYS, TRANSITION_DURATIONS, TRANSITION_TYPES } from './constants.js';
-import { exportPresentationPdf, printPresentation, createSlideSnapshot, createThumbSnapshot } from './export.js';
+import { exportPresentationPdf, printPresentation, createSlideSnapshot, createThumbSnapshot, setSnapshotElementHidden } from './export.js';
 import { preparePptxExport, writePptxPresentation } from './pptx-export.js';
 import { captureState, commitState, pushHistory, redo, resetHistory, undo } from './history.js';
 import {
@@ -8,8 +8,8 @@ import {
   showInfoModal as showInfoModalUi,
   showModal as showModalUi
 } from './modal-ui.js';
-import { alignSelectionUnits, createSelectionUnits, distributeSelectionUnits, groupElements, remapGroupIds, ungroupElements } from './object-commands.js';
-import { normalizeElement, normalizeLink, normalizePresentation, parsePresentationText, savePresentationFile } from './project.js';
+import { alignSelectionUnits, createSelectionUnits, distributeSelectionUnits, groupElements, remapActionTargets, remapGroupIds, ungroupElements } from './object-commands.js';
+import { normalizeAction, normalizeElement, normalizeLink, normalizePresentation, normalizeSlideActions, parsePresentationText, savePresentationFile } from './project.js';
 import { applyLayoutToSlide, applyThemeToPresentation, getTheme } from './presentation-design.js';
 import { renderStage as renderStageView, syncSelectionUi as syncStageSelectionUi, applyImageCropToNode } from './stage-renderer.js';
 import { renderSlideList as renderSlideListView, renderSlideThumbnail as renderSlideThumbnailView } from './slide-list.js';
@@ -441,6 +441,8 @@ function applyLayout(layoutKey) {
   if (!slide) return;
   pushHistory();
   applyLayoutToSlide(slide, layoutKey);
+  // Макет прибирає порожні placeholder-и — разом із діями при кліку, що на них вказували.
+  normalizeSlideActions(slide);
   state.selectedElementIds = [];
   state.cropElementId = null;
   renderCurrentSlideWorkspace();
@@ -546,6 +548,11 @@ function setElementLink(elementId, link) {
   if (JSON.stringify(element.link || null) === JSON.stringify(next)) return;
   pushHistory();
   element.link = next;
+  // Посилання й дія при кліку взаємовиключні: посилання замінює дію.
+  if (next && element.action) {
+    element.action = null;
+    normalizeSlideActions(getCurrentSlide());
+  }
   renderStage();
   renderToolbarState();
   markDirty(next ? 'Посилання додано' : 'Посилання прибрано');
@@ -610,6 +617,110 @@ function showLinkModal() {
       } else {
         setElementLink(element.id, null);
       }
+    }
+  });
+}
+
+// Дія при кліку разом із прапорцем «прихований на початку показу» цілі — один крок
+// Undo. Ціль має бути іншим об'єктом поточного слайда; дія замінює посилання.
+function setElementAction(elementId, action, startHidden = false) {
+  const slide = getCurrentSlide();
+  const element = findElementById(elementId);
+  if (!slide || !element) return;
+  const next = action ? normalizeAction(action) : null;
+  const target = next ? findElementById(next.targetId) : null;
+  if (action && (!target || target === element)) return;
+  const unchanged = JSON.stringify(element.action || null) === JSON.stringify(next)
+    && (!next || (!element.link && !!target.startHidden === !!startHidden));
+  if (unchanged) return;
+  pushHistory();
+  element.action = next;
+  if (next) {
+    element.link = null;
+    target.startHidden = !!startHidden;
+  }
+  normalizeSlideActions(slide);
+  renderStage();
+  renderToolbarState();
+  markDirty(next ? 'Дію при кліку налаштовано' : 'Дію при кліку прибрано');
+}
+
+function showActionError(message) {
+  const box = $('#actionError');
+  if (!box) return;
+  box.textContent = message;
+  box.classList.remove('hidden');
+}
+
+function describeActionTarget(element, index) {
+  const typeLabels = { text: 'Текст', image: 'Зображення', shape: 'Фігура', table: 'Таблиця', chart: 'Діаграма' };
+  const text = element.type === 'text' || element.type === 'shape'
+    ? (element.isPlaceholder ? '' : String(element.content || ''))
+    : (element.alt || '');
+  const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 40);
+  return `${index + 1}. ${typeLabels[element.type] || 'Об’єкт'}${snippet ? ` — ${snippet}` : ''}`;
+}
+
+// Дія при кліку на вибраному об'єкті: у показі клік або Enter/Space показує, ховає
+// чи перемикає інший об'єкт цього слайда. Декларативно (kind + ID цілі), без коду.
+function showActionModal() {
+  const element = getSelectedElement();
+  if (!element) {
+    showInfoModal('Дія при кліку', 'Виберіть об’єкт, який запускатиме дію в показі.');
+    return;
+  }
+  const slide = getCurrentSlide();
+  const candidates = slide.elements.filter(item => item.id !== element.id);
+  if (!candidates.length) {
+    showInfoModal('Дія при кліку', 'Додайте на слайд ще один об’єкт, який можна буде показати або сховати.');
+    return;
+  }
+  const action = element.action || null;
+  const kindRow = (value, label) => createNode('label', { className: 'radio-row' },
+    createNode('input', { attributes: { type: 'radio', name: 'actionKind' }, properties: { value, checked: (action?.kind || 'none') === value } }),
+    ` ${label}`);
+  const targetField = createNode('select', { id: 'actionTargetField', className: 'input-like', attributes: { 'aria-label': 'Об’єкт, на який діє клік' } });
+  slide.elements.forEach((item, index) => {
+    if (item.id === element.id) return;
+    targetField.appendChild(createNode('option', {
+      text: describeActionTarget(item, index),
+      properties: { value: item.id, selected: action?.targetId === item.id }
+    }));
+  });
+  const currentTarget = candidates.find(item => item.id === action?.targetId);
+  const startHiddenField = createNode('input', {
+    id: 'actionStartHiddenField',
+    attributes: { type: 'checkbox' },
+    properties: { checked: currentTarget ? currentTarget.startHidden : true }
+  });
+  const bodyNode = createNode('div', { className: 'form-stack' },
+    kindRow('none', 'Без дії'),
+    kindRow('show', 'Показати об’єкт'),
+    kindRow('hide', 'Сховати об’єкт'),
+    kindRow('toggle', 'Показати або сховати (перемикач)'),
+    targetField,
+    createNode('label', { className: 'checkbox-row' }, startHiddenField, ' Приховати цей об’єкт на початку показу'),
+    createNode('div', { id: 'actionError', className: 'form-error hidden', attributes: { role: 'alert' } })
+  );
+  const text = 'Працює лише в режимі показу: об’єкт з’являється чи зникає одразу, без анімації.';
+  showModal({
+    title: 'Дія при кліку',
+    text: element.link ? `${text} Посилання на цьому об’єкті буде замінено дією.` : text,
+    bodyNode,
+    confirmText: 'Зберегти',
+    cancelText: 'Скасувати',
+    onConfirm: () => {
+      const kind = $$('input[name="actionKind"]').find(input => input.checked)?.value || 'none';
+      if (kind === 'none') {
+        setElementAction(element.id, null);
+        return;
+      }
+      const next = normalizeAction({ kind, targetId: $('#actionTargetField').value });
+      if (!next || !candidates.some(item => item.id === next.targetId)) {
+        showActionError('Виберіть інший об’єкт цього слайда.');
+        return false;
+      }
+      setElementAction(element.id, next, $('#actionStartHiddenField').checked);
     }
   });
 }
@@ -843,6 +954,8 @@ function beginAltDragDuplicate() {
     copies.push(copy);
   });
   remapGroupIds(copies);
+  remapActionTargets(copies, targets.map(el => el.id));
+  normalizeSlideActions(slide);
   state.selectedElementIds = copies.map(copy => copy.id);
   renderStage();
   return true;
@@ -1053,7 +1166,14 @@ function bindPresentation() {
   dom.presentNext.addEventListener('click', showNextPresentationSlide);
   dom.presentModeToggle.addEventListener('click', togglePresenterMode);
   // Клік по об'єкту з посиланням у режимі показу: https — нова вкладка; слайд — перехід.
+  // Клік по тригеру дії показує чи ховає інший об'єкт слайда (лише в DOM показу).
   dom.presentStageWrap.addEventListener('click', event => {
+    const trigger = event.target.closest('[data-action-kind]');
+    if (trigger) {
+      event.stopPropagation();
+      runPresentationAction(trigger);
+      return;
+    }
     const target = event.target.closest('[data-link-kind]');
     if (!target) return;
     event.stopPropagation();
@@ -1205,6 +1325,12 @@ function handleKeyboardShortcuts(event) {
   }
 
   if (dom.presentOverlay.classList.contains('hidden') === false) {
+    // Enter/Space на сфокусованому тригері виконують його дію замість перемикання слайда.
+    if ((event.key === 'Enter' || event.key === ' ') && dom.presentStageWrap.contains(activeElement) && activeElement.matches('[data-action-kind]')) {
+      event.preventDefault();
+      runPresentationAction(activeElement);
+      return;
+    }
     if (event.key === 'Escape') stopPresentation();
     if (event.key === 'ArrowLeft') showPreviousPresentationSlide();
     if (event.key === 'ArrowRight' || event.key === ' ') {
@@ -1420,6 +1546,7 @@ function dispatchAction(action, trigger = null) {
     case 'replace-image': promptImageReplace(); break;
     case 'edit-alt': editImageAlt(); break;
     case 'edit-link': showLinkModal(); break;
+    case 'edit-action': showActionModal(); break;
     case 'insert-rect': addShape('rect'); break;
     case 'insert-circle': addShape('circle'); break;
     case 'insert-triangle': addShape('triangle'); break;
@@ -1597,6 +1724,9 @@ function duplicateSlide(slideId = state.currentSlideId) {
   const clone = deepClone(original);
   clone.id = createSlide().id;
   clone.elements = clone.elements.map((element, elementIndex) => normalizeElement({ ...element, id: null }, elementIndex, { trusted: true }));
+  // Дії при кліку копії слайда вказують на копії своїх цілей.
+  remapActionTargets(clone.elements, original.elements.map(element => element.id));
+  normalizeSlideActions(clone);
   state.slides.splice(index + 1, 0, clone);
   state.currentSlideId = clone.id;
   state.selectedElementIds = [];
@@ -2128,6 +2258,8 @@ function pasteElement() {
     copies.push(copy);
   });
   remapGroupIds(copies);
+  remapActionTargets(copies, items.map(item => item.id));
+  normalizeSlideActions(slide);
   const newIds = copies.map(copy => copy.id);
   state.selectedElementIds = newIds;
   renderCurrentSlideWorkspace();
@@ -2146,6 +2278,8 @@ function deleteSelectedElement() {
   const slide = getCurrentSlide();
   const ids = new Set(state.selectedElementIds);
   slide.elements = slide.elements.filter(element => !ids.has(element.id));
+  // Дії, що вказували на видалені об'єкти, прибираються; ціль без тригера знову видима.
+  normalizeSlideActions(slide);
   state.selectedElementIds = [];
   normalizeZIndexes();
   renderCurrentSlideWorkspace();
@@ -2217,10 +2351,16 @@ function handlePrint() {
   if (!ok) showInfoModal('Друк заблоковано', 'Браузер не відкрив вікно друку. Дозвольте спливаючі вікна для цієї сторінки.');
 }
 
+// Ефемерна видимість об'єктів показу після дій при кліку: лише для поточного слайда
+// показу, скидається при зміні слайда й новому запуску; модель не змінюється.
+let presentHiddenSlideId = null;
+let presentHiddenOverrides = new Map();
+
 function startPresentation({ presenter = false } = {}) {
   state.presentationIndex = getCurrentSlideIndex();
   presentNotesVisible = false;
   presenterModeActive = presenter;
+  presentHiddenSlideId = null;
   presentationStartedAt = Date.now();
   clearInterval(presentationTimerId);
   presentationTimerId = window.setInterval(renderPresentationTimer, 1000);
@@ -2286,7 +2426,15 @@ function renderPresentationSlide() {
   dom.presentStageWrap.replaceChildren();
   const slide = state.slides[state.presentationIndex];
   if (!slide) return;
-  const snapshot = createSlideSnapshot(slide);
+  if (presentHiddenSlideId !== slide.id) {
+    presentHiddenSlideId = slide.id;
+    presentHiddenOverrides = new Map();
+  }
+  const snapshot = createSlideSnapshot(slide, { presentation: true });
+  // Перемальовування того ж слайда (нотатки, режим доповідача) зберігає показане.
+  snapshot.querySelectorAll('[data-element-id]').forEach(node => {
+    if (presentHiddenOverrides.has(node.dataset.elementId)) setSnapshotElementHidden(node, presentHiddenOverrides.get(node.dataset.elementId));
+  });
   snapshot.classList.add('present-stage');
   if (slide.transition?.type && slide.transition.type !== 'none') {
     snapshot.classList.add(`present-transition-${slide.transition.type}`, `present-transition-${slide.transition.duration || 'normal'}`);
@@ -2305,6 +2453,19 @@ function renderPresentationSlide() {
   } else {
     dom.presentNextPreview.textContent = 'Кінець показу';
   }
+}
+
+// Дія тригера в показі змінює лише DOM показу: документ, історія й autosave не зачіпаються.
+function runPresentationAction(trigger) {
+  const action = normalizeAction({ kind: trigger.dataset.actionKind, targetId: trigger.dataset.actionTarget });
+  const stageNode = trigger.closest('.present-stage');
+  if (!action || !stageNode || trigger.style.visibility === 'hidden') return false;
+  const target = [...stageNode.querySelectorAll('[data-element-id]')].find(node => node.dataset.elementId === action.targetId);
+  if (!target || target === trigger) return false;
+  const hidden = action.kind === 'toggle' ? target.style.visibility !== 'hidden' : action.kind === 'hide';
+  setSnapshotElementHidden(target, hidden);
+  presentHiddenOverrides.set(action.targetId, hidden);
+  return true;
 }
 
 

@@ -22,9 +22,9 @@
     import { createSlideSnapshot, createThumbSnapshot } from '../slides/js/export.js';
     import { getCropFractions, getCropGeometry } from '../slides/js/image-geometry.js';
     import { captureState, commitState, pushHistory, redo, resetHistory, undo } from '../slides/js/history.js';
-    import { alignSelectionUnits, createSelectionUnits, distributeSelectionUnits, groupElements, remapGroupIds, ungroupElements } from '../slides/js/object-commands.js';
+    import { alignSelectionUnits, createSelectionUnits, distributeSelectionUnits, groupElements, remapActionTargets, remapGroupIds, ungroupElements } from '../slides/js/object-commands.js';
     import { applyLayoutToSlide, applyThemeToPresentation, getTheme } from '../slides/js/presentation-design.js';
-    import { normalizePresentation, normalizeTransition, parsePresentationText } from '../slides/js/project.js';
+    import { normalizePresentation, normalizeSlideActions, normalizeTransition, parsePresentationText } from '../slides/js/project.js';
     import { buildPptxPresentation } from '../slides/js/pptx-export.js';
     import { renderSlideThumbnail } from '../slides/js/slide-list.js';
     import { applyPresentationData, serializePresentation, state } from '../slides/js/state.js';
@@ -487,6 +487,68 @@
         applyPresentationData(previousPresentation);
         state.undoStack = previousUndoStack;
         state.redoStack = previousRedoStack;
+      }
+
+      // Дія при кліку «показати/сховати»: allowlist і цілі в межах слайда, копіювання,
+      // видалення, знімок показу проти PDF/друку, чесне попередження PPTX, save/open.
+      const actionProject = normalizePresentation({
+        slides: [{
+          id: 'quiz',
+          elements: [
+            { id: 'question', type: 'text', content: 'Скільки буде 2 + 2?', action: { kind: 'show', targetId: 'answer', script: 'alert(1)' } },
+            { id: 'answer', type: 'text', content: 'Відповідь: 4', startHidden: true },
+            { id: 'evil', type: 'shape', action: { kind: 'eval', targetId: 'answer' } },
+            { id: 'code', type: 'shape', action: 'javascript:alert(1)' },
+            { id: 'self', type: 'shape', action: { kind: 'toggle', targetId: 'self' } },
+            { id: 'missing', type: 'shape', action: { kind: 'hide', targetId: 'nowhere' } },
+            { id: 'cross', type: 'shape', action: { kind: 'hide', targetId: 'other-text' } },
+            { id: 'linked', type: 'shape', link: { kind: 'url', href: 'https://example.com' }, action: { kind: 'toggle', targetId: 'answer' } },
+            { id: 'orphan', type: 'text', content: 'Без тригера', startHidden: true }
+          ]
+        }, { id: 'other', elements: [{ id: 'other-text', type: 'text', content: 'Інший слайд' }] }]
+      });
+      const quizElements = actionProject.slides[0].elements;
+      const actionById = id => quizElements.find(element => element.id === id);
+      checks.push(check('click action keeps allowlisted kind and same-slide target only', JSON.stringify(actionById('question').action) === JSON.stringify({ kind: 'show', targetId: 'answer' })));
+      checks.push(check('click action rejects unknown kind, string, self, missing and cross-slide targets', ['evil', 'code', 'self', 'missing', 'cross'].every(id => actionById(id).action === null)));
+      checks.push(check('existing link wins over a conflicting click action', actionById('linked').link?.href === 'https://example.com' && actionById('linked').action === null));
+      checks.push(check('start hidden stays only on click action targets', actionById('answer').startHidden === true && actionById('orphan').startHidden === false && actionById('question').startHidden === false));
+
+      const copiedPair = quizElements.filter(element => ['question', 'answer'].includes(element.id)).map((element, index) => ({ ...structuredClone(element), id: `copy-${index}` }));
+      remapActionTargets(copiedPair, ['question', 'answer']);
+      checks.push(check('copied trigger follows its copied target', copiedPair[0].action.targetId === 'copy-1'));
+      const loneTrigger = [{ ...structuredClone(actionById('question')), id: 'lone-copy' }];
+      remapActionTargets(loneTrigger, ['question']);
+      const keptOnSameSlide = loneTrigger[0].action.targetId === 'answer';
+      normalizeSlideActions({ elements: loneTrigger });
+      checks.push(check('trigger pasted without its target keeps it only where the target exists', keptOnSameSlide && loneTrigger[0].action === null));
+      const withoutTarget = normalizeSlideActions({ elements: structuredClone(quizElements.filter(element => element.id !== 'answer')) });
+      checks.push(check('deleting the target clears the trigger action', withoutTarget.elements.find(element => element.id === 'question').action === null));
+      const withoutTrigger = normalizeSlideActions({ elements: structuredClone(quizElements.filter(element => element.id !== 'question')) });
+      checks.push(check('deleting the trigger makes the target visible again', withoutTrigger.elements.find(element => element.id === 'answer').startHidden === false));
+
+      const presentSnapshot = createSlideSnapshot(actionProject.slides[0], { presentation: true });
+      const presentNode = id => [...presentSnapshot.querySelectorAll('[data-element-id]')].find(node => node.dataset.elementId === id);
+      checks.push(check('presentation snapshot starts with the target hidden', presentNode('answer')?.style.visibility === 'hidden' && presentNode('answer').getAttribute('aria-hidden') === 'true'));
+      checks.push(check('presentation snapshot exposes a keyboard trigger', presentNode('question')?.getAttribute('role') === 'button' && presentNode('question').tabIndex === 0
+        && presentNode('question').dataset.actionKind === 'show' && presentNode('question').dataset.actionTarget === 'answer' && presentNode('question').getAttribute('aria-label').includes('Скільки буде')));
+      checks.push(check('presentation snapshot exposes only validated actions', presentSnapshot.querySelectorAll('[data-action-kind]').length === 1));
+      const printSnapshot = createSlideSnapshot(actionProject.slides[0]);
+      checks.push(check('pdf and print snapshot keep every object visible and inert', ![...printSnapshot.children].some(node => node.style.visibility === 'hidden') && !printSnapshot.querySelector('[role="button"], [data-action-kind]')));
+
+      const actionPptx = buildPptxPresentation('Quiz', actionProject.slides, FakePptx);
+      const isActionWarning = warning => warning.includes('Дії при кліку');
+      checks.push(check('pptx export warns that click actions are not transferred', actionPptx.report.warnings.some(isActionWarning) && !pptxBuilt.report.warnings.some(isActionWarning)));
+
+      const presentationBeforeActions = serializePresentation();
+      try {
+        applyPresentationData(actionProject);
+        const reopened = parsePresentationText(JSON.stringify({ ...serializePresentation(), schemaVersion: SCHEMA_VERSION, textModelVersion: TEXT_MODEL_VERSION }));
+        const reopenedById = id => reopened.slides[0].elements.find(element => element.id === id);
+        checks.push(check('click action and start hidden survive save and open', reopenedById('question').action?.kind === 'show'
+          && reopenedById('question').action.targetId === 'answer' && reopenedById('answer').startHidden === true));
+      } finally {
+        applyPresentationData(presentationBeforeActions);
       }
 
       result.className = 'pass';

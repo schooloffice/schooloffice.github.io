@@ -152,6 +152,8 @@ export const DEFAULT_LAYOUT = 'blank';
 export const TRANSITION_TYPES = ['none', 'fade', 'slide-left', 'zoom'];
 export const TRANSITION_DURATIONS = ['fast', 'normal', 'slow'];
 export const DEFAULT_TRANSITION = { type: 'none', duration: 'normal' };
+// Дії при кліку в показі (allowlist): показати, сховати чи перемкнути інший об'єкт слайда.
+export const ELEMENT_ACTION_KINDS = ['show', 'hide', 'toggle'];
 export const SHAPE_TYPES = ['rect', 'circle', 'triangle', 'line', 'arrow'];
 export const LINE_SHAPE_TYPES = ['line', 'arrow'];
 export const TEXT_SHAPE_TYPES = ['rect', 'circle', 'triangle'];

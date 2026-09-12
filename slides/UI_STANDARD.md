@@ -23,6 +23,15 @@
 - Не тримати import/export і normalization логіку всередині UI coordinator.
 - Розділяти `app.js` поступово: кожен новий файл має мати самостійну доменну межу.
 
+## Дія при кліку
+
+- Модель: на тригері `action: { kind: 'show' | 'hide' | 'toggle', targetId }`, на цілі `startHidden`. Нормалізація — `normalizeAction` і `normalizeSlideActions` у `project.js`; копіювання — `remapActionTargets` в `object-commands.js`.
+- Ціль — лише інший об'єкт того ж слайда. Дія й посилання взаємовиключні; `startHidden` без чинної дії скидається.
+- Кожна операція, що видаляє чи копіює об'єкти (видалення, вставка, Alt+перетягування, дублювання слайда, макет), після зміни викликає `normalizeSlideActions`.
+- Показ бере `createSlideSnapshot(slide, { presentation: true })`. Видимість змінюється лише в DOM показу й не записується в модель, історію чи чернетку. PDF, друк і мініатюри показують усі об'єкти.
+- Тригер доступний з клавіатури: `role="button"`, `tabindex="0"`, Enter і пробіл.
+- Це не рушій анімацій. PPTX-експорт попереджає, що дії не переносяться.
+
 ## Локальна структура
 
 - `slides/index.html` — HTML shell редактора.

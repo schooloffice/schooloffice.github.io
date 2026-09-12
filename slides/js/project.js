@@ -1,4 +1,4 @@
-import { DEFAULT_IMAGE_STYLE, DEFAULT_LAYOUT, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, DEFAULT_THEME, DEFAULT_TRANSITION, FONT_FAMILY_KEYS, IMAGE_FIT_MODES, LAYOUT_KEYS, LIMITS, LIST_TYPES, SCHEMA_VERSION, SHAPE_TYPES, TEXT_MODEL_VERSION, TEXT_SHAPE_TYPES, THEME_KEYS, TRANSITION_DURATIONS, TRANSITION_TYPES } from './constants.js';
+import { DEFAULT_IMAGE_STYLE, DEFAULT_LAYOUT, DEFAULT_SHAPE_STYLE, DEFAULT_TEXT_STYLE, DEFAULT_THEME, DEFAULT_TRANSITION, ELEMENT_ACTION_KINDS, FONT_FAMILY_KEYS, IMAGE_FIT_MODES, LAYOUT_KEYS, LIMITS, LIST_TYPES, SCHEMA_VERSION, SHAPE_TYPES, TEXT_MODEL_VERSION, TEXT_SHAPE_TYPES, THEME_KEYS, TRANSITION_DURATIONS, TRANSITION_TYPES } from './constants.js';
 import { clamp, downloadTextFile } from './utils.js';
 import { normalizeChart } from './chart-element.js';
 import { normalizeTable, TABLE_LIMITS } from './table-element.js';
@@ -126,6 +126,8 @@ export function normalizePresentation(raw, { trusted = false } = {}) {
       if (element.link?.kind === 'slide' && !usedSlideIds.has(element.link.slideId)) element.link = null;
     }
   }
+  // Дії при кліку перевіряємо вже після унікалізації ID об'єктів.
+  slides.forEach(slide => normalizeSlideActions(slide));
 
   return {
     fileName: typeof raw.fileName === 'string' && raw.fileName.trim() ? raw.fileName.trim().slice(0, 200) : DEFAULT_PRESENTATION_NAME,
@@ -173,6 +175,8 @@ export function normalizeElement(element, index, { trusted = false } = {}) {
     isPlaceholder,
     placeholderType: normalizePlaceholderType(element?.placeholderType, type),
     link: normalizeLink(element?.link),
+    action: normalizeAction(element?.action),
+    startHidden: element?.startHidden === true,
     groupId: typeof element?.groupId === 'string' && element.groupId ? element.groupId.slice(0, 64) : null,
     alt: type === 'image' && typeof element?.alt === 'string' ? clampText(element.alt) : '',
     crop: type === 'image' ? normalizeCrop(element?.crop) : null,
@@ -213,6 +217,33 @@ export function normalizeLink(link) {
     return { kind: 'slide', slideId: link.slideId.slice(0, 64) };
   }
   return null;
+}
+
+// Дія при кліку — лише kind з allowlist і ID цілі (без URL, коду чи інших полів).
+// Чи є ціль на тому ж слайді, перевіряє normalizeSlideActions.
+export function normalizeAction(action) {
+  if (!action || typeof action !== 'object') return null;
+  if (!ELEMENT_ACTION_KINDS.includes(action.kind)) return null;
+  if (typeof action.targetId !== 'string' || !action.targetId) return null;
+  return { kind: action.kind, targetId: action.targetId.slice(0, 64) };
+}
+
+// Дія діє лише на інший об'єкт того ж слайда; дію без цілі чи поряд із посиланням
+// прибираємо. «Прихований на початку показу» лишається тільки в цілі чинної дії,
+// інакше об'єкт зник би з показу без способу його показати. Мутує й повертає слайд.
+export function normalizeSlideActions(slide) {
+  const elements = Array.isArray(slide?.elements) ? slide.elements : [];
+  const ids = new Set(elements.map(element => element.id));
+  const targets = new Set();
+  elements.forEach(element => {
+    const action = element.action;
+    if (action && (element.link || action.targetId === element.id || !ids.has(action.targetId))) element.action = null;
+    if (element.action) targets.add(element.action.targetId);
+  });
+  elements.forEach(element => {
+    element.startHidden = element.startHidden === true && targets.has(element.id);
+  });
+  return slide;
 }
 
 export function normalizeTransition(value) {

@@ -165,10 +165,33 @@ function renderElementNode(element, handlers) {
     wrap.appendChild(badge);
   }
 
+  if (element.action) {
+    wrap.appendChild(createBadge('action-badge', 'fa-hand-pointer', ACTION_BADGE_TITLES[element.action.kind] || 'Дія при кліку'));
+  }
+  if (element.startHidden) {
+    wrap.appendChild(createBadge('start-hidden-badge', 'fa-eye-slash', 'Прихований на початку показу'));
+  }
+
   wrap.appendChild(content);
   wrap.appendChild(createHandles(element, handlers.onHandlePointerDown, handlers.onRotateHandlePointerDown));
   wrap.addEventListener('pointerdown', event => handlers.onElementPointerDown(event, element.id));
   return wrap;
+}
+
+const ACTION_BADGE_TITLES = {
+  show: 'Клік у показі показує інший об’єкт',
+  hide: 'Клік у показі ховає інший об’єкт',
+  toggle: 'Клік у показі показує або ховає інший об’єкт'
+};
+
+function createBadge(className, icon, title) {
+  const badge = document.createElement('span');
+  badge.className = className;
+  badge.title = title;
+  const iconNode = document.createElement('i');
+  iconNode.className = `fa-solid ${icon}`;
+  badge.appendChild(iconNode);
+  return badge;
 }
 
 function createTextNode(element, { markDirty, renderCurrentSlideThumbnail, selectElement }, { shapeText = false } = {}) {

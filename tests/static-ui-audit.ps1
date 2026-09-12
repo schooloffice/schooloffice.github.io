@@ -9,7 +9,7 @@ $services = @(
   @{ Key = 'text'; Path = 'text'; Menu = @('file', 'edit', 'insert', 'view', 'help'); ActionFiles = @('text/ui/menu.js'); CommandFiles = @('text/js/app.js'); FilePickerFiles = @('text/ui/menu.js', 'text/ui/editor.js'); OptionalIds = @() },
   @{ Key = 'tables'; Path = 'tables'; Menu = @('file', 'edit', 'insert', 'format', 'data', 'view', 'help'); ActionFiles = @('tables/js/ui.js'); CommandFiles = @('tables/js/app.js'); FilePickerFiles = @('tables/js/ui.js', 'tables/js/workbook-file.js', 'tables/js/xlsx-file.js'); OptionalIds = @('header') },
   @{ Key = 'paint'; Path = 'paint'; Menu = @('file', 'edit', 'view', 'help'); ActionFiles = @('paint/js/app.js'); CommandFiles = @('paint/js/app.js'); FilePickerFiles = @('paint/js/document.js'); OptionalIds = @() },
-  @{ Key = 'slides'; Path = 'slides'; Menu = @('file', 'edit', 'insert', 'slide', 'view', 'help'); ActionFiles = @('slides/js/app.js'); CommandFiles = @('slides/js/app.js'); FilePickerFiles = @('slides/js/app.js'); OptionalIds = @('imageAltField', 'altEditField', 'pickImageFile', 'linkUrlField', 'linkSlideField', 'linkError', 'tableRowsField', 'tableColsField', 'tableHeaderField', 'tableStyleField', 'tableResizeWarning', 'tableResizeConfirmField', 'tableCellFillField', 'tableCellColorField', 'tableCellAlignField', 'tableCellVAlignField', 'tableCellBoldField', 'tableCellClearField', 'tableApplyFillField', 'tableApplyColorField', 'tableApplyAlignField', 'tableApplyVAlignField', 'tableApplyBoldField', 'tableRowWeightField', 'tableColumnWeightField', 'chartTypeField', 'chartTitleField', 'chartLegendField', 'chartDataField', 'chartError', 'transitionType', 'transitionDuration', 'transitionApplyAll') },
+  @{ Key = 'slides'; Path = 'slides'; Menu = @('file', 'edit', 'insert', 'slide', 'view', 'help'); ActionFiles = @('slides/js/app.js'); CommandFiles = @('slides/js/app.js'); FilePickerFiles = @('slides/js/app.js'); OptionalIds = @('imageAltField', 'altEditField', 'pickImageFile', 'linkUrlField', 'linkSlideField', 'linkError', 'actionTargetField', 'actionStartHiddenField', 'actionError','tableRowsField', 'tableColsField', 'tableHeaderField', 'tableStyleField', 'tableResizeWarning', 'tableResizeConfirmField', 'tableCellFillField', 'tableCellColorField', 'tableCellAlignField', 'tableCellVAlignField', 'tableCellBoldField', 'tableCellClearField', 'tableApplyFillField', 'tableApplyColorField', 'tableApplyAlignField', 'tableApplyVAlignField', 'tableApplyBoldField', 'tableRowWeightField', 'tableColumnWeightField', 'chartTypeField', 'chartTitleField', 'chartLegendField', 'chartDataField', 'chartError', 'transitionType', 'transitionDuration', 'transitionApplyAll') },
   @{ Key = 'flowcharts'; Path = 'flowcharts'; Menu = @('file', 'edit', 'insert', 'view', 'help'); ActionFiles = @('flowcharts/js/editor.js', 'flowcharts/js/menu-actions.js'); CommandFiles = @('flowcharts/js/editor.js', 'flowcharts/js/project-io.js', 'flowcharts/js/menu-actions.js'); FilePickerFiles = @('flowcharts/js/editor.js', 'flowcharts/js/project-io.js'); OptionalIds = @('delete-button', 'help-button') },
   @{ Key = 'vector'; Path = 'vector'; Menu = @('file', 'edit', 'insert', 'format', 'help'); ActionFiles = @('vector/js/app.js'); CommandFiles = @('vector/js/app.js'); FilePickerFiles = @('vector/js/app.js'); OptionalIds = @() }
 )
@@ -724,9 +724,26 @@ if (Test-Path $slidesRuntimePath) {
 $slidesProjectPath = Join-Path $Root 'slides/js/project.js'
 if (Test-Path $slidesProjectPath) {
   $slidesProject = Get-Content -Raw -Encoding UTF8 $slidesProjectPath
-  foreach ($projectFunction in @('normalizeElement', 'normalizePresentation', 'parsePresentationText', 'savePresentationFile', 'slugify')) {
+  foreach ($projectFunction in @('normalizeElement', 'normalizePresentation', 'normalizeAction', 'normalizeSlideActions', 'parsePresentationText', 'savePresentationFile', 'slugify')) {
     Assert-True ($slidesProject -match "export function $projectFunction\(") "slides/js/project.js: should own $projectFunction"
   }
+}
+
+# Click action in presentation: declarative allowlist without code strings, both menus, presentation-only snapshot, honest PPTX warning.
+$slidesConstantsPath = Join-Path $Root 'slides/js/constants.js'
+$slidesAppPath = Join-Path $Root 'slides/js/app.js'
+$slidesExportPath = Join-Path $Root 'slides/js/export.js'
+if ((Test-Path $slidesConstantsPath) -and (Test-Path $slidesAppPath) -and (Test-Path $slidesExportPath) -and (Test-Path $slidesIndexPath) -and (Test-Path $slidesPptxExportPath)) {
+  $slidesConstants = Get-Content -Raw -Encoding UTF8 $slidesConstantsPath
+  $slidesAppSource = Get-Content -Raw -Encoding UTF8 $slidesAppPath
+  $slidesExportSource = Get-Content -Raw -Encoding UTF8 $slidesExportPath
+  Assert-True ($slidesConstants -match "export const ELEMENT_ACTION_KINDS = \['show', 'hide', 'toggle'\];") "slides/js/constants.js: click actions should use the show/hide/toggle allowlist"
+  Assert-True ([regex]::Matches($slidesHtml, 'data-action="edit-action"').Count -eq 2) "slides/index.html: click action should be available from the Insert menu and the object context menu"
+  Assert-True ($slidesAppSource -match "case 'edit-action': showActionModal\(\)") "slides/js/app.js: edit-action should open the click action dialog"
+  Assert-True ($slidesExportSource -match 'export function createSlideSnapshot\(slide, \{ presentation = false \} = \{\}\)') "slides/js/export.js: only the presentation snapshot should hide start-hidden objects and expose triggers"
+  Assert-True ($slidesAppSource -match 'createSlideSnapshot\(slide, \{ presentation: true \}\)') "slides/js/app.js: presentation should render the interactive snapshot"
+  Assert-True ($slidesAppSource -notmatch '\bnew Function\(|\beval\(') "slides/js/app.js: click actions must not execute code strings"
+  Assert-True ($slidesPptxExport -match 'element\.action \|\| element\.startHidden') "slides/js/pptx-export.js: should warn when click actions cannot be exported"
 }
 
 $slidesHistoryPath = Join-Path $Root 'slides/js/history.js'

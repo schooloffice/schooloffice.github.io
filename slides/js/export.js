@@ -117,7 +117,36 @@ function buildElementNode(element, forThumb = false) {
   return node;
 }
 
-export function createSlideSnapshot(slide) {
+const ACTION_LABELS = {
+  show: 'Показати об’єкт',
+  hide: 'Сховати об’єкт',
+  toggle: 'Показати або сховати об’єкт'
+};
+
+// Прихованість об'єкта в показі живе лише в DOM знімка (ефемерно, модель не змінюється).
+export function setSnapshotElementHidden(node, hidden) {
+  node.style.visibility = hidden ? 'hidden' : '';
+  if (hidden) node.setAttribute('aria-hidden', 'true');
+  else node.removeAttribute('aria-hidden');
+}
+
+// Режим показу: ID об'єкта, початкова прихованість цілі й доступний з клавіатури
+// тригер дії. PDF і друк беруть знімок без presentation — усі об'єкти видимі.
+function applyPresentationBehavior(node, element) {
+  node.dataset.elementId = element.id;
+  if (element.startHidden) setSnapshotElementHidden(node, true);
+  const kind = element.action?.kind;
+  if (!Object.hasOwn(ACTION_LABELS, kind)) return;
+  const text = node.textContent.replace(/\s+/g, ' ').trim().slice(0, 80);
+  node.dataset.actionKind = kind;
+  node.dataset.actionTarget = element.action.targetId;
+  node.tabIndex = 0;
+  node.setAttribute('role', 'button');
+  node.setAttribute('aria-label', text ? `${text}. ${ACTION_LABELS[kind]}` : ACTION_LABELS[kind]);
+  node.style.cursor = 'pointer';
+}
+
+export function createSlideSnapshot(slide, { presentation = false } = {}) {
   const wrap = document.createElement('div');
   wrap.style.width = `${STAGE_WIDTH}px`;
   wrap.style.height = `${STAGE_HEIGHT}px`;
@@ -125,7 +154,11 @@ export function createSlideSnapshot(slide) {
   wrap.style.background = slide.background || '#ffffff';
   wrap.style.overflow = 'hidden';
   const elements = [...slide.elements].sort((a, b) => (a.z || 1) - (b.z || 1));
-  elements.forEach(element => wrap.appendChild(buildElementNode(element, false)));
+  elements.forEach(element => {
+    const node = buildElementNode(element, false);
+    if (presentation) applyPresentationBehavior(node, element);
+    wrap.appendChild(node);
+  });
   return wrap;
 }
 

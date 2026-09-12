@@ -1234,6 +1234,43 @@ ol.shape-text-element {
   cursor: pointer;
 }
 
+/* Дія при кліку (редактор): бейдж тригера зліва, позначка «прихований на початку показу» справа. */
+.action-badge,
+.start-hidden-badge {
+  position: absolute;
+  top: -10px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  border-radius: 999px;
+  font-size: .62rem;
+  z-index: 3;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .3);
+}
+
+.action-badge {
+  left: -10px;
+  background: #b45309;
+}
+
+.start-hidden-badge {
+  right: -10px;
+  background: #475569;
+}
+
+.present-stage [data-action-kind] {
+  cursor: pointer;
+}
+
+.present-stage [data-action-kind]:focus-visible {
+  outline: 3px solid #f59e0b;
+  outline-offset: 4px;
+}
+
 .radio-row {
   display: flex;
   align-items: center;

@@ -1769,6 +1769,92 @@
       await waitFor(() => !doc.querySelector('#stage .slide-chart path'), 'chart edit undo');
       checks.push(check('chart editing participates in Undo', !doc.querySelector('#stage .slide-chart path')));
 
+      // === Дія при кліку: показати відповідь ===
+      clickAction('new-slide');
+      await wait(60);
+      const selectedStageId = () => doc.querySelector('#stage .stage-element.selected')?.dataset.id;
+      const stageWrapById = id => [...doc.querySelectorAll('#stage .stage-element')].find(node => node.dataset.id === id);
+      const presentNodeById = id => [...doc.querySelectorAll('#presentStageWrap [data-element-id]')].find(node => node.dataset.elementId === id);
+      const presentOpen = () => !doc.querySelector('#presentOverlay').classList.contains('hidden');
+      const closePresentation = async label => {
+        doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await waitFor(() => !presentOpen(), label);
+      };
+      clickAction('insert-rect');
+      await waitFor(() => selectedStageId(), 'answer object inserted');
+      const answerId = selectedStageId();
+      clickAction('insert-rect');
+      await waitFor(() => selectedStageId() && selectedStageId() !== answerId, 'trigger object inserted');
+      const triggerId = selectedStageId();
+      clickAction('edit-action');
+      await waitFor(() => doc.querySelector('#actionTargetField'), 'action modal opens');
+      const targetOptions = [...doc.querySelectorAll('#actionTargetField option')].map(option => option.value);
+      checks.push(check('action dialog offers other objects of the slide only', targetOptions.includes(answerId) && !targetOptions.includes(triggerId)));
+      doc.querySelector('input[name="actionKind"][value="show"]').checked = true;
+      const forgedTarget = doc.createElement('option');
+      forgedTarget.value = 'javascript:alert(1)';
+      doc.querySelector('#actionTargetField').appendChild(forgedTarget);
+      doc.querySelector('#actionTargetField').value = forgedTarget.value;
+      doc.querySelector('#modalConfirm').click();
+      checks.push(check('forged action target keeps the dialog open with an error', presentOpen() === false && !doc.querySelector('#modalOverlay').classList.contains('hidden')
+        && !doc.querySelector('#actionError').classList.contains('hidden') && !doc.querySelector('#stage .action-badge')));
+      doc.querySelector('#actionTargetField').value = answerId;
+      doc.querySelector('#actionStartHiddenField').checked = true;
+      doc.querySelector('#modalConfirm').click();
+      await waitFor(() => doc.querySelector('#stage .action-badge'), 'action badge appears');
+      checks.push(check('show action marks the trigger and the start-hidden answer', !!stageWrapById(triggerId)?.querySelector('.action-badge') && !!stageWrapById(answerId)?.querySelector('.start-hidden-badge')));
+
+      clickAction('present');
+      await waitFor(presentOpen, 'present starts (action)');
+      checks.push(check('presentation starts with the answer hidden', presentNodeById(answerId)?.style.visibility === 'hidden'));
+      presentNodeById(triggerId).click();
+      checks.push(check('clicking the trigger shows the answer', presentNodeById(answerId).style.visibility !== 'hidden'));
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'n', bubbles: true }));
+      checks.push(check('toggling notes keeps the shown answer', presentNodeById(answerId).style.visibility !== 'hidden'));
+      await closePresentation('present closes (action)');
+      clickAction('present');
+      await waitFor(presentOpen, 'present restarts (action)');
+      checks.push(check('a new presentation run hides the answer again', presentNodeById(answerId)?.style.visibility === 'hidden'));
+      const counterBeforeKeys = doc.querySelector('#presentSlideCounter').textContent;
+      presentNodeById(triggerId).focus();
+      presentNodeById(triggerId).dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      checks.push(check('Enter on the focused trigger shows the answer', doc.activeElement?.dataset.elementId === triggerId && presentNodeById(answerId).style.visibility !== 'hidden'));
+      presentNodeById(triggerId).dispatchEvent(new win.KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+      checks.push(check('Space on the focused trigger does not switch the slide', presentOpen() && doc.querySelector('#presentSlideCounter').textContent === counterBeforeKeys));
+      await closePresentation('present closes after keys (action)');
+
+      // Показ не мутує документ: наступний Undo скасовує саме налаштування дії.
+      clickAction('undo');
+      await waitFor(() => !doc.querySelector('#stage .action-badge'), 'undo removes action');
+      checks.push(check('action setup participates in Undo and presentation adds no history', !doc.querySelector('#stage .action-badge') && !doc.querySelector('#stage .start-hidden-badge')));
+      clickAction('redo');
+      await waitFor(() => doc.querySelector('#stage .action-badge'), 'redo restores action');
+
+      const actionSlideCount = doc.querySelectorAll('#slideList .slide-card').length;
+      clickAction('duplicate-slide');
+      await waitFor(() => doc.querySelectorAll('#slideList .slide-card').length === actionSlideCount + 1, 'action slide duplicated');
+      const copiedTriggerId = doc.querySelector('#stage .action-badge')?.closest('.stage-element')?.dataset.id;
+      const copiedAnswerId = doc.querySelector('#stage .start-hidden-badge')?.closest('.stage-element')?.dataset.id;
+      checks.push(check('duplicated slide gets its own trigger and answer', !!copiedTriggerId && !!copiedAnswerId && copiedTriggerId !== triggerId && copiedAnswerId !== answerId));
+      clickAction('present');
+      await waitFor(presentOpen, 'present starts (duplicated action)');
+      presentNodeById(copiedTriggerId).click();
+      checks.push(check('duplicated trigger shows the copied answer', presentNodeById(copiedAnswerId)?.style.visibility !== 'hidden'));
+      await closePresentation('present closes (duplicated action)');
+
+      const copiedAnswerWrap = stageWrapById(copiedAnswerId);
+      const copiedAnswerRect = copiedAnswerWrap.getBoundingClientRect();
+      const answerPoint = { bubbles: true, pointerId: 95, clientX: copiedAnswerRect.left + 4, clientY: copiedAnswerRect.top + 4 };
+      copiedAnswerWrap.dispatchEvent(new win.PointerEvent('pointerdown', answerPoint));
+      doc.querySelector('#stage').dispatchEvent(new win.PointerEvent('pointerup', answerPoint));
+      await waitFor(() => selectedStageId() === copiedAnswerId, 'copied answer selected');
+      clickAction('delete-element');
+      await waitFor(() => !stageWrapById(copiedAnswerId), 'copied answer deleted');
+      checks.push(check('deleting the target removes the click action', !doc.querySelector('#stage .action-badge')));
+      clickAction('undo');
+      await waitFor(() => stageWrapById(copiedAnswerId), 'undo restores deleted answer');
+      checks.push(check('undo restores the target together with its click action', !!stageWrapById(copiedTriggerId)?.querySelector('.action-badge') && !!stageWrapById(copiedAnswerId)?.querySelector('.start-hidden-badge')));
+
       // Escape скасовує перейменування: видалення сфокусованого поля запускає blur,
       // який раніше вдруге викликав finish(true), перейменовував і кидав NotFoundError.
       const renameBefore = doc.querySelector('#fileName').textContent;
