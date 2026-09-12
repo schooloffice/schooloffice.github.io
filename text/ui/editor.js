@@ -63,7 +63,10 @@ const ArtEditor = (() => {
     ArtHistory.setRestorer((html, selection) => _setDocumentHTML(html, { trusted: true, selection }));
 
     document.addEventListener('selectionchange', () => {
-      if (_editor.contains(document.activeElement) || document.activeElement === _editor) _updateTableContext();
+      if (_editor.contains(document.activeElement) || document.activeElement === _editor) {
+        _updateTableContext();
+        _syncOrientationMenu();
+      }
     });
     document.addEventListener('pointermove', _handlePointerMove);
     document.addEventListener('pointerup', _handlePointerUp);
@@ -211,7 +214,14 @@ const ArtEditor = (() => {
     }
   }
 
+  // Орієнтація розділу, у якому каретка; у першому розділі — орієнтація документа.
   function setOrientation(value) {
+    const section = sectionAtCaret();
+    if (section.element) {
+      setSectionSettings(section.element, { ...section.settings, orientation: value });
+      _syncOrientationMenu();
+      return;
+    }
     if (value === ArtState.get('orientation')) return;
     ArtState.set('orientation', value);
     ArtHistory.pushNow?.();
@@ -310,7 +320,7 @@ const ArtEditor = (() => {
   }
 
   // Ctrl+Enter або «Вставка → Розрив сторінки»: текст після каретки починається з нового аркуша.
-  function insertPageBreak() {
+  function insertPageBreak({ section = false } = {}) {
     // Поточне виділення в документі важливіше за запам'ятоване: Ctrl+Enter натискають там,
     // де стоїть каретка. Із меню фокус уже поза документом — тоді відновлюємо збережене.
     let range = ArtSelection.getRange(_editor);
@@ -319,6 +329,8 @@ const ArtEditor = (() => {
       range = ArtSelection.getRange(_editor);
     }
     if (!range) return false;
+    // Новий розділ отримує налаштування розділу, у якому стоїть каретка.
+    const sectionSettings = section ? sectionAtCaret().settings : null;
     ArtHistory.pushNow();
     if (!range.collapsed) range.deleteContents();
 
@@ -327,6 +339,7 @@ const ArtEditor = (() => {
     if (!page) return false;
     const block = [...page.children].find(child => child === node || child.contains(node)) || null;
     const pageBreak = _createPageBreak();
+    if (sectionSettings) pageBreak.setAttribute('data-art-section', _formatSection(sectionSettings));
     let next;
 
     const before = range.cloneRange();
@@ -428,6 +441,170 @@ const ArtEditor = (() => {
     _cleanupPage(current);
     _cleanupPage(next);
     return true;
+  }
+
+  // ── Розділи (C2г) ───────────────────────────────────────────────────────
+  // Розрив розділу — розрив сторінки з налаштуваннями наступного розділу:
+  // <hr style="break-after: page;" data-art-section="landscape a4 2 1.5 2 3">
+  // (орієнтація, розмір паперу, поля top right bottom left у см). Перший розділ —
+  // налаштування документа. Пагінація дає кожному аркушу геометрію його розділу.
+  function _isSectionBreak(node) {
+    return _isPageBreak(node) && node.hasAttribute('data-art-section');
+  }
+
+  function _parseSection(value, fallback) {
+    const [orientation, pageSize, top, right, bottom, left] = String(value || '').trim().split(/\s+/);
+    return ArtPage.normalizeSettings({ orientation, pageSize, margins: { top, right, bottom, left } }, fallback);
+  }
+
+  function _formatSection(settings) {
+    const m = settings.margins;
+    return [settings.orientation, settings.pageSize, m.top, m.right, m.bottom, m.left].join(' ');
+  }
+
+  function _firstSection() {
+    return { index: 0, settings: ArtPage.documentSettings(), element: null };
+  }
+
+  // Розділ, що діє після блоків content, якщо перед ними діяв section.
+  function _sectionAfter(content, section, onSection = null) {
+    let current = section;
+    [...(content?.children || [])].forEach(child => {
+      if (!_isSectionBreak(child)) return;
+      current = { index: current.index + 1, settings: _parseSection(child.getAttribute('data-art-section'), current.settings), element: child };
+      onSection?.(current);
+    });
+    return current;
+  }
+
+  // Канонічний запис налаштувань розділу: значення з файлу чи чернетки перевіряються й
+  // обмежуються, як поля в діалозі, тож у документі не лишається недовірених чисел.
+  function _normalizeSectionBreaks() {
+    let section = _firstSection();
+    ArtSelection.getPageContents(_editor).forEach(content => {
+      section = _sectionAfter(content, section, entry => {
+        const value = _formatSection(entry.settings);
+        if (entry.element.getAttribute('data-art-section') !== value) entry.element.setAttribute('data-art-section', value);
+      });
+    });
+  }
+
+  // Геометрія аркуша — CSS-змінні його розділу; аркуші першого розділу беруть змінні документа.
+  // Для друку аркуш розділу отримує іменовану сторінку art-section-N.
+  function _applyPageGeometry(page, section) {
+    const key = section.index ? `${section.index}|${_formatSection(section.settings)}` : '';
+    if ((page.dataset.artSectionKey || '') === key) return false;
+    const vars = ArtPage.geometryVars(section.settings);
+    Object.keys(vars).forEach(name => {
+      if (key) page.style.setProperty(name, vars[name]);
+      else page.style.removeProperty(name);
+    });
+    if (key) {
+      page.style.setProperty('page', `art-section-${section.index}`);
+      page.dataset.artSectionKey = key;
+    } else {
+      page.style.removeProperty('page');
+      delete page.dataset.artSectionKey;
+    }
+    return true;
+  }
+
+  // Геометрія всіх аркушів за розривами розділів і правила друку; true — щось змінилося.
+  function _syncSectionGeometry() {
+    let section = _firstSection();
+    let changed = false;
+    const printPages = [];
+    _getPages().forEach(page => {
+      if (_applyPageGeometry(page, section)) changed = true;
+      section = _sectionAfter(_getPageContent(page), section, entry => {
+        printPages.push({ name: `art-section-${entry.index}`, settings: entry.settings });
+      });
+    });
+    ArtPage.setSectionPrintPages(printPages);
+    return changed;
+  }
+
+  // Розділ, у якому каретка (або збережене виділення), кількість розділів і аркуш каретки.
+  function sectionAtCaret() {
+    const range = ArtSelection.getRange(_editor) || _editor._artSavedRange || null;
+    const node = range?.startContainer && _editor.contains(range.startContainer) ? range.startContainer : null;
+    const pages = _getPages();
+    let section = _firstSection();
+    let found = null;
+    let count = 1;
+    pages.forEach(page => {
+      const content = _getPageContent(page);
+      if (!found && node && (node === page || node === content || (page.contains(node) && !content?.contains(node)))) {
+        found = { ...section, page };
+      }
+      [...(content?.children || [])].forEach(child => {
+        if (!found && node && (child === node || child.contains(node))) found = { ...section, page };
+        if (_isSectionBreak(child)) {
+          section = { index: section.index + 1, settings: _parseSection(child.getAttribute('data-art-section'), section.settings), element: child };
+          count += 1;
+        }
+      });
+    });
+    return { ...(found || { ..._firstSection(), page: pages[0] || null }), count };
+  }
+
+  function _settingsBefore(element) {
+    let section = _firstSection();
+    for (const content of ArtSelection.getPageContents(_editor)) {
+      for (const child of content.children) {
+        if (child === element) return section.settings;
+        if (_isSectionBreak(child)) {
+          section = { index: section.index + 1, settings: _parseSection(child.getAttribute('data-art-section'), section.settings), element: child };
+        }
+      }
+    }
+    return section.settings;
+  }
+
+  function _writeSectionSettings(element, settings) {
+    if (!_isSectionBreak(element) || !element.isConnected) return null;
+    const normalized = ArtPage.normalizeSettings(settings, _settingsBefore(element));
+    element.setAttribute('data-art-section', _formatSection(normalized));
+    return normalized;
+  }
+
+  // Нові налаштування розділу — один крок історії з перекомпонуванням.
+  function setSectionSettings(element, settings) {
+    if (!_isSectionBreak(element) || !element.isConnected) return null;
+    ArtHistory.pushNow();
+    const normalized = _writeSectionSettings(element, settings);
+    commitSectionChange();
+    return normalized;
+  }
+
+  // Перетягування маркера лінійки: лише геометрія аркушів, без історії й пагінації.
+  function previewSectionSettings(element, settings) {
+    const normalized = _writeSectionSettings(element, settings);
+    if (normalized) _syncSectionGeometry();
+    return normalized;
+  }
+
+  function commitSectionChange() {
+    _repaginate(true);
+    _editor.dispatchEvent(new Event('input', { bubbles: true }));
+    ArtHistory.pushNow();
+  }
+
+  // «Вставка → Розрив розділу»: новий аркуш і новий розділ із налаштуваннями поточного.
+  function insertSectionBreak() {
+    const inserted = insertPageBreak({ section: true });
+    if (inserted) _announce('Новий розділ. Орієнтацію, папір і поля розділу змінює «Файл → Налаштування сторінки».');
+    return inserted;
+  }
+
+  // Позначка орієнтації в меню «Перегляд» — для розділу, у якому каретка.
+  function _syncOrientationMenu() {
+    const value = _editor.querySelector('.page-content > hr[data-art-section]')
+      ? sectionAtCaret().settings.orientation
+      : ArtState.get('orientation');
+    document.querySelectorAll('[data-action^="orient-"]').forEach(item => {
+      item.classList.toggle('checked', item.dataset.action === `orient-${value}`);
+    });
   }
 
   // ── Зміст (C2в) ─────────────────────────────────────────────────────────
@@ -1486,34 +1663,12 @@ const ArtEditor = (() => {
     try {
       _normalizePages();
 
-      let pages = _getPages();
-      let layoutGuard = 0;
+      // Геометрія аркуша залежить від його розділу, а розділ — від того, де опинився розрив
+      // розділу після перенесень. Якщо підтягування змінило розділ аркуша, проходимо ще раз.
       let guardHit = false;
-      for (let i = 0; i < pages.length; i++) {
-        const current = _getPageContent(pages[i]);
-        if (_moveAfterPageBreak(current, i)) pages = _getPages();
-        while (_isOverflowing(current)) {
-          if (++layoutGuard > 250) { guardHit = true; break; }
-          const oversize = _unsplittableOversizeBlock(current);
-          if (oversize) {
-            _showOversizeBlock(current, oversize);
-            break;
-          }
-          const next = _getPageContent(_getOrCreatePage(i + 1));
-          if (!_moveOverflowToNext(current, next)) break;
-          pages = _getPages();
-        }
-      }
-
-      pages = _getPages();
-      for (let i = 0; i < pages.length - 1; i++) {
-        const current = _getPageContent(pages[i]);
-        const next = _getPageContent(pages[i + 1]);
-        let pullGuard = 0;
-        while (_pullFromNextIfFits(current, next)) {
-          if (++pullGuard > 250) break;
-          if (!_getPages()[i + 1]) break;
-        }
+      for (let pass = 0; pass < 3; pass++) {
+        guardHit = _paginationPass() || guardHit;
+        if (!_syncSectionGeometry()) break;
       }
 
       _dropEmptyTableContinuations();
@@ -1534,6 +1689,44 @@ const ArtEditor = (() => {
       _updatePageNumbers();
       _updateEmptyState();
     }
+  }
+
+  // Один прохід пагінації: перенесення надлишку вниз, потім підтягування вгору.
+  // Перед вимірюванням аркуш отримує геометрію розділу, що діє на його початку.
+  function _paginationPass() {
+    let pages = _getPages();
+    let layoutGuard = 0;
+    let guardHit = false;
+    let section = _firstSection();
+    for (let i = 0; i < pages.length; i++) {
+      const current = _getPageContent(pages[i]);
+      _applyPageGeometry(pages[i], section);
+      if (_moveAfterPageBreak(current, i)) pages = _getPages();
+      while (_isOverflowing(current)) {
+        if (++layoutGuard > 250) { guardHit = true; break; }
+        const oversize = _unsplittableOversizeBlock(current);
+        if (oversize) {
+          _showOversizeBlock(current, oversize);
+          break;
+        }
+        const next = _getPageContent(_getOrCreatePage(i + 1));
+        if (!_moveOverflowToNext(current, next)) break;
+        pages = _getPages();
+      }
+      section = _sectionAfter(current, section);
+    }
+
+    pages = _getPages();
+    for (let i = 0; i < pages.length - 1; i++) {
+      const current = _getPageContent(pages[i]);
+      const next = _getPageContent(pages[i + 1]);
+      let pullGuard = 0;
+      while (_pullFromNextIfFits(current, next)) {
+        if (++pullGuard > 250) break;
+        if (!_getPages()[i + 1]) break;
+      }
+    }
+    return guardHit;
   }
 
   function _moveOverflowToNext(current, next) {
@@ -1969,6 +2162,7 @@ const ArtEditor = (() => {
     _upgradeImageBlocks();
     ArtSelection.normalizeEditor(_editor);
     _lockTocBlocks();
+    _normalizeSectionBreaks();
     _getPages().forEach(page => {
       const content = _getPageContent(page);
       if (!content) page.prepend(_createPage().firstElementChild);
@@ -2210,7 +2404,8 @@ const ArtEditor = (() => {
 
   return {
     init, newDoc, saveAs, setOrientation, setZoom, hasSelectedImage, setSelectedImageLayout,
-    insertTable, insertPageBreak, insertToc, updateToc, removeToc, tableAction, toggleTableMenu, hideTableMenu, refreshLayout, openImageDialog, clearFindHighlights, editFileName,
+    insertTable, insertPageBreak, insertSectionBreak, insertToc, updateToc, removeToc, tableAction,
+    sectionAtCaret, setSectionSettings, previewSectionSettings, commitSectionChange, toggleTableMenu, hideTableMenu, refreshLayout, openImageDialog, clearFindHighlights, editFileName,
     getDraftPayload, restoreDraft, clearDocument, getDocumentRevision, setSpellcheck, toggleSpellcheck,
     MAX_TEXT_FILE_BYTES, MAX_DOCX_FILE_BYTES, MAX_IMAGE_FILE_BYTES, MAX_IMAGE_PIXELS,
     // Логічний (не сторінковий) HTML документа — те, що йде у файл.

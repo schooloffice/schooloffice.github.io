@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Text Sections Smoke</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    iframe {
+      width: 1280px;
+      height: 900px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+    }
+
+    pre {
+      max-width: 1280px;
+      white-space: pre-wrap;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: .75rem;
+      padding: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Text Sections Smoke</h1>
+  <!-- Розділи (C2г) мають окрему сторінку: сценарії перекомпоновують документ із різною
+       геометрією аркушів, а бюджет віртуального часу раннера рахується на сторінку. -->
+  <pre id="result">Running...</pre>
+  <iframe id="textFrame" src="../text/index.html"></iframe>
+
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('textFrame');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Опитуємо через setTimeout, а не requestAnimationFrame: під --virtual-time-budget
+    // щільний rAF-цикл не дає віртуальному годиннику рухатися рівномірно.
+    function waitFor(predicate, label, timeout = 6000) {
+      const started = performance.now();
+      return new Promise((resolve, reject) => {
+        function tick() {
+          let ok = false;
+          try { ok = !!predicate(); } catch { ok = false; }
+          if (ok) return resolve();
+          if (performance.now() - started > timeout) return reject(new Error(`Timed out waiting for ${label}`));
+          setTimeout(tick, 50);
+        }
+        tick();
+      });
+    }
+
+    function check(label, ok) {
+      return { label, ok: !!ok };
+    }
+
+    function pageContents(doc) {
+      return Array.from(doc.querySelectorAll('#editor .page-content'));
+    }
+
+    async function resetDocument(win, doc) {
+      win.art.editor.newDoc();
+      await waitFor(() => pageContents(doc).length === 1 && doc.querySelector('#editor .page-content'), 'text document reset');
+      await wait(150);
+    }
+
+    // C2(г): розділи. Розрив розділу починає новий аркуш і новий розділ зі своєю орієнтацією,
+    // розміром паперу й полями; перший розділ — налаштування документа.
+    async function runSectionChecks(win, doc, editor) {
+      const diagnostics = {};
+      const BACKSLASH = String.fromCharCode(92);
+      const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      const PORTRAIT = 794;
+      const LANDSCAPE = 1123;
+      const exportHTML = () => win.art.editor.getExportHTML();
+      async function settle() {
+        let previous = -1;
+        for (let i = 0; i < 40; i += 1) {
+          await wait(120);
+          const now = pageContents(doc).length;
+          if (now === previous) break;
+          previous = now;
+        }
+        await wait(250);
+      }
+      async function load(html) {
+        await resetDocument(win, doc);
+        pageContents(doc)[0].innerHTML = html;
+        editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+        await settle();
+        win.art.history.init(editor);
+        win.art.history.markSaved();
+      }
+      const placeCaret = (node, offset) => {
+        const caret = doc.createRange();
+        caret.setStart(node, offset);
+        caret.collapse(true);
+        editor.focus();
+        win.getSelection().removeAllRanges();
+        win.getSelection().addRange(caret);
+      };
+      const caretAtEnd = element => {
+        let node = element;
+        while (node.lastChild) node = node.lastChild;
+        placeCaret(node, node.nodeType === Node.TEXT_NODE ? node.data.length : node.childNodes.length);
+      };
+      const sections = (html = exportHTML()) => {
+        const box = doc.createElement('div');
+        box.innerHTML = html;
+        return [...box.querySelectorAll('hr[data-art-section]')].map(hr => hr.getAttribute('data-art-section'));
+      };
+      const pages = () => [...doc.querySelectorAll('#editor .page')];
+      const widths = () => pages().map(page => page.offsetWidth);
+      const noOverflow = () => pageContents(doc).every(content => content.scrollHeight <= content.clientHeight + 1);
+      // Сторінки, що йдуть після розриву розділу.
+      const sectionPages = () => {
+        const all = pages();
+        const index = all.findIndex(page => page.querySelector('hr[data-art-section]'));
+        return index === -1 ? [] : all.slice(index + 1);
+      };
+      const words = Array.from({ length: 900 }, (_, index) => `слово${index}`).join(' ');
+      async function zipEntries(blob) {
+        const buffer = await blob.arrayBuffer();
+        const view = new DataView(buffer);
+        const entries = new Map();
+        for (let end = buffer.byteLength - 22; end >= Math.max(0, buffer.byteLength - 65557); end -= 1) {
+          if (view.getUint32(end, true) !== 0x06054b50) continue;
+          let offset = view.getUint32(end + 16, true);
+          const count = view.getUint16(end + 10, true);
+          for (let index = 0; index < count; index += 1) {
+            const nameLength = view.getUint16(offset + 28, true);
+            const local = view.getUint32(offset + 42, true);
+            const name = new TextDecoder().decode(new Uint8Array(buffer, offset + 46, nameLength));
+            const dataStart = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+            entries.set(name, {
+              method: view.getUint16(offset + 10, true),
+              bytes: new Uint8Array(buffer, dataStart, view.getUint32(offset + 20, true))
+            });
+            offset += 46 + nameLength + view.getUint16(offset + 30, true) + view.getUint16(offset + 32, true);
+          }
+          break;
+        }
+        return entries;
+      }
+      async function entryText(entry) {
+        if (!entry) return '';
+        if (entry.method === 0) return new TextDecoder().decode(entry.bytes);
+        const stream = new Blob([entry.bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+        return new Response(stream).text();
+      }
+
+      // 1. «Вставка → Розрив розділу»: новий аркуш і новий розділ з налаштуваннями поточного.
+      await load('<p>Перший розділ.</p>');
+      caretAtEnd(pageContents(doc)[0].querySelector('p'));
+      win.art.menu.dispatch('insert-section-break');
+      await settle();
+      const inserted = sections();
+      const breakElement = doc.querySelector('#editor hr[data-art-section]');
+      const marker = breakElement ? win.getComputedStyle(breakElement, '::after').content : '';
+      const selectionNode = win.getSelection().anchorNode;
+      const insertWorks = inserted.length === 1 && inserted[0] === 'portrait a4 2 1.5 2 3'
+        && pages().length === 2 && widths().join(',') === `${PORTRAIT},${PORTRAIT}`
+        && /Розрив розділу/.test(marker)
+        && !!selectionNode && !!pageContents(doc)[1]?.contains(selectionNode)
+        && win.art.state.isDirty() && win.art.history.canUndo();
+      diagnostics.insert = { inserted, widths: widths(), marker };
+
+      // 2. Налаштування сторінки змінюють лише розділ, у якому каретка; пагінація відповідає новій геометрії.
+      const secondParagraph = pageContents(doc)[1].querySelector('p');
+      secondParagraph.textContent = words;
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await settle();
+      const portraitSectionPages = sectionPages().length;
+      caretAtEnd(doc.querySelectorAll('#editor .page-content > p')[1]);
+      win.art.menu.dispatch('page-setup');
+      await wait(100);
+      const scope = doc.getElementById('pageSetupScope');
+      const scopeText = scope && !scope.hidden ? scope.textContent : '';
+      const landscapeRadio = doc.querySelector('[name="pageOrientation"][value="landscape"]');
+      if (landscapeRadio) landscapeRadio.checked = true;
+      doc.querySelector('[data-page-setup-apply]')?.click();
+      await settle();
+      const changed = sections();
+      const landscapeSectionPages = sectionPages().length;
+      // Для A4 з цими полями площа тексту майже однакова, тож кількість аркушів може не змінитися.
+      // Доказ пагінації за геометрією розділу — ширина тексту на його аркушах і відсутність
+      // переповнення на нижчих альбомних аркушах.
+      const firstTextWidth = pageContents(doc)[0].clientWidth;
+      const sectionTextWidths = sectionPages().map(page => page.querySelector('.page-content').clientWidth);
+      const changeWorks = /Розділ 2 з 2/.test(scopeText) && changed[0] === 'landscape a4 2 1.5 2 3'
+        && pages()[0].offsetWidth === PORTRAIT && landscapeSectionPages > 0
+        && sectionPages().every(page => page.offsetWidth === LANDSCAPE && page.offsetHeight === PORTRAIT)
+        && sectionTextWidths.every(width => width === firstTextWidth + (LANDSCAPE - PORTRAIT))
+        && win.art.state.get('orientation') === 'portrait' && noOverflow()
+        && exportHTML().includes('слово899');
+      diagnostics.change = { scopeText, changed, widths: widths(), firstTextWidth, sectionTextWidths, portraitSectionPages, landscapeSectionPages, noOverflow: noOverflow() };
+
+      // 3. Undo повертає книжкову орієнтацію розділу, redo — альбомну.
+      win.art.history.undo();
+      await settle();
+      const undoRestores = sections()[0] === 'portrait a4 2 1.5 2 3' && widths().every(width => width === PORTRAIT);
+      win.art.history.redo();
+      await settle();
+      const redoRestores = sections()[0] === 'landscape a4 2 1.5 2 3' && sectionPages().every(page => page.offsetWidth === LANDSCAPE);
+
+      // 4. «Перегляд → Альбомна» з кареткою в першому розділі змінює лише перший розділ.
+      placeCaret(pageContents(doc)[0].querySelector('p').firstChild, 0);
+      win.art.menu.dispatch('orient-landscape');
+      await settle();
+      const firstSectionChanged = win.art.state.get('orientation') === 'landscape' && pages()[0].offsetWidth === LANDSCAPE
+        && sections()[0] === 'landscape a4 2 1.5 2 3';
+      win.art.history.undo();
+      await settle();
+      const firstSectionUndo = win.art.state.get('orientation') === 'portrait' && pages()[0].offsetWidth === PORTRAIT
+        && sections()[0] === 'landscape a4 2 1.5 2 3';
+      diagnostics.menu = { firstSectionChanged, firstSectionUndo, widths: widths() };
+
+      // 5. Лінійка показує й змінює поля розділу, у якому каретка.
+      const track = doc.getElementById('rulerTrack');
+      const leftHandle = doc.querySelector('[data-ruler-handle="left"]');
+      caretAtEnd(doc.querySelectorAll('#editor .page-content > p')[1]);
+      win.art.page.updateRuler();
+      const trackInSection = Math.round(parseFloat(track?.style.width || '0'));
+      leftHandle?.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+      await settle();
+      const rulerEditsSection = sections()[0] === 'landscape a4 2 1.5 2 3.1' && win.art.page.margins().left === 3;
+      placeCaret(pageContents(doc)[0].querySelector('p').firstChild, 0);
+      win.art.page.updateRuler();
+      const trackInFirst = Math.round(parseFloat(track?.style.width || '0'));
+      const rulerWorks = trackInSection === LANDSCAPE && trackInFirst === PORTRAIT && rulerEditsSection;
+      diagnostics.ruler = { trackInSection, trackInFirst, sections: sections(), documentLeft: win.art.page.margins().left };
+
+      // 6. Чернетка зберігає розділи; налаштування розділу з чернетки перевіряються як недовірені.
+      const draft = win.art.editor.getDraftPayload();
+      const draftHas = draft.html.includes('data-art-section="landscape a4 2 1.5 2 3.1"');
+      win.art.editor.restoreDraft({ ...draft, html: draft.html.replace('landscape a4 2 1.5 2 3.1', 'landscape a9 99 -1 x 2') });
+      await settle();
+      const normalized = sections()[0] || '';
+      const draftValidated = /^landscape a4 [\d.]+ 0\.5 [\d.]+ 2$/.test(normalized)
+        && sectionPages().every(page => page.offsetWidth === LANDSCAPE) && noOverflow();
+      win.art.editor.restoreDraft(draft);
+      await settle();
+      const draftKeeps = draftHas && draftValidated && sections()[0] === 'landscape a4 2 1.5 2 3.1'
+        && pages()[0].offsetWidth === PORTRAIT && sectionPages().every(page => page.offsetWidth === LANDSCAPE);
+      diagnostics.draft = { draftHas, normalized, restored: sections() };
+
+      // 7. Друк: аркуші розділу мають іменовану сторінку з власним розміром і полями.
+      const printText = doc.getElementById('pageSectionPrintGeometry')?.textContent || '';
+      const namedPage = sectionPages()[0] ? win.getComputedStyle(sectionPages()[0]).page : '';
+      const firstPage = win.getComputedStyle(pages()[0]).page;
+      const printWorks = /^art-section-\d+$/.test(namedPage) && (firstPage === 'auto' || firstPage === '')
+        && new RegExp(`@page ${namedPage} \\{ size: 29\\.7cm 21cm; margin: 2cm 1\\.5cm 2cm 3\\.1cm;`).test(printText);
+      diagnostics.print = { namedPage, firstPage, printText };
+
+      // 8. DOCX: окремі розділи Word без зайвого розриву сторінки; Mammoth розділів не читає — попередження.
+      const html = exportHTML();
+      let docxWorks = false;
+      try {
+        const blob = await win.art.formats.docx.exportDocx(html, win.art.state.documentSnapshot());
+        const xml = await entryText((await zipEntries(blob)).get('word/document.xml'));
+        const imported = await win.art.formats.docx.importDocx(new win.File([blob], 'sections.docx', { type: DOCX_MIME }));
+        docxWorks = (xml.match(/<w:sectPr/g) || []).length === 2 && /w:orient="landscape"/.test(xml)
+          && !/<w:br w:type="page"\/>/.test(xml)
+          && (imported.meta.notices || []).some(note => /розділ/i.test(note))
+          && !/data-art-section/.test(imported.html) && imported.html.includes('слово899');
+        diagnostics.docx = { sectPr: (xml.match(/<w:sectPr/g) || []).length, landscape: /w:orient="landscape"/.test(xml), pageBreak: /<w:br w:type="page"\/>/.test(xml), notices: imported.meta.notices };
+      } catch (error) {
+        diagnostics.docx = { error: error.message };
+      }
+
+      // 9. RTF: \sect з альбомною орієнтацією; під час відкриття розділ стає розривом сторінки.
+      const rtf = win.art.formats.rtf.exportRtf(html, win.art.state.documentSnapshot());
+      let rtfImported = '';
+      try {
+        rtfImported = (await win.art.formats.rtf.importRtf(new win.File([rtf], 'sections.rtf', { type: 'application/rtf' }))).html;
+      } catch {
+        rtfImported = '';
+      }
+      const rtfWorks = rtf.includes(`${BACKSLASH}sect`) && rtf.includes(`${BACKSLASH}lndscpsxn`)
+        && /break-after: page/.test(rtfImported) && !/data-art-section/.test(rtfImported);
+      diagnostics.rtf = { sect: rtf.includes(`${BACKSLASH}sect`), landscape: rtf.includes(`${BACKSLASH}lndscpsxn`), importedBreak: /break-after: page/.test(rtfImported) };
+
+      // 10. Новий розділ успадковує налаштування розділу, у якому каретка.
+      caretAtEnd(doc.querySelectorAll('#editor .page-content > p')[1]);
+      win.art.menu.dispatch('insert-section-break');
+      await settle();
+      const inherited = sections();
+      const inheritWorks = inherited.length === 2 && inherited[1] === inherited[0]
+        && pages()[pages().length - 1].offsetWidth === LANDSCAPE;
+      win.art.history.undo();
+      await settle();
+      diagnostics.inherit = { inherited, afterUndo: sections() };
+
+      // 11. Backspace на початку розділу прибирає розрив розділу; текст бере налаштування попереднього.
+      const firstInSection = doc.querySelectorAll('#editor .page-content > p')[1];
+      placeCaret(firstInSection.firstChild, 0);
+      const backspace = new win.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true });
+      editor.dispatchEvent(backspace);
+      await settle();
+      const removed = sections().length === 0 && widths().every(width => width === PORTRAIT) && exportHTML().includes('слово899') && noOverflow();
+      win.art.history.undo();
+      await settle();
+      const removeUndo = sections()[0] === 'landscape a4 2 1.5 2 3.1' && sectionPages().every(page => page.offsetWidth === LANDSCAPE);
+      diagnostics.remove = { prevented: backspace.defaultPrevented, removed, removeUndo, sections: sections() };
+
+      return {
+        diagnostics,
+        checks: [
+          check('section break starts a new page and a new section with the current settings', insertWorks),
+          check('page setup changes only the section at the caret and paginates with its geometry', changeWorks),
+          check('undo and redo restore section settings', undoRestores && redoRestores),
+          check('orientation menu changes the first section without touching the next one', firstSectionChanged && firstSectionUndo),
+          check('ruler follows and edits the section at the caret', rulerWorks),
+          check('local draft keeps sections and normalizes untrusted section settings', draftKeeps),
+          check('print gives each section a named page with its own size and margins', printWorks),
+          check('DOCX exports Word sections and warns that sections are not imported', docxWorks),
+          check('RTF exports section breaks and opens them as page breaks', rtfWorks),
+          check('a new section inherits the settings of the section at the caret', inheritWorks),
+          check('Backspace removes a section break and undo brings it back', removed && removeUndo)
+        ]
+      };
+    }
+
+    async function run() {
+      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+
+      const win = frame.contentWindow;
+      const doc = frame.contentDocument;
+
+      await waitFor(() => (
+        typeof win.TextApp?.boot === 'function' &&
+        !!win.art?.editor &&
+        !!doc.querySelector('#editor .page-content')
+      ), 'Text boot');
+
+      const editor = doc.getElementById('editor');
+      const sectionsResult = await runSectionChecks(win, doc, editor);
+      const checks = sectionsResult.checks;
+      const failed = checks.filter(item => !item.ok);
+
+      result.textContent = checks
+        .map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}`)
+        .concat([
+          '',
+          'Diagnostics:',
+          `sections: ${JSON.stringify(sectionsResult.diagnostics)}`,
+          // Під --virtual-time-budget це віртуальний час сторінки: бюджет раннера — 35000 мс.
+          `virtual time ms: ${Math.round(performance.now())}`
+        ])
+        .concat(failed.length ? [`FAILED: ${failed.map(item => item.label).join('; ')}`] : ['PASSED'])
+        .join('\n');
+
+      if (failed.length) {
+        document.body.dataset.textSections = 'failed';
+        throw new Error(failed.map(item => item.label).join('; '));
+      }
+
+      document.body.dataset.textSections = 'passed';
+    }
+
+    run().catch(err => {
+      document.body.dataset.textSections = 'failed';
+      const previous = result.textContent === 'Running...' ? '' : result.textContent + String.fromCharCode(10, 10);
+      result.textContent = previous + (err?.stack || err?.message || String(err));
+    });
+  </script>
+</body>
+</html>

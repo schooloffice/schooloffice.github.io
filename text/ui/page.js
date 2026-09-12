@@ -28,6 +28,9 @@ const ArtPage = (() => {
   let _rulerFrame = 0;
   let _rulerTimer = 0;
   let _rulerRetries = 0;
+  // Розрив розділу, до якого застосовується відкритий діалог (null — перший розділ, тобто документ).
+  let _setupTarget = null;
+  let _setupSettings = null;
 
   function init() {
     _ruler = document.getElementById('pageRuler');
@@ -43,6 +46,8 @@ const ArtPage = (() => {
 
     document.querySelector('.editor-scroll')?.addEventListener('scroll', scheduleRulerUpdate, { passive: true });
     window.addEventListener('resize', scheduleRulerUpdate);
+    // Лінійка показує поля розділу, у якому каретка.
+    document.addEventListener('selectionchange', scheduleRulerUpdate);
 
     _bindRulerHandles();
     _bindDialog();
@@ -50,55 +55,98 @@ const ArtPage = (() => {
     apply({ repaginate: false });
   }
 
-  function pageSizeCm() {
-    const size = SIZES[ArtState.get('pageSize')] || SIZES.a4;
-    const landscape = ArtState.get('orientation') === 'landscape';
+  function _sizeCm(pageSize, orientation) {
+    const size = SIZES[pageSize] || SIZES.a4;
+    const landscape = orientation === 'landscape';
     return {
       width: landscape ? size.height : size.width,
       height: landscape ? size.width : size.height
     };
   }
 
+  function pageSizeCm() {
+    return _sizeCm(ArtState.get('pageSize'), ArtState.get('orientation'));
+  }
+
   function margins() {
     return Object.assign({}, DEFAULT_MARGINS, ArtState.get('margins') || {});
+  }
+
+  // Налаштування першого розділу — це налаштування документа.
+  function documentSettings() {
+    return {
+      orientation: ArtState.get('orientation') === 'landscape' ? 'landscape' : 'portrait',
+      pageSize: Object.prototype.hasOwnProperty.call(SIZES, ArtState.get('pageSize')) ? ArtState.get('pageSize') : 'a4',
+      margins: margins()
+    };
+  }
+
+  // Орієнтація, розмір паперу й поля з недовіреного джерела (атрибут розділу у файлі чи
+  // чернетці): невідоме береться з fallback, поля обмежуються так само, як у діалозі.
+  function normalizeSettings(value = {}, fallback = documentSettings()) {
+    const orientation = ['portrait', 'landscape'].includes(value?.orientation) ? value.orientation : fallback.orientation;
+    const pageSize = Object.prototype.hasOwnProperty.call(SIZES, value?.pageSize) ? value.pageSize : fallback.pageSize;
+    const merged = {};
+    SIDES.forEach(side => {
+      const raw = value?.margins?.[side];
+      const numeric = raw === undefined || raw === null || String(raw).trim() === '' ? NaN : Number(raw);
+      merged[side] = Number.isFinite(numeric) ? numeric : Number(fallback.margins?.[side] ?? DEFAULT_MARGINS[side]);
+    });
+    return { orientation, pageSize, margins: _clampMargins(merged, _sizeCm(pageSize, orientation)) };
+  }
+
+  // CSS-змінні аркуша: для документа — на .pages-wrap, для розділу — на його аркушах.
+  function geometryVars(settings) {
+    const size = _sizeCm(settings.pageSize, settings.orientation);
+    const m = settings.margins;
+    return {
+      '--page-width': Math.round(size.width * CM_TO_PX) + 'px',
+      '--page-height': Math.round(size.height * CM_TO_PX) + 'px',
+      '--page-pad-top': Math.round(m.top * CM_TO_PX) + 'px',
+      '--page-pad-right': Math.round(m.right * CM_TO_PX) + 'px',
+      '--page-pad-bottom': Math.round(m.bottom * CM_TO_PX) + 'px',
+      '--page-pad-left': Math.round(m.left * CM_TO_PX) + 'px'
+    };
   }
 
   function apply(options = {}) {
     const wrap = document.querySelector('.pages-wrap');
     if (!wrap) return;
 
-    const size = pageSizeCm();
-    const m = margins();
-    wrap.style.setProperty('--page-width', Math.round(size.width * CM_TO_PX) + 'px');
-    wrap.style.setProperty('--page-height', Math.round(size.height * CM_TO_PX) + 'px');
-    wrap.style.setProperty('--page-pad-top', Math.round(m.top * CM_TO_PX) + 'px');
-    wrap.style.setProperty('--page-pad-right', Math.round(m.right * CM_TO_PX) + 'px');
-    wrap.style.setProperty('--page-pad-bottom', Math.round(m.bottom * CM_TO_PX) + 'px');
-    wrap.style.setProperty('--page-pad-left', Math.round(m.left * CM_TO_PX) + 'px');
+    const settings = documentSettings();
+    Object.entries(geometryVars(settings)).forEach(([name, value]) => wrap.style.setProperty(name, value));
     const hf = headerFooter();
     _applyHeaderFooter(wrap, hf);
-    _updatePrintStyle(size, m, hf);
+    _updatePrintStyle(_sizeCm(settings.pageSize, settings.orientation), settings.margins, hf);
 
     if (options.repaginate !== false) ArtEditor.refreshLayout?.();
     scheduleRulerUpdate();
   }
 
-  function setMargins(next, options = {}) {
-    const size = pageSizeCm();
-    const current = margins();
-    const merged = Object.assign({}, current, next);
-    const clamped = {
+  function _clampMargins(merged, size) {
+    return {
       top: _clamp(merged.top, size.height - MIN_CONTENT_CM - merged.bottom),
       bottom: _clamp(merged.bottom, size.height - MIN_CONTENT_CM - merged.top),
       left: _clamp(merged.left, size.width - MIN_CONTENT_CM - merged.right),
       right: _clamp(merged.right, size.width - MIN_CONTENT_CM - merged.left)
     };
+  }
+
+  function setMargins(next, options = {}) {
+    const clamped = _clampMargins(Object.assign({}, margins(), next), pageSizeCm());
     ArtState.set('margins', clamped);
     if (options.repaginate === false) apply({ repaginate: false });
     return clamped;
   }
 
   function resetMargins() { setMargins(Object.assign({}, DEFAULT_MARGINS)); }
+
+  // Лінійка й діалог працюють із розділом, у якому каретка; без розділів — із документом.
+  function _currentTarget() {
+    const section = ArtEditor.sectionAtCaret?.();
+    if (section) return section;
+    return { index: 0, count: 1, element: null, settings: documentSettings(), page: document.querySelector('.page') };
+  }
 
   // ── Колонтитули й номери сторінок ───────────────────────────────────────
   function headerFooter() {
@@ -145,7 +193,8 @@ const ArtPage = (() => {
     cancelAnimationFrame(_rulerFrame);
     clearTimeout(_rulerTimer);
     if (!_ruler || !_track) return;
-    const page = document.querySelector('.page');
+    const target = _drag?.target || _currentTarget();
+    const page = target.page?.isConnected ? target.page : document.querySelector('.page');
     const host = _ruler.getBoundingClientRect();
     if (!page || !host.width) {
       // Оновлення після init() могло статися ще до того, як з'явиться перша
@@ -165,9 +214,9 @@ const ArtPage = (() => {
     _rulerRetries = 0;
 
     const rect = page.getBoundingClientRect();
-    const size = pageSizeCm();
+    const size = _sizeCm(target.settings.pageSize, target.settings.orientation);
     const pxPerCm = rect.width / size.width;
-    const m = margins();
+    const m = target.settings.margins;
 
     _track.style.left = Math.round(rect.left - host.left) + 'px';
     _track.style.width = Math.round(rect.width) + 'px';
@@ -213,52 +262,75 @@ const ArtPage = (() => {
     _track.querySelectorAll('[data-ruler-handle]').forEach(handle => {
       handle.addEventListener('pointerdown', event => {
         event.preventDefault();
+        const target = _currentTarget();
         handle.focus();
         handle.setPointerCapture?.(event.pointerId);
-        _drag = { side: handle.dataset.rulerHandle };
+        _drag = { side: handle.dataset.rulerHandle, target };
       });
 
       handle.addEventListener('keydown', event => {
         const side = handle.dataset.rulerHandle;
         const step = event.shiftKey ? 0.5 : STEP_CM;
-        const current = margins()[side];
+        const target = _currentTarget();
+        const current = target.settings.margins[side];
         if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
           event.preventDefault();
-          _setSide(side, current + (side === 'left' ? -step : step));
+          _setSide(side, current + (side === 'left' ? -step : step), target);
         } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
           event.preventDefault();
-          _setSide(side, current + (side === 'left' ? step : -step));
+          _setSide(side, current + (side === 'left' ? step : -step), target);
         } else if (event.key === 'Home') {
           event.preventDefault();
-          _setSide(side, DEFAULT_MARGINS[side]);
+          _setSide(side, DEFAULT_MARGINS[side], target);
         }
       });
     });
 
     document.addEventListener('pointermove', event => {
       if (!_drag) return;
-      const page = document.querySelector('.page');
+      const target = _drag.target;
+      const page = target.page?.isConnected ? target.page : document.querySelector('.page');
       if (!page) return;
       const rect = page.getBoundingClientRect();
-      const size = pageSizeCm();
+      const size = _sizeCm(target.settings.pageSize, target.settings.orientation);
       const pxPerCm = rect.width / size.width;
       const value = _drag.side === 'left'
         ? (event.clientX - rect.left) / pxPerCm
         : (rect.right - event.clientX) / pxPerCm;
       // Під час перетягування лише перемальовуємо поля; повне перекомпонування
       // документа робимо один раз, коли маркер відпущено.
-      setMargins({ [_drag.side]: _round(value) }, { repaginate: false });
+      if (target.element) {
+        const next = { ...target.settings, margins: { ...target.settings.margins, [_drag.side]: _round(value) } };
+        target.settings = ArtEditor.previewSectionSettings?.(target.element, next) || target.settings;
+        scheduleRulerUpdate();
+      } else {
+        target.settings = { ...target.settings, margins: setMargins({ [_drag.side]: _round(value) }, { repaginate: false }) };
+      }
     });
 
     document.addEventListener('pointerup', () => {
       if (!_drag) return;
+      const target = _drag.target;
       _drag = null;
+      if (target.element) {
+        ArtEditor.commitSectionChange?.();
+        scheduleRulerUpdate();
+        return;
+      }
       apply();
       ArtHistory.pushNow?.();
     });
   }
 
-  function _setSide(side, value) {
+  function _setSide(side, value, target = _currentTarget()) {
+    if (target.element) {
+      ArtEditor.setSectionSettings(target.element, {
+        ...target.settings,
+        margins: { ...target.settings.margins, [side]: _round(value) }
+      });
+      scheduleRulerUpdate();
+      return;
+    }
     const next = {};
     next[side] = _round(value);
     setMargins(next);
@@ -266,13 +338,17 @@ const ArtPage = (() => {
   }
 
   // ── Діалог «Налаштування сторінки» ──────────────────────────────────────
+  // У документі з кількома розділами діалог змінює лише розділ, у якому каретка.
   function openSetup() {
     const form = document.getElementById('pageSetupForm');
     if (!form) return;
 
-    const m = margins();
+    const target = _currentTarget();
+    _setupTarget = target.element;
+    _setupSettings = target.settings;
+    const settings = target.settings;
     form.querySelectorAll('[name="pageOrientation"]').forEach(input => {
-      input.checked = input.value === ArtState.get('orientation');
+      input.checked = input.value === settings.orientation;
     });
 
     const sizeSelect = document.getElementById('pageSetupSize');
@@ -285,13 +361,19 @@ const ArtPage = (() => {
           sizeSelect.appendChild(option);
         });
       }
-      sizeSelect.value = ArtState.get('pageSize');
+      sizeSelect.value = settings.pageSize;
     }
 
     SIDES.forEach(side => {
       const input = _marginInput(side);
-      if (input) input.value = m[side].toFixed(1);
+      if (input) input.value = settings.margins[side].toFixed(1);
     });
+
+    const scope = document.getElementById('pageSetupScope');
+    if (scope) {
+      scope.hidden = target.count < 2;
+      scope.textContent = target.count < 2 ? '' : `Розділ ${target.index + 1} з ${target.count}: зміни застосуються лише до нього.`;
+    }
 
     ArtModals.open('modalPageSetup');
   }
@@ -302,13 +384,23 @@ const ArtPage = (() => {
 
     const orientation = form.querySelector('[name="pageOrientation"]:checked')?.value || 'portrait';
     const pageSize = document.getElementById('pageSetupSize')?.value || 'a4';
-    const current = margins();
+    const current = _setupSettings?.margins || margins();
     const next = {};
     SIDES.forEach(side => {
       const raw = (_marginInput(side)?.value || '').replace(',', '.');
       const value = parseFloat(raw);
       next[side] = Number.isFinite(value) ? value : current[side];
     });
+
+    const section = _setupTarget;
+    _setupTarget = null;
+    _setupSettings = null;
+    if (section?.isConnected) {
+      ArtModals.close('modalPageSetup');
+      ArtEditor.setSectionSettings(section, { orientation, pageSize, margins: next });
+      scheduleRulerUpdate();
+      return;
+    }
 
     ArtState.set('pageSize', pageSize);
     ArtState.set('orientation', orientation);
@@ -407,9 +499,28 @@ const ArtPage = (() => {
     style.textContent = `@page { size: ${size.width}cm ${size.height}cm; margin: ${m.top}cm ${m.right}cm ${m.bottom}cm ${m.left}cm;${marginBoxes} }`;
   }
 
+  // Друк розділів: аркуші кожного розділу, крім першого, — іменована сторінка з власним
+  // розміром і полями. Колонтитули з загального правила @page діють і на них.
+  function setSectionPrintPages(entries = []) {
+    const text = entries.map(({ name, settings }) => {
+      const size = _sizeCm(settings.pageSize, settings.orientation);
+      const m = settings.margins;
+      return `@page ${name} { size: ${size.width}cm ${size.height}cm; margin: ${m.top}cm ${m.right}cm ${m.bottom}cm ${m.left}cm; }`;
+    }).join(' ');
+    let style = document.getElementById('pageSectionPrintGeometry');
+    if (!style) {
+      if (!text) return;
+      style = document.createElement('style');
+      style.id = 'pageSectionPrintGeometry';
+      document.head.appendChild(style);
+    }
+    if (style.textContent !== text) style.textContent = text;
+  }
+
   return {
     init, apply, openSetup, applySetupForm, setMargins, resetMargins,
     headerFooter, setHeaderFooter, openHeaderFooter, applyHeaderFooterForm,
+    documentSettings, normalizeSettings, geometryVars, setSectionPrintPages,
     updateRuler, margins, pageSizeCm, SIZES, DEFAULT_MARGINS
   };
 })();

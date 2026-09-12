@@ -932,6 +932,11 @@ body {
   background: var(--white);
 }
 
+/* Розрив розділу (C2г) — розрив сторінки з налаштуваннями наступного розділу. */
+.page-content hr[data-art-section]::after {
+  content: 'Розрив розділу';
+}
+
 /* Зміст (C2в): абзаци з data-art-toc. Назва по центру; пункт — назва, крапки й номер. */
 .page-content p[data-art-toc] {
   cursor: default;

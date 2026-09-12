@@ -91,6 +91,8 @@ const ArtRtf = (() => {
           '\\par':      '</p><p>',
           '\\line':     '<br>',
           '\\page':     '</p><hr style="break-after: page;"><p>',
+          // Розділи RTF не переносяться: новий розділ стає розривом сторінки.
+          '\\sect':     '</p><hr style="break-after: page;"><p>',
           '\\tab':      '&nbsp;&nbsp;&nbsp;&nbsp;',
           '\\pard':     '', '\\plain': '',
         };
@@ -121,7 +123,8 @@ const ArtRtf = (() => {
     const div = document.createElement('div');
     div.innerHTML = html;
     let body = '';
-    const context = { tocTabTwips: _contentWidthTwips(meta) };
+    const documentPage = _sectionSettings(null, meta);
+    const context = { tocTabTwips: _contentWidthTwips(meta), section: documentPage };
     div.childNodes.forEach(n => { body += _nodeToRtf(n, context); });
     const bands = _headerFooterRtf(meta.headerFooter);
 
@@ -134,6 +137,7 @@ const ArtRtf = (() => {
       '}',
       '{\\colortbl;\\red0\\green0\\blue0;}',
       '\\widowctrl\\hyphauto\\f1\\fs28',
+      _pageGeometryRtf(documentPage, false),
       ...(bands ? [bands] : []),
       body,
       '}',
@@ -168,6 +172,48 @@ const ArtRtf = (() => {
     return Math.max(720, Math.round((pageWidth - left - right) * 1440 / 2.54));
   }
 
+  const CM_TO_TWIPS = 1440 / 2.54;
+
+  // Налаштування розділу з data-art-section: «орієнтація розмір top right bottom left» (см);
+  // невідоме береться з попереднього розділу.
+  function _sectionSettings(value, previous = {}) {
+    const [orientation, pageSize, ...values] = String(value || '').trim().split(/\s+/);
+    const base = { top: 2, right: 1.5, bottom: 2, left: 3, ...(previous.margins || {}) };
+    const margins = {};
+    ['top', 'right', 'bottom', 'left'].forEach((side, index) => {
+      const numeric = Number(values[index]);
+      margins[side] = values[index] !== undefined && values[index] !== '' && Number.isFinite(numeric) ? numeric : Number(base[side]);
+    });
+    return {
+      orientation: ['portrait', 'landscape'].includes(orientation) ? orientation : (previous.orientation === 'landscape' ? 'landscape' : 'portrait'),
+      pageSize: Object.prototype.hasOwnProperty.call(PAGE_SIZES_CM, pageSize) ? pageSize
+        : (Object.prototype.hasOwnProperty.call(PAGE_SIZES_CM, previous.pageSize) ? previous.pageSize : 'a4'),
+      margins
+    };
+  }
+
+  // Розмір аркуша й поля у twips: для документа (\paperw…) або для розділу (\pgwsxn…).
+  function _pageGeometryRtf(settings, section) {
+    const [width, height] = PAGE_SIZES_CM[settings.pageSize] || PAGE_SIZES_CM.a4;
+    const landscape = settings.orientation === 'landscape';
+    const twips = cm => Math.round(cm * CM_TO_TWIPS);
+    const w = twips(landscape ? height : width);
+    const h = twips(landscape ? width : height);
+    const m = settings.margins;
+    if (section) {
+      return `${landscape ? '\\lndscpsxn' : ''}\\pgwsxn${w}\\pghsxn${h}\\marglsxn${twips(m.left)}\\margrsxn${twips(m.right)}\\margtsxn${twips(m.top)}\\margbsxn${twips(m.bottom)}`;
+    }
+    return `\\paperw${w}\\paperh${h}\\margl${twips(m.left)}\\margr${twips(m.right)}\\margt${twips(m.top)}\\margb${twips(m.bottom)}${landscape ? '\\landscape' : ''}`;
+  }
+
+  // Розрив розділу: \sect і властивості наступного розділу.
+  function _sectionRtf(node, context) {
+    const settings = _sectionSettings(node.getAttribute('data-art-section'), context.section || {});
+    context.section = settings;
+    context.tocTabTwips = _contentWidthTwips(settings);
+    return `\\sect\\sectd${_pageGeometryRtf(settings, true)}${RTF_LINE_END}`;
+  }
+
   // Зміст — текст: назва по центру, пункт — назва, крапкова табуляція й номер праворуч.
   function _tocRtf(node, context) {
     const kind = node.getAttribute('data-art-toc');
@@ -196,6 +242,8 @@ const ArtRtf = (() => {
     };
 
     if (tag === 'p' && node.hasAttribute('data-art-toc')) return _tocRtf(node, context);
+    if (tag === 'hr' && node.hasAttribute('data-art-section')
+      && (node.style.breakAfter === 'page' || node.style.pageBreakAfter === 'always')) return _sectionRtf(node, context);
 
     switch (tag) {
       case 'b': case 'strong': return `{\\b ${inner()}}`;

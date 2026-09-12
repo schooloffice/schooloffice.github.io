@@ -1309,6 +1309,14 @@ if ((Test-Path $textStylePath) -and (Test-Path $textDocxPath)) {
   }
   Assert-True ($textDocx -match 'LeaderType\.DOT' -and $textDocx -match "querySelector\('\[data-art-toc\]'\)") 'text/formats/docx.js: table of contents must export with dot leaders and warn before saving'
   Assert-True ($textStyle -match '@media print[\s\S]*data-art-toc-stale\]::after\s*\{\s*content:\s*none') 'text/style.css: the stale table of contents marker must not print'
+  # C2(г): розділ — розрив сторінки з data-art-section; друк через іменовані сторінки, DOCX — розділи Word.
+  if (Test-Path $textSanitizePath) {
+    Assert-True ($textSanitize -match "'data-art-section'") 'text/core/sanitize.js: section settings must survive sanitizing'
+  }
+  Assert-True ($textDocx -match "hasAttribute\('data-art-section'\)" -and $textDocx -match '<w:sectPr') 'text/formats/docx.js: section breaks must export as Word sections and be flagged on import'
+  if (Test-Path $textPagePath) {
+    Assert-True ($textPage -match 'function setSectionPrintPages' -and $textPage -match 'function normalizeSettings') 'text/ui/page.js: sections must print as named pages with validated settings'
+  }
 }
 
 $textHistoryPath = Join-Path $Root 'text/core/history.js'

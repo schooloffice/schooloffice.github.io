@@ -10,8 +10,9 @@ const ArtSanitize = (() => {
           'h1','h2','h3','h4','blockquote','ul','ol','li',
           'table','thead','tbody','tr','th','td','hr','a','img'
         ],
-        // data-art-toc — позначка абзаців змісту (title, 1–4, empty); інші data-атрибути відкидаються.
-        ALLOWED_ATTR: ['style','href','target','rel','colspan','rowspan','src','alt','data-art-toc'],
+        // data-art-toc — позначка абзаців змісту (title, 1–4, empty); data-art-section — налаштування
+        // розділу на його розриві (значення перевіряє редактор). Інші data-атрибути відкидаються.
+        ALLOWED_ATTR: ['style','href','target','rel','colspan','rowspan','src','alt','data-art-toc','data-art-section'],
         ALLOW_DATA_ATTR: false,
         FORBID_TAGS: ['script','style','iframe','object','embed','svg','math','form','input','button','textarea','select'],
         FORBID_ATTR: [/^on/i]

@@ -274,6 +274,7 @@ try {
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-model-behavior.html" 'data-text-model="passed"' 'Text document model smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-header-footer-behavior.html" 'data-text-header-footer="passed"' 'Text header and footer smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-toc-behavior.html" 'data-text-toc="passed"' 'Text table of contents smoke'
+  Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-sections-behavior.html" 'data-text-sections="passed"' 'Text sections smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-storage-behavior.html" 'data-text-storage="passed"' 'Text storage smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/flowcharts-behavior.html" 'data-flowcharts="passed"' 'Flowcharts behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/flowcharts-svg-behavior.html" 'data-flowcharts-svg="passed"' 'Flowcharts SVG behavior smoke'

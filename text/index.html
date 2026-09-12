@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="../shell-overrides.css">
   <style id="pagePrintGeometry"></style>
+  <style id="pageSectionPrintGeometry"></style>
 </head>
 
 <body class="office-app" data-office-service="text">
@@ -154,6 +155,9 @@
         <button class="menu-item" data-action="insert-page-break" role="menuitem">
           <span><i class="fa-solid fa-file-circle-plus fa-fw"></i> Розрив сторінки</span>
           <span class="shortcut">Ctrl+Enter</span>
+        </button>
+        <button class="menu-item" data-action="insert-section-break" role="menuitem">
+          <span><i class="fa-solid fa-layer-group fa-fw"></i> Розрив розділу (з нової сторінки)</span>
         </button>
         <button class="menu-item" data-action="header-footer" role="menuitem">
           <span><i class="fa-solid fa-heading fa-fw"></i> Колонтитули й номери сторінок…</span>
@@ -579,6 +583,7 @@
       </div>
 
       <form id="pageSetupForm" class="page-setup">
+        <p class="page-setup-note" id="pageSetupScope" hidden></p>
         <fieldset class="page-setup-group">
           <legend>Орієнтація</legend>
           <label class="page-setup-radio">

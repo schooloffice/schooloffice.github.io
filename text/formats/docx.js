@@ -12,6 +12,8 @@ const ArtDocx = (() => {
   };
   const DEFAULT_MARGINS_CM = { top: 2, right: 1.5, bottom: 2, left: 3 };
   const CM_TO_TWIPS = 1440 / 2.54;
+  // document.xml більшого розміру не розпаковуємо лише заради підрахунку розділів.
+  const MAX_SECTION_SCAN_BYTES = 64 * 1024 * 1024;
 
   function importDocx(file) {
     if (typeof mammoth === 'undefined') return Promise.reject(new Error('Бібліотека mammoth.js не завантажена'));
@@ -19,9 +21,14 @@ const ArtDocx = (() => {
       const fr = new FileReader();
       fr.onload = async () => {
         try {
-          const notices = _hasHeaderOrFooterParts(fr.result)
-            ? ['Колонтитули й номери сторінок із цього .docx не переносяться в ПЛЮС Текст. Задайте їх заново: «Вставка → Колонтитули й номери сторінок».']
-            : [];
+          const directory = _zipDirectory(fr.result);
+          const notices = [];
+          if (directory.some(entry => /^word\/(header|footer)\d*\.xml$/i.test(entry.name))) {
+            notices.push('Колонтитули й номери сторінок із цього .docx не переносяться в ПЛЮС Текст. Задайте їх заново: «Вставка → Колонтитули й номери сторінок».');
+          }
+          if (await _countSections(fr.result, directory) > 1) {
+            notices.push('Розділи з власною орієнтацією, папером чи полями з цього .docx не переносяться в ПЛЮС Текст: документ відкрито одним розділом. Розриви розділів додайте заново: «Вставка → Розрив розділу».');
+          }
           const result = await mammoth.convertToHtml({ arrayBuffer: fr.result }, {
             styleMap: [
               "p[style-name='Heading 1'] => h1:fresh",
@@ -48,9 +55,10 @@ const ArtDocx = (() => {
     });
   }
 
-  // Mammoth не читає колонтитулів. Імена частин ZIP записані в центральному каталозі
-  // відкритим текстом, тож наявність колонтитулів видно без розпакування.
-  function _hasHeaderOrFooterParts(buffer) {
+  // Mammoth не читає колонтитулів і розділів. Центральний каталог ZIP дає імена частин
+  // (їх видно без розпакування), спосіб стиснення, розміри й зсув локального заголовка.
+  function _zipDirectory(buffer) {
+    const entries = [];
     try {
       const view = new DataView(buffer);
       const bytes = buffer.byteLength;
@@ -60,19 +68,63 @@ const ArtDocx = (() => {
         const count = view.getUint16(end + 10, true);
         let offset = view.getUint32(end + 16, true);
         for (let index = 0; index < count && offset + 46 <= bytes; index += 1) {
-          if (view.getUint32(offset, true) !== 0x02014b50) return false;
+          if (view.getUint32(offset, true) !== 0x02014b50) break;
           const nameLength = view.getUint16(offset + 28, true);
-          if (offset + 46 + nameLength > bytes) return false;
-          const name = decoder.decode(new Uint8Array(buffer, offset + 46, nameLength));
-          if (/^word\/(header|footer)\d*\.xml$/i.test(name)) return true;
+          if (offset + 46 + nameLength > bytes) break;
+          entries.push({
+            name: decoder.decode(new Uint8Array(buffer, offset + 46, nameLength)),
+            method: view.getUint16(offset + 10, true),
+            compressedSize: view.getUint32(offset + 20, true),
+            size: view.getUint32(offset + 24, true),
+            localOffset: view.getUint32(offset + 42, true)
+          });
           offset += 46 + nameLength + view.getUint16(offset + 30, true) + view.getUint16(offset + 32, true);
         }
-        return false;
+        break;
       }
     } catch {
       // Пошкоджений каталог: Mammoth сам повідомить про помилку формату.
     }
-    return false;
+    return entries;
+  }
+
+  async function _zipEntryText(buffer, entry) {
+    const view = new DataView(buffer);
+    if (entry.localOffset + 30 > buffer.byteLength) return '';
+    const start = entry.localOffset + 30 + view.getUint16(entry.localOffset + 26, true) + view.getUint16(entry.localOffset + 28, true);
+    if (start + entry.compressedSize > buffer.byteLength) return '';
+    const bytes = new Uint8Array(buffer, start, entry.compressedSize);
+    if (entry.method === 0) return new TextDecoder().decode(bytes);
+    if (entry.method !== 8 || typeof DecompressionStream !== 'function') return '';
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Response(stream).text();
+  }
+
+  // Кількість розділів Word — елементи w:sectPr у document.xml.
+  async function _countSections(buffer, directory) {
+    const entry = directory.find(item => item.name === 'word/document.xml');
+    if (!entry || entry.size > MAX_SECTION_SCAN_BYTES) return 0;
+    try {
+      return ((await _zipEntryText(buffer, entry)).match(/<w:sectPr[\s>/]/g) || []).length;
+    } catch {
+      return 0;
+    }
+  }
+
+  // Налаштування розділу з data-art-section: «орієнтація розмір top right bottom left» (см).
+  function _sectionMeta(node, previous = {}) {
+    const [orientation, pageSize, ...values] = String(node.getAttribute('data-art-section') || '').trim().split(/\s+/);
+    const base = { ...DEFAULT_MARGINS_CM, ...(previous.margins || {}) };
+    const margins = {};
+    ['top', 'right', 'bottom', 'left'].forEach((side, index) => {
+      const numeric = Number(values[index]);
+      margins[side] = values[index] !== undefined && values[index] !== '' && Number.isFinite(numeric) ? numeric : Number(base[side]);
+    });
+    return {
+      orientation: ['portrait', 'landscape'].includes(orientation) ? orientation : (previous.orientation === 'landscape' ? 'landscape' : 'portrait'),
+      pageSize: Object.prototype.hasOwnProperty.call(PAGE_SIZES_TWIPS, pageSize) ? pageSize : (previous.pageSize || 'a4'),
+      margins
+    };
   }
 
   // Позначка розриву сторінки: невидимі роздільники навколо тексту, якого немає в документах.
@@ -148,7 +200,9 @@ const ArtDocx = (() => {
     const { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, UnderlineType, PageOrientation, Table, TableRow, TableCell, WidthType, PageBreak, Header, Footer, Tab, TabStopType, LeaderType, PageNumber } = docx;
     const div = document.createElement('div');
     div.innerHTML = html;
-    const children = [];
+    // Розриви розділів ділять документ на розділи Word, кожен зі своєю геометрією.
+    const sectionList = [{ meta, children: [] }];
+    let children = sectionList[0].children;
 
     function css(node, prop) {
       return (node.style && node.style[prop]) || '';
@@ -257,16 +311,20 @@ const ArtDocx = (() => {
       return new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } });
     }
 
-    const isLandscape = meta.orientation === 'landscape';
-    const baseSize = PAGE_SIZES_TWIPS[meta.pageSize] || PAGE_SIZES_TWIPS.a4;
-    const pageSize = isLandscape
-      ? { orientation: PageOrientation.LANDSCAPE, width: baseSize.height, height: baseSize.width }
-      : { width: baseSize.width, height: baseSize.height };
-    const sourceMargins = { ...DEFAULT_MARGINS_CM, ...(meta.margins || {}) };
-    const pageMargin = Object.fromEntries(
-      Object.entries(sourceMargins).map(([side, cm]) => [side, Math.round(Number(cm) * CM_TO_TWIPS)])
-    );
-    const contentWidth = Math.max(1, pageSize.width - pageMargin.left - pageMargin.right);
+    function pageGeometry(sectionMeta) {
+      const isLandscape = sectionMeta.orientation === 'landscape';
+      const baseSize = PAGE_SIZES_TWIPS[sectionMeta.pageSize] || PAGE_SIZES_TWIPS.a4;
+      const size = isLandscape
+        ? { orientation: PageOrientation.LANDSCAPE, width: baseSize.height, height: baseSize.width }
+        : { width: baseSize.width, height: baseSize.height };
+      const sourceMargins = { ...DEFAULT_MARGINS_CM, ...(sectionMeta.margins || {}) };
+      const margin = Object.fromEntries(
+        Object.entries(sourceMargins).map(([side, cm]) => [side, Math.round(Number(cm) * CM_TO_TWIPS)])
+      );
+      return { size, margin, contentWidth: Math.max(1, size.width - margin.left - margin.right) };
+    }
+    // Ширина тексту поточного розділу — для правої табуляції пунктів змісту.
+    let contentWidth = pageGeometry(meta).contentWidth;
 
     // Зміст — звичайний текст: назва по центру, пункт — назва, крапкова табуляція й номер праворуч.
     // Поле TOC Word не створюємо: номери взято з розкладки ПЛЮС Тексту (див. describeExportLimits).
@@ -303,15 +361,25 @@ const ArtDocx = (() => {
         })));
       } else if (tag === 'table') children.push(tableFromNode(node));
       else if (tag === 'img') { const imgRun = _imageRunFromNode(node, ImageRun); if (imgRun) children.push(new Paragraph({ children: [imgRun] })); }
+      else if (tag === 'hr' && _isPageBreakNode(node) && node.hasAttribute('data-art-section')) {
+        // Новий розділ Word сам починається з нової сторінки — окремий PageBreak не потрібен.
+        const section = { meta: _sectionMeta(node, sectionList[sectionList.length - 1].meta), children: [] };
+        sectionList.push(section);
+        children = section.children;
+        contentWidth = pageGeometry(section.meta).contentWidth;
+      }
       else if (tag === 'hr' && _isPageBreakNode(node)) children.push(new Paragraph({ children: [new PageBreak()] }));
       else if (tag === 'hr') children.push(new Paragraph({ children: [new TextRun('────────────────────────')] }));
     });
 
-    if (!children.length) children.push(new Paragraph({ children: [new TextRun('')] }));
+    sectionList.forEach(section => {
+      if (!section.children.length) section.children.push(new Paragraph({ children: [new TextRun('')] }));
+    });
 
     // Колонтитул Word: текст по центру, номер сторінки (поле PAGE) праворуч — на табуляціях.
+    // Колонтитули однакові для всіх розділів, але табуляції — за шириною кожного.
     const headerFooter = ArtState.normalizeHeaderFooter(meta.headerFooter);
-    function band(Ctor, text, withNumber) {
+    function band(Ctor, text, withNumber, width) {
       if (!text && !withNumber) return undefined;
       const runChildren = [new Tab(), text];
       if (withNumber) runChildren.push(new Tab(), PageNumber.CURRENT);
@@ -319,27 +387,30 @@ const ArtDocx = (() => {
         default: new Ctor({
           children: [new Paragraph({
             tabStops: [
-              { type: TabStopType.CENTER, position: Math.round(contentWidth / 2) },
-              { type: TabStopType.RIGHT, position: contentWidth }
+              { type: TabStopType.CENTER, position: Math.round(width / 2) },
+              { type: TabStopType.RIGHT, position: width }
             ],
             children: [new TextRun({ children: runChildren, font: 'Times New Roman', size: 22 })]
           })]
         })
       };
     }
-    const headers = band(Header, headerFooter.header, headerFooter.pageNumber === 'header');
-    const footers = band(Footer, headerFooter.footer, headerFooter.pageNumber === 'footer');
 
     const doc = new Document({
       numbering: {
         config: [{ reference: 'numbered-list', levels: [{ level: 0, format: 'decimal', text: '%1.', alignment: AlignmentType.START }] }]
       },
-      sections: [{
-        properties: { page: { size: pageSize, margin: pageMargin } },
-        ...(headers ? { headers } : {}),
-        ...(footers ? { footers } : {}),
-        children
-      }]
+      sections: sectionList.map(section => {
+        const geometry = pageGeometry(section.meta);
+        const headers = band(Header, headerFooter.header, headerFooter.pageNumber === 'header', geometry.contentWidth);
+        const footers = band(Footer, headerFooter.footer, headerFooter.pageNumber === 'footer', geometry.contentWidth);
+        return {
+          properties: { page: { size: geometry.size, margin: geometry.margin } },
+          ...(headers ? { headers } : {}),
+          ...(footers ? { footers } : {}),
+          children: section.children
+        };
+      })
     });
     return Packer.toBlob(doc);
   }
