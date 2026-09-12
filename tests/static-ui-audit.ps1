@@ -1317,6 +1317,18 @@ if ((Test-Path $textStylePath) -and (Test-Path $textDocxPath)) {
   if (Test-Path $textPagePath) {
     Assert-True ($textPage -match 'function setSectionPrintPages' -and $textPage -match 'function normalizeSettings') 'text/ui/page.js: sections must print as named pages with validated settings'
   }
+  # C2(ґ): колонки заповнюються по черзі й переносяться в DOCX як колонки розділу Word.
+  Assert-True ($textStyle -match '\.page-content\s*\{\s*column-gap:\s*1\.25cm;\s*column-fill:\s*auto;') 'text/style.css: columns must fill in order on screen and in print'
+  Assert-True ($textStyle -match '@media print[\s\S]*?\.page\s*\{\s*width:\s*100%;') 'text/style.css: printed pages must use the full print width so columns stay on paper'
+  Assert-True ($textStyle -match '@media print[\s\S]*?\.pages-wrap\s*\{[^}]*min-width:\s*0\s*!important') 'text/style.css: print must not size the page stack to the unbounded max-content of columns'
+  Assert-True ($textStyle -match '@media print[\s\S]*?\.pages-wrap\s*\{[^}]*justify-content:\s*flex-start') 'text/style.css: print must start the page stack at the left edge so wider section pages stay on paper'
+  Assert-True ($textStyle -match '@media print[\s\S]*?body,\s*html\s*\{[^}]*background:\s*#fff\s*!important') 'text/style.css: print must paint html and body white so the shell background does not show under the last page'
+  Assert-True ($textStyle -match '@media print[\s\S]*?\.page-content\s*\{\s*height:\s*auto;\s*column-fill:\s*balance;') 'text/style.css: printed columns must balance so one page stays on one sheet'
+  if (Test-Path $textPagePath) {
+    Assert-True ($textPage -match 'function _printTextWidth') 'text/ui/page.js: printed pages must get an exact text width in centimetres'
+    Assert-True ($textPage -match 'Math\.min\(\.\.\.widths\)' -and $textPage -match '\.pages-wrap, #editor\.document-editor \{ width:') 'text/ui/page.js: with sections every printed page and the page stack must use the narrowest section text width, or Chrome scales the whole print down'
+  }
+  Assert-True ($textDocx -match 'column:\s*\{\s*count:\s*columns' -and $textDocx -match 'w:cols') 'text/formats/docx.js: columns must export as Word section columns and be flagged on import'
 }
 
 $textHistoryPath = Join-Path $Root 'text/core/history.js'

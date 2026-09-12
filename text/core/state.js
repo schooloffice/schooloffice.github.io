@@ -8,6 +8,8 @@ const ArtState = (() => {
     orientation: 'portrait',
     pageSize: 'a4',
     margins: Object.freeze({ top: 2, right: 1.5, bottom: 2, left: 3 }),
+    // Колонки першого розділу (1–3); інші розділи тримають свою кількість на розриві розділу.
+    columns: 1,
     // Колонтитули всього документа: рядок угорі, рядок унизу й місце номера сторінки.
     headerFooter: Object.freeze({ header: '', footer: '', pageNumber: 'none' })
   });
@@ -20,6 +22,7 @@ const ArtState = (() => {
     pageSize:    DEFAULT_DOCUMENT.pageSize,       // 'a4' | 'a5' | 'letter'
     margins:     { ...DEFAULT_DOCUMENT.margins }, // см, як у шкільних роботах
     headerFooter: { ...DEFAULT_DOCUMENT.headerFooter },
+    columns:     DEFAULT_DOCUMENT.columns,
     zoom:        100,           // %
     spellcheck:  true,          // перевірка правопису браузером — вигляд, не документ
     fontFamily:  'Times New Roman',
@@ -58,8 +61,15 @@ const ArtState = (() => {
       orientation: _state.orientation,
       pageSize: _state.pageSize,
       margins: { ..._state.margins },
-      headerFooter: { ..._state.headerFooter }
+      headerFooter: { ..._state.headerFooter },
+      columns: _state.columns
     };
+  }
+
+  // Кількість колонок із недовіреного джерела: ціле від 1 до 3, інакше одна колонка.
+  function normalizeColumns(value) {
+    const number = Math.round(Number(value));
+    return Number.isFinite(number) && number >= 1 ? Math.min(3, number) : 1;
   }
 
   // Колонтитули приходять і з чернетки та файлів, тож приводимо їх до безпечної форми:
@@ -83,6 +93,7 @@ const ArtState = (() => {
     set('orientation', next.orientation || DEFAULT_DOCUMENT.orientation);
     set('margins', { ...DEFAULT_DOCUMENT.margins, ...(next.margins || {}) });
     set('headerFooter', normalizeHeaderFooter(next.headerFooter));
+    set('columns', normalizeColumns(next.columns));
   }
 
   function resetDocument() { restoreDocument(DEFAULT_DOCUMENT); }
@@ -90,6 +101,6 @@ const ArtState = (() => {
   return {
     on, get, set, setDirty, isDirty, snapshot,
     documentSnapshot, restoreDocument, resetDocument,
-    normalizeHeaderFooter, HEADER_FOOTER_TEXT_MAX, PAGE_NUMBER_POSITIONS
+    normalizeHeaderFooter, normalizeColumns, HEADER_FOOTER_TEXT_MAX, PAGE_NUMBER_POSITIONS
   };
 })();

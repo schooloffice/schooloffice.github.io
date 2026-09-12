@@ -74,13 +74,64 @@ const ArtRtf = (() => {
       .trim();
   }
 
+  // Однобайтові знаки кодової сторінки 1251 ('xx поза основною кирилицею А–я).
+  const CP1251_EXTRA = {
+    0x84: '„', 0x85: '…', 0x91: '‘', 0x92: '’', 0x93: '“', 0x94: '”', 0x96: '–', 0x97: '—',
+    0xA5: 'Ґ', 0xA8: 'Ё', 0xAA: 'Є', 0xAB: '«', 0xAF: 'Ї', 0xB2: 'І', 0xB3: 'і', 0xB4: 'ґ',
+    0xB8: 'ё', 0xB9: '№', 0xBA: 'є', 0xBB: '»', 0xBF: 'ї'
+  };
+
+  function _decodeCp1251(code) {
+    if (code >= 0xC0 && code <= 0xFF) return String.fromCharCode(code - 0xC0 + 0x0410);
+    return CP1251_EXTRA[code] ?? '';
+  }
+
+  // Символи, що мають значення в HTML чи в синтаксисі RTF, після декодування пишемо сутностями,
+  // щоб наступні заміни не прийняли їх за розмітку.
+  function _htmlChar(ch) {
+    return { '<': '&lt;', '>': '&gt;', '&': '&amp;', '{': '&#123;', '}': '&#125;', '\\': '&#92;' }[ch] || ch;
+  }
+
+  // Юнікодні символи RTF: uN — 16-бітне ціле зі знаком (від'ємне — код понад 32767). Після нього
+  // стоять замінні символи для старих читачів; їх кількість задає ucN (типово 1), а замінним
+  // символом вважається один знак або одна послідовність 'xx. Екранований зворотний скісний
+  // лишається для наступних замін.
+  function _decodeUnicodeEscapes(source) {
+    const pattern = /\\(?:uc(\d+) ?|u(-?\d+) ?|\\)/g;
+    let result = '';
+    let index = 0;
+    let fallback = 1;
+    let match;
+    while ((match = pattern.exec(source))) {
+      result += source.slice(index, match.index);
+      index = pattern.lastIndex;
+      if (match[1] !== undefined) {
+        fallback = Math.min(Number(match[1]), 8);
+      } else if (match[2] !== undefined) {
+        const code = Number(match[2]);
+        if (code >= -32768 && code <= 65535) result += _htmlChar(String.fromCharCode(code < 0 ? code + 65536 : code));
+        for (let skipped = 0; skipped < fallback && index < source.length; skipped += 1) {
+          if (source[index] === '\\' && source[index + 1] === "'") index += 4;
+          else if (source[index] === '\\' || source[index] === '{' || source[index] === '}') break;
+          else index += 1;
+        }
+        pattern.lastIndex = index;
+      } else {
+        result += match[0];
+      }
+    }
+    return result + source.slice(index);
+  }
+
   function _rtfToHtml(rtf) {
-    let s = rtf
+    let s = _decodeUnicodeEscapes(rtf)
       .replace(/\{\\fonttbl[^}]*\}/g, '')
       .replace(/\{\\colortbl[^}]*\}/g, '')
       .replace(/\{\\stylesheet(?:[^{}]|\{[^}]*\})*\}/g, '')
       .replace(/\{\\info(?:[^{}]|\{[^}]*\})*\}/g, '')
-      .replace(/\{\\[^{}]*\}/g, '')
+      // Службові групи без вкладених (на кшталт *generator), але не сама група документа rtf1:
+      // інакше документ без вкладених груп зникав повністю.
+      .replace(/\{\\(?!rtf)[^{}]*\}/g, '')
       .replace(/\\([a-z]+)(-?\d+)? ?/g, (m, cmd, num) => {
         const key = num !== undefined ? `\\${cmd}${num}` : `\\${cmd}`;
         const map = {
@@ -96,23 +147,12 @@ const ArtRtf = (() => {
           '\\tab':      '&nbsp;&nbsp;&nbsp;&nbsp;',
           '\\pard':     '', '\\plain': '',
         };
-        // Розмір шрифту \\fsN (half-points)
-        if (cmd === 'fs' && num) {
-          const pt = Math.round(parseInt(num, 10) / 2);
-          return `<span style="font-size:${pt}pt">`;
-        }
+        // Розмір шрифту (fsN) не переносимо: заміна без розбору груп не знає, де розмір
+        // закінчується, і відкритий span лишався незакритим.
         return map[key] ?? '';
       })
-      // Escaped символи \'xx → Unicode
-      .replace(/\\'([0-9a-fA-F]{2})/g, (_, hex) => {
-        const code = parseInt(hex, 16);
-        // cp1251 кирилиця
-        if (code >= 0xC0 && code <= 0xFF) return String.fromCharCode(code - 0xC0 + 0x0410);
-        const special = { 0xA8:'Ё', 0xB8:'ё', 0x84:'\u0404', 0x94:'\u0454',
-                          0x86:'\u0406', 0x96:'\u0456', 0x87:'\u0407', 0x97:'\u0457',
-                          0xAA:'\u0490', 0xBA:'\u0491' };
-        return special[code] ?? '';
-      })
+      // Escaped символи 'xx — однобайтові знаки кодової сторінки 1251.
+      .replace(/\\'([0-9a-fA-F]{2})/g, (_, hex) => _decodeCp1251(parseInt(hex, 16)))
       .replace(/[{}\\]/g, '');
 
     return _sanitizeHtml(`<p>${s.trim()}</p>`);
@@ -138,6 +178,8 @@ const ArtRtf = (() => {
       '{\\colortbl;\\red0\\green0\\blue0;}',
       '\\widowctrl\\hyphauto\\f1\\fs28',
       _pageGeometryRtf(documentPage, false),
+      // Колонки першого розділу — властивість розділу, тож задаються через \sectd.
+      ...(documentPage.columns > 1 ? [`\\sectd${_columnsRtf(documentPage)}`] : []),
       ...(bands ? [bands] : []),
       body,
       '}',
@@ -184,12 +226,21 @@ const ArtRtf = (() => {
       const numeric = Number(values[index]);
       margins[side] = values[index] !== undefined && values[index] !== '' && Number.isFinite(numeric) ? numeric : Number(base[side]);
     });
+    // Колонки: п'ятий числовий токен розділу; для документа (value відсутнє) — з налаштувань документа.
+    const columnsRaw = values[4] !== undefined ? values[4] : (value ? 1 : previous.columns);
+    const columnsValue = Math.round(Number(columnsRaw));
     return {
       orientation: ['portrait', 'landscape'].includes(orientation) ? orientation : (previous.orientation === 'landscape' ? 'landscape' : 'portrait'),
       pageSize: Object.prototype.hasOwnProperty.call(PAGE_SIZES_CM, pageSize) ? pageSize
         : (Object.prototype.hasOwnProperty.call(PAGE_SIZES_CM, previous.pageSize) ? previous.pageSize : 'a4'),
-      margins
+      margins,
+      columns: Number.isFinite(columnsValue) && columnsValue >= 1 ? Math.min(3, columnsValue) : 1
     };
+  }
+
+  // Колонки розділу RTF із проміжком 1,25 см (708 twips).
+  function _columnsRtf(settings) {
+    return settings.columns > 1 ? `\\cols${settings.columns}\\colsx${Math.round(1.25 * CM_TO_TWIPS)}` : '';
   }
 
   // Розмір аркуша й поля у twips: для документа (\paperw…) або для розділу (\pgwsxn…).
@@ -211,7 +262,7 @@ const ArtRtf = (() => {
     const settings = _sectionSettings(node.getAttribute('data-art-section'), context.section || {});
     context.section = settings;
     context.tocTabTwips = _contentWidthTwips(settings);
-    return `\\sect\\sectd${_pageGeometryRtf(settings, true)}${RTF_LINE_END}`;
+    return `\\sect\\sectd${_pageGeometryRtf(settings, true)}${_columnsRtf(settings)}${RTF_LINE_END}`;
   }
 
   // Зміст — текст: назва по центру, пункт — назва, крапкова табуляція й номер праворуч.
@@ -264,17 +315,24 @@ const ArtRtf = (() => {
     }
   }
 
+  // Не-ASCII записується як uN по одиницях UTF-16 (символ поза BMP — сурогатною парою). RTF читає
+  // N як 16-бітне ціле зі знаком, тож коди понад 32767 стають від'ємними; «?» — замінний символ.
   function _encodeRtf(text) {
-    return Array.from(text).map(ch => {
-      const code = ch.charCodeAt(0);
+    const source = String(text);
+    let out = '';
+    for (let index = 0; index < source.length; index += 1) {
+      const ch = source[index];
+      const code = source.charCodeAt(index);
       if (code < 128) {
-        if (ch === '\\') return '\\\\';
-        if (ch === '{')  return '\\{';
-        if (ch === '}')  return '\\}';
-        return ch;
+        if (ch === '\\') out += '\\\\';
+        else if (ch === '{') out += '\\{';
+        else if (ch === '}') out += '\\}';
+        else out += ch;
+      } else {
+        out += `\\u${code > 32767 ? code - 65536 : code}?`;
       }
-      return `\\u${code}?`;
-    }).join('');
+    }
+    return out;
   }
 
   // Мінімальний sanitize без DOMParser (бо formats/ не повинні залежати від UI)

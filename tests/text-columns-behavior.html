@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Text Columns Smoke</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    iframe {
+      width: 1280px;
+      height: 900px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+    }
+
+    pre {
+      max-width: 1280px;
+      white-space: pre-wrap;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: .75rem;
+      padding: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Text Columns Smoke</h1>
+  <!-- Колонки (C2ґ) мають окрему сторінку: сценарії перекомпоновують довгий документ
+       у колонках, а бюджет віртуального часу раннера рахується на сторінку. -->
+  <pre id="result">Running...</pre>
+  <iframe id="textFrame" src="../text/index.html"></iframe>
+
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('textFrame');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Опитуємо через setTimeout, а не requestAnimationFrame: під --virtual-time-budget
+    // щільний rAF-цикл не дає віртуальному годиннику рухатися рівномірно.
+    function waitFor(predicate, label, timeout = 6000) {
+      const started = performance.now();
+      return new Promise((resolve, reject) => {
+        function tick() {
+          let ok = false;
+          try { ok = !!predicate(); } catch { ok = false; }
+          if (ok) return resolve();
+          if (performance.now() - started > timeout) return reject(new Error(`Timed out waiting for ${label}`));
+          setTimeout(tick, 50);
+        }
+        tick();
+      });
+    }
+
+    function check(label, ok) {
+      return { label, ok: !!ok };
+    }
+
+    function pageContents(doc) {
+      return Array.from(doc.querySelectorAll('#editor .page-content'));
+    }
+
+    async function resetDocument(win, doc) {
+      win.art.editor.newDoc();
+      await waitFor(() => pageContents(doc).length === 1 && doc.querySelector('#editor .page-content'), 'text document reset');
+      await wait(150);
+    }
+
+    // C2(ґ): колонки в межах розділу. Текст аркуша тече колонками по черзі; надлишок,
+    // що не вмістився в колонки, переходить на наступний аркуш.
+    async function runColumnChecks(win, doc, editor) {
+      const diagnostics = {};
+      const BACKSLASH = String.fromCharCode(92);
+      const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      const exportHTML = () => win.art.editor.getExportHTML();
+      async function settle() {
+        let previous = -1;
+        for (let i = 0; i < 50; i += 1) {
+          await wait(120);
+          const now = pageContents(doc).length;
+          if (now === previous) break;
+          previous = now;
+        }
+        await wait(300);
+      }
+      async function load(html) {
+        await resetDocument(win, doc);
+        pageContents(doc)[0].innerHTML = html;
+        editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+        await settle();
+        win.art.history.init(editor);
+        win.art.history.markSaved();
+      }
+      const placeCaret = (node, offset) => {
+        const caret = doc.createRange();
+        caret.setStart(node, offset);
+        caret.collapse(true);
+        editor.focus();
+        win.getSelection().removeAllRanges();
+        win.getSelection().addRange(caret);
+      };
+      const caretAtEnd = element => {
+        let node = element;
+        while (node.lastChild) node = node.lastChild;
+        placeCaret(node, node.nodeType === Node.TEXT_NODE ? node.data.length : node.childNodes.length);
+      };
+      const pages = () => [...doc.querySelectorAll('#editor .page')];
+      const columnCount = content => {
+        const value = parseInt(win.getComputedStyle(content).columnCount, 10);
+        return Number.isFinite(value) ? value : 1;
+      };
+      // Жоден фрагмент блока не лежить у зайвій колонці праворуч чи нижче області тексту.
+      const pageFits = content => {
+        const box = content.getBoundingClientRect();
+        return [...content.children].every(block => [...block.getClientRects()]
+          .every(rect => rect.width === 0 || (rect.left < box.right - 1 && rect.bottom <= box.bottom + 1)));
+      };
+      const allFit = () => pageContents(doc).every(pageFits);
+      // Текст справді займає другу колонку: є фрагмент правіше за середину області тексту.
+      const usesSecondColumn = content => {
+        const box = content.getBoundingClientRect();
+        return [...content.children].some(block => [...block.getClientRects()].some(rect => rect.width > 0 && rect.left > box.left + box.width / 2));
+      };
+      const sectionTokens = () => {
+        const box = doc.createElement('div');
+        box.innerHTML = exportHTML();
+        return [...box.querySelectorAll('hr[data-art-section]')].map(hr => hr.getAttribute('data-art-section'));
+      };
+      async function applySetup({ columns, caret }) {
+        if (caret) caret();
+        win.art.menu.dispatch('page-setup');
+        await wait(100);
+        const radio = doc.querySelector(`[name="pageColumns"][value="${columns}"]`);
+        if (radio) radio.checked = true;
+        doc.querySelector('[data-page-setup-apply]')?.click();
+        await settle();
+        return !!radio;
+      }
+      async function zipEntries(blob) {
+        const buffer = await blob.arrayBuffer();
+        const view = new DataView(buffer);
+        const entries = new Map();
+        for (let end = buffer.byteLength - 22; end >= Math.max(0, buffer.byteLength - 65557); end -= 1) {
+          if (view.getUint32(end, true) !== 0x06054b50) continue;
+          let offset = view.getUint32(end + 16, true);
+          const count = view.getUint16(end + 10, true);
+          for (let index = 0; index < count; index += 1) {
+            const nameLength = view.getUint16(offset + 28, true);
+            const local = view.getUint32(offset + 42, true);
+            const name = new TextDecoder().decode(new Uint8Array(buffer, offset + 46, nameLength));
+            const dataStart = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+            entries.set(name, {
+              method: view.getUint16(offset + 10, true),
+              bytes: new Uint8Array(buffer, dataStart, view.getUint32(offset + 20, true))
+            });
+            offset += 46 + nameLength + view.getUint16(offset + 30, true) + view.getUint16(offset + 32, true);
+          }
+          break;
+        }
+        return entries;
+      }
+      async function entryText(entry) {
+        if (!entry) return '';
+        if (entry.method === 0) return new TextDecoder().decode(entry.bytes);
+        const stream = new Blob([entry.bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+        return new Response(stream).text();
+      }
+
+      // Довгий текст, таблиця й зображення ширше за колонку.
+      // Обсяг підібрано під бюджет віртуального часу сторінки: кілька аркушів у двох колонках.
+      const words = Array.from({ length: 900 }, (_, index) => `слово${index}`).join(' ');
+      const rows = Array.from({ length: 20 }, (_, index) => `<tr><td>Рядок ${index + 1}</td><td>дані</td></tr>`).join('');
+      const gif = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
+      const source = `<h1>Колонки</h1><p>${words}</p><table><thead><tr><th>Назва</th><th>Значення</th></tr></thead><tbody>${rows}</tbody></table><p><img src="${gif}" alt="схема" style="width:600px"></p><p>Кінець документа.</p>`;
+      await load(source);
+      const exportBefore = exportHTML();
+      const pagesOneColumn = pages().length;
+
+      // 1. «Налаштування сторінки → Колонки: 2» для документа з одним розділом.
+      const radioFound = await applySetup({ columns: 2, caret: () => placeCaret(pageContents(doc)[0].querySelector('h1').firstChild, 0) });
+      const twoColumns = pageContents(doc).every(content => columnCount(content) === 2);
+      const insertWorks = radioFound && win.art.state.get('columns') === 2 && twoColumns
+        && win.art.state.isDirty() && win.art.history.canUndo();
+      diagnostics.insert = { radioFound, state: win.art.state.get('columns'), counts: pageContents(doc).map(columnCount), pagesOneColumn, pagesTwoColumns: pages().length };
+
+      // 2. Пагінація в колонках: нічого не виходить у зайву колонку, текст займає обидві колонки,
+      // а вміст документа не змінюється.
+      const pagination = {
+        fits: allFit(),
+        secondColumn: usesSecondColumn(pageContents(doc)[0]),
+        sameContent: exportHTML() === exportBefore,
+        lastWord: exportHTML().includes('слово899'),
+        pages: pages().length
+      };
+      const paginationWorks = pagination.fits && pagination.secondColumn && pagination.sameContent && pagination.lastWord;
+      diagnostics.pagination = pagination;
+
+      // 3. Таблиця й зображення вміщаються в ширину колонки.
+      const firstContent = pageContents(doc)[0];
+      const columnWidth = (firstContent.clientWidth - parseFloat(win.getComputedStyle(firstContent).columnGap)) / 2;
+      const tables = [...doc.querySelectorAll('#editor .page-content > table')];
+      const frameElement = doc.querySelector('#editor .art-image-frame');
+      // Таблиця може перейти з колонки в колонку: offsetWidth тоді охоплює обидві, тож міряємо
+      // кожен фрагмент окремо.
+      const fragmentWidths = element => [...element.getClientRects()].map(rect => Math.round(rect.width));
+      const tableFragments = tables.flatMap(fragmentWidths);
+      const blocksFit = tables.length > 0 && tableFragments.length > 0 && tableFragments.every(width => width <= columnWidth + 1)
+        && !!frameElement && fragmentWidths(frameElement).every(width => width <= columnWidth + 1)
+        && (exportHTML().match(/<table/g) || []).length === 1;
+      diagnostics.blocks = { columnWidth, tableFragments, tableOffset: tables.map(table => table.offsetWidth), frame: frameElement ? fragmentWidths(frameElement) : null, tableParts: tables.length };
+
+      // 4. Undo повертає одну колонку, redo — дві.
+      win.art.history.undo();
+      await settle();
+      const undoWorks = win.art.state.get('columns') === 1 && pageContents(doc).every(content => columnCount(content) === 1) && allFit();
+      win.art.history.redo();
+      await settle();
+      const redoWorks = win.art.state.get('columns') === 2 && pageContents(doc).every(content => columnCount(content) === 2) && allFit();
+
+      // 5. Розділ із трьома колонками: перший розділ лишається у двох.
+      const lastParagraph = [...doc.querySelectorAll('#editor .page-content > p')].pop();
+      caretAtEnd(lastParagraph);
+      win.art.menu.dispatch('insert-section-break');
+      await settle();
+      const sectionParagraph = [...doc.querySelectorAll('#editor .page-content > p')].pop();
+      sectionParagraph.textContent = words;
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await settle();
+      await applySetup({ columns: 3, caret: () => caretAtEnd([...doc.querySelectorAll('#editor .page-content > p')].pop()) });
+      const tokens = sectionTokens();
+      const breakPage = pages().findIndex(page => page.querySelector('hr[data-art-section]'));
+      const sectionContents = pages().slice(breakPage + 1).map(page => page.querySelector('.page-content'));
+      const sectionWorks = tokens.length === 1 && / 3$/.test(tokens[0]) && win.art.state.get('columns') === 2
+        && sectionContents.length > 0 && sectionContents.every(content => columnCount(content) === 3)
+        && pageContents(doc).slice(0, breakPage + 1).every(content => columnCount(content) === 2)
+        && allFit();
+      diagnostics.section = { tokens, breakPage, counts: pageContents(doc).map(columnCount), fits: allFit() };
+
+      // 6. Чернетка зберігає колонки; значення з чернетки перевіряються.
+      const draft = win.art.editor.getDraftPayload();
+      const draftHas = draft.document?.columns === 2 && / 3"/.test(draft.html);
+      win.art.editor.restoreDraft({
+        ...draft,
+        document: { ...draft.document, columns: 'x' },
+        html: draft.html.replace(/(data-art-section="[^"]*) 3"/, '$1 9"')
+      });
+      await settle();
+      const tamperedTokens = sectionTokens();
+      const draftValidated = win.art.state.get('columns') === 1 && / 3$/.test(tamperedTokens[0] || '') && allFit();
+      win.art.editor.restoreDraft(draft);
+      await settle();
+      const draftKeeps = draftHas && draftValidated && win.art.state.get('columns') === 2 && / 3$/.test(sectionTokens()[0] || '') && allFit();
+      diagnostics.draft = { draftHas, tamperedTokens, stateAfterTamper: draftValidated, restored: sectionTokens() };
+
+      // 7. Друк: колонки заповнюються по черзі й у друку, а аркуш займає всю ширину області друку.
+      // З width: auto аркуш із колонками розтягувався до «природної» ширини вмісту й текст
+      // опинявся поза папером.
+      const styleRules = [...doc.styleSheets].flatMap(sheet => {
+        try { return [...sheet.cssRules]; } catch { return []; }
+      });
+      const fillsInOrder = styleRules.some(rule => !rule.media && /page-content/.test(rule.selectorText || '') && rule.style.columnFill === 'auto');
+      const printRules = styleRules.filter(rule => rule.media && /print/.test(rule.media.mediaText)).flatMap(rule => [...rule.cssRules]);
+      const printFullWidth = printRules.some(inner => (inner.selectorText || '').trim() === '.page' && inner.style.width === '100%')
+        && printRules.some(inner => (inner.selectorText || '').trim() === '.pages-wrap' && inner.style.minWidth === '0px'
+          && inner.style.justifyContent === 'flex-start');
+      // У друку висота області тексту — auto, тож колонки вирівнюються: інакше текст ішов би
+      // однією колонкою через кілька аркушів.
+      const printBalances = printRules.some(inner => (inner.selectorText || '').trim() === '.page-content' && inner.style.columnFill === 'balance');
+      const printKeepsFill = fillsInOrder && printFullWidth && printBalances;
+      diagnostics.print = { fillsInOrder, printFullWidth, printBalances };
+
+      // 8. DOCX: колонки розділів Word; Mammoth їх не читає — попередження.
+      const html = exportHTML();
+      let docxWorks = false;
+      try {
+        const blob = await win.art.formats.docx.exportDocx(html, win.art.state.documentSnapshot());
+        const xml = await entryText((await zipEntries(blob)).get('word/document.xml'));
+        const imported = await win.art.formats.docx.importDocx(new win.File([blob], 'columns.docx', { type: DOCX_MIME }));
+        docxWorks = /<w:cols[^>]*w:num="2"/.test(xml) && /<w:cols[^>]*w:num="3"/.test(xml)
+          && (imported.meta.notices || []).some(note => /колонк/i.test(note));
+        diagnostics.docx = { cols: xml.match(/<w:cols[^>]*>/g), notices: imported.meta.notices };
+      } catch (error) {
+        diagnostics.docx = { error: error.message };
+      }
+
+      // 9. RTF: \cols для першого розділу й для розділу.
+      const rtf = win.art.formats.rtf.exportRtf(html, win.art.state.documentSnapshot());
+      const rtfWorks = rtf.includes(`${BACKSLASH}cols2`) && rtf.includes(`${BACKSLASH}cols3`);
+
+      // 10. «Колонки: 1» прибирає колонки першого розділу; undo повертає.
+      await applySetup({ columns: 1, caret: () => placeCaret(pageContents(doc)[0].querySelector('h1').firstChild, 0) });
+      const removeWorks = win.art.state.get('columns') === 1
+        && pageContents(doc).slice(0, pages().findIndex(page => page.querySelector('hr[data-art-section]')) + 1).every(content => columnCount(content) === 1)
+        && allFit();
+      win.art.history.undo();
+      await settle();
+      const removeUndo = win.art.state.get('columns') === 2 && allFit();
+      diagnostics.remove = { removeWorks, removeUndo };
+
+      return {
+        diagnostics,
+        checks: [
+          check('page setup turns on two columns for the section at the caret', insertWorks),
+          check('pagination fills columns in order without an overflow column and keeps the content', paginationWorks),
+          check('tables and images fit the column width', blocksFit),
+          check('undo and redo restore the column count', undoWorks && redoWorks),
+          check('a section keeps its own column count', sectionWorks),
+          check('local draft keeps columns and normalizes untrusted values', draftKeeps),
+          check('columns fill in order on screen and print balanced on the full page width', printKeepsFill),
+          check('DOCX exports Word columns and warns that columns are not imported', docxWorks),
+          check('RTF exports columns for the document and a section', rtfWorks),
+          check('one column removes columns and undo brings them back', removeWorks && removeUndo)
+        ]
+      };
+    }
+
+    async function run() {
+      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+
+      const win = frame.contentWindow;
+      const doc = frame.contentDocument;
+
+      await waitFor(() => (
+        typeof win.TextApp?.boot === 'function' &&
+        !!win.art?.editor &&
+        !!doc.querySelector('#editor .page-content')
+      ), 'Text boot');
+
+      const editor = doc.getElementById('editor');
+      const columns = await runColumnChecks(win, doc, editor);
+      const checks = columns.checks;
+      const failed = checks.filter(item => !item.ok);
+
+      result.textContent = checks
+        .map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}`)
+        .concat([
+          '',
+          'Diagnostics:',
+          `columns: ${JSON.stringify(columns.diagnostics)}`,
+          // Під --virtual-time-budget це віртуальний час сторінки: бюджет раннера — 35000 мс.
+          `virtual time ms: ${Math.round(performance.now())}`
+        ])
+        .concat(failed.length ? [`FAILED: ${failed.map(item => item.label).join('; ')}`] : ['PASSED'])
+        .join('\n');
+
+      if (failed.length) {
+        document.body.dataset.textColumns = 'failed';
+        throw new Error(failed.map(item => item.label).join('; '));
+      }
+
+      document.body.dataset.textColumns = 'passed';
+    }
+
+    run().catch(err => {
+      document.body.dataset.textColumns = 'failed';
+      const previous = result.textContent === 'Running...' ? '' : result.textContent + String.fromCharCode(10, 10);
+      result.textContent = previous + (err?.stack || err?.message || String(err));
+    });
+  </script>
+</body>
+</html>

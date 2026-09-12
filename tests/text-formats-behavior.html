@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Text Formats Smoke</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    iframe {
+      width: 1280px;
+      height: 900px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+    }
+
+    pre {
+      max-width: 1280px;
+      white-space: pre-wrap;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: .75rem;
+      padding: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Text Formats Smoke</h1>
+  <!-- Формати RTF і TXT мають окрему сторінку: відкриття файлу читає Blob через FileReader,
+       а на сторінках із пагінацією це витрачає бюджет віртуального часу. -->
+  <pre id="result">Running...</pre>
+  <iframe id="textFrame" src="../text/index.html"></iframe>
+
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('textFrame');
+
+    // Опитуємо через setTimeout, а не requestAnimationFrame: під --virtual-time-budget
+    // щільний rAF-цикл не дає віртуальному годиннику рухатися рівномірно.
+    function waitFor(predicate, label, timeout = 6000) {
+      const started = performance.now();
+      return new Promise((resolve, reject) => {
+        function tick() {
+          let ok = false;
+          try { ok = !!predicate(); } catch { ok = false; }
+          if (ok) return resolve();
+          if (performance.now() - started > timeout) return reject(new Error(`Timed out waiting for ${label}`));
+          setTimeout(tick, 50);
+        }
+        tick();
+      });
+    }
+
+    function check(label, ok) {
+      return { label, ok: !!ok };
+    }
+
+    function paragraphLines(doc, html) {
+      const box = doc.createElement('div');
+      box.innerHTML = html;
+      return Array.from(box.querySelectorAll('p')).map(p => p.textContent.trim());
+    }
+
+    // RTF: кирилиця й інший Unicode переживають експорт → імпорт. \uN — ціле зі знаком (16 біт),
+    // після нього пропускаються замінні символи (\ucN, типово 1); cp1251 \'xx і далі читається,
+    // а незакритих span розміру шрифту в результаті немає.
+    async function runRtfChecks(win, doc) {
+      const diagnostics = {};
+      const B = String.fromCharCode(92);
+      const lines = html => paragraphLines(doc, html).filter(Boolean);
+      const readRtf = async source => (await win.art.formats.rtf.importRtf(new win.File([source], 'check.rtf', { type: 'application/rtf' }))).html;
+      const unicodeLine = 'Ґанок, їжак, «лапки» — тире € 😀 5 < 6 & 7 > 3';
+
+      // 1. Експорт → імпорт: кирилиця, українські літери, типографські знаки, emoji (сурогатна
+      // пара UTF-16) і спеціальні для HTML символи ASCII.
+      let roundTrip = { lines: [], spans: null, error: null };
+      try {
+        const source = doc.createElement('div');
+        ['Перша частина', unicodeLine].forEach(text => {
+          const paragraph = doc.createElement('p');
+          paragraph.textContent = text;
+          source.appendChild(paragraph);
+        });
+        const imported = await readRtf(win.art.formats.rtf.exportRtf(source.innerHTML));
+        roundTrip = { lines: lines(imported), spans: (imported.match(/<span/g) || []).length, error: null };
+      } catch (error) {
+        roundTrip.error = error && error.message ? error.message : String(error);
+      }
+      diagnostics.roundTrip = roundTrip;
+
+      // 2–3. Документ з однією групою (без вкладених): від'ємний \u-21504 — «가» (U+AC00);
+      // \uc2 — два замінні символи, \uc0 — жодного (пробіл після \uN — роздільник);
+      // cp1251: «Перша» та українські «і», «ї», «є», «ґ».
+      let crafted = { lines: [], error: null };
+      try {
+        const rtf = `{${B}rtf1${B}ansi${B}ansicpg1251 ${B}u-21504?${B}par`
+          + `${B}uc2 ${B}u1071??${B}uc0 ${B}u1041 1${B}par`
+          + `${B}uc1 ${B}'cf${B}'e5${B}'f0${B}'f8${B}'e0 ${B}'b3${B}'bf${B}'ba${B}'b4${B}par}`;
+        const imported = await readRtf(rtf);
+        crafted = { lines: lines(imported), spans: (imported.match(/<span/g) || []).length, error: null };
+      } catch (error) {
+        crafted.error = error && error.message ? error.message : String(error);
+      }
+      diagnostics.crafted = crafted;
+
+      return {
+        diagnostics,
+        checks: [
+          check('RTF export and import keep Cyrillic, Unicode and ASCII special characters',
+            !roundTrip.error && roundTrip.lines.length === 2 && roundTrip.lines[0] === 'Перша частина' && roundTrip.lines[1] === unicodeLine),
+          check('RTF import decodes signed Unicode escapes and skips their fallback characters',
+            !crafted.error && crafted.lines[0] === '가' && crafted.lines[1] === 'ЯБ1'),
+          check('RTF import still decodes cp1251 escapes including Ukrainian letters',
+            !crafted.error && crafted.lines[2] === 'Перша іїєґ'),
+          check('RTF import leaves no unclosed font-size spans',
+            roundTrip.spans === 0 && crafted.spans === 0)
+        ]
+      };
+    }
+
+    // TXT: кожен блок — окремий рядок, <br> — перенос рядка, пункти списку й рядки таблиці
+    // (клітинки через табуляцію) — окремі рядки, порожній абзац — порожній рядок. Відкриття TXT
+    // дає по абзацу на рядок, тож кількість абзаців зберігається.
+    async function runTxtChecks(win, doc) {
+      const diagnostics = {};
+      const NL = String.fromCharCode(10);
+      const TAB = String.fromCharCode(9);
+      const source = '<h1>Заголовок</h1><p>Перший абзац</p><p>Рядок один<br>рядок два</p>'
+        + '<ul><li>Пункт 1</li><li>Пункт <strong>2</strong></li></ul>'
+        + '<table><tbody><tr><th>Назва</th><th>Бали</th></tr><tr><td>Задача</td><td>5</td></tr></tbody></table>'
+        + '<p><br></p><p>Кінець</p>';
+      const expected = ['Заголовок', 'Перший абзац', 'Рядок один', 'рядок два', 'Пункт 1', 'Пункт 2',
+        `Назва${TAB}Бали`, `Задача${TAB}5`, '', 'Кінець'];
+
+      let exported = '';
+      let imported = [];
+      let error = null;
+      try {
+        exported = win.art.formats.txt.exportTxt(source);
+        const file = new win.File([exported], 'check.txt', { type: 'text/plain' });
+        imported = paragraphLines(doc, (await win.art.formats.txt.importTxt(file)).html);
+      } catch (err) {
+        error = err && err.message ? err.message : String(err);
+      }
+      const exportedLines = exported.split(NL);
+      diagnostics.exported = exportedLines;
+      diagnostics.imported = imported;
+      diagnostics.error = error;
+
+      return {
+        diagnostics,
+        checks: [
+          check('TXT export writes one line per block, list item and table row and keeps line breaks',
+            !error && JSON.stringify(exportedLines) === JSON.stringify(expected)),
+          check('TXT round trip keeps one paragraph per exported line',
+            !error && JSON.stringify(imported) === JSON.stringify(expected))
+        ]
+      };
+    }
+
+    async function run() {
+      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+
+      const win = frame.contentWindow;
+      const doc = frame.contentDocument;
+
+      await waitFor(() => (
+        typeof win.TextApp?.boot === 'function' &&
+        !!win.art?.formats?.rtf &&
+        !!win.art?.formats?.txt &&
+        !!doc.querySelector('#editor .page-content')
+      ), 'Text boot');
+
+      const rtf = await runRtfChecks(win, doc);
+      const txt = await runTxtChecks(win, doc);
+      const checks = [...rtf.checks, ...txt.checks];
+      const failed = checks.filter(item => !item.ok);
+
+      result.textContent = checks
+        .map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}`)
+        .concat([
+          '',
+          'Diagnostics:',
+          `rtf: ${JSON.stringify(rtf.diagnostics)}`,
+          `txt: ${JSON.stringify(txt.diagnostics)}`,
+          // Під --virtual-time-budget це віртуальний час сторінки: бюджет раннера — 35000 мс.
+          `virtual time ms: ${Math.round(performance.now())}`
+        ])
+        .concat(failed.length ? [`FAILED: ${failed.map(item => item.label).join('; ')}`] : ['PASSED'])
+        .join('\n');
+
+      if (failed.length) {
+        document.body.dataset.textFormats = 'failed';
+        throw new Error(failed.map(item => item.label).join('; '));
+      }
+
+      document.body.dataset.textFormats = 'passed';
+    }
+
+    run().catch(err => {
+      document.body.dataset.textFormats = 'failed';
+      const previous = result.textContent === 'Running...' ? '' : result.textContent + String.fromCharCode(10, 10);
+      result.textContent = previous + (err?.stack || err?.message || String(err));
+    });
+  </script>
+</body>
+</html>

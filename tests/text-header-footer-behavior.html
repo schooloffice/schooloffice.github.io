@@ -236,7 +236,11 @@
       const printStyle = doc.getElementById('pagePrintGeometry');
       const printText = printStyle?.textContent || '';
       const printRules = printStyle?.sheet ? [...printStyle.sheet.cssRules] : [];
-      const printPlaces = printRules.length === 1 && /@top-center\s*\{/.test(printText) && /@bottom-center\s*\{/.test(printText)
+      // Одне правило @page і, з C2ґ, правило @media print із шириною аркуша; текст користувача
+      // не додає жодних інших правил.
+      const printPlaces = printRules.filter(rule => rule instanceof win.CSSPageRule).length === 1
+        && printRules.every(rule => rule instanceof win.CSSPageRule || rule instanceof win.CSSMediaRule)
+        && /@top-center\s*\{/.test(printText) && /@bottom-center\s*\{/.test(printText)
         && /@bottom-right\s*\{[^}]*counter\(page\)/.test(printText) && !printText.includes('{display');
       const chromeHiddenInPrint = [...doc.styleSheets].some(sheet => {
         let rules = [];

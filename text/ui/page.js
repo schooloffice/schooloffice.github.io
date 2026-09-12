@@ -40,6 +40,7 @@ const ArtPage = (() => {
     ArtState.on('change:pageSize', () => apply());
     ArtState.on('change:orientation', () => apply());
     ArtState.on('change:margins', () => apply());
+    ArtState.on('change:columns', () => apply());
     // Колонтитули лежать у полях аркуша й не змінюють місця для тексту — без перекомпонування.
     ArtState.on('change:headerFooter', () => apply({ repaginate: false }));
     ArtState.on('change:zoom', () => scheduleRulerUpdate());
@@ -77,7 +78,8 @@ const ArtPage = (() => {
     return {
       orientation: ArtState.get('orientation') === 'landscape' ? 'landscape' : 'portrait',
       pageSize: Object.prototype.hasOwnProperty.call(SIZES, ArtState.get('pageSize')) ? ArtState.get('pageSize') : 'a4',
-      margins: margins()
+      margins: margins(),
+      columns: ArtState.normalizeColumns(ArtState.get('columns'))
     };
   }
 
@@ -92,7 +94,8 @@ const ArtPage = (() => {
       const numeric = raw === undefined || raw === null || String(raw).trim() === '' ? NaN : Number(raw);
       merged[side] = Number.isFinite(numeric) ? numeric : Number(fallback.margins?.[side] ?? DEFAULT_MARGINS[side]);
     });
-    return { orientation, pageSize, margins: _clampMargins(merged, _sizeCm(pageSize, orientation)) };
+    const columns = value?.columns === undefined ? ArtState.normalizeColumns(fallback.columns) : ArtState.normalizeColumns(value.columns);
+    return { orientation, pageSize, margins: _clampMargins(merged, _sizeCm(pageSize, orientation)), columns };
   }
 
   // CSS-змінні аркуша: для документа — на .pages-wrap, для розділу — на його аркушах.
@@ -115,6 +118,8 @@ const ArtPage = (() => {
 
     const settings = documentSettings();
     Object.entries(geometryVars(settings)).forEach(([name, value]) => wrap.style.setProperty(name, value));
+    // Колонки першого розділу; аркуші інших розділів мають власний data-columns.
+    wrap.dataset.columns = String(settings.columns);
     const hf = headerFooter();
     _applyHeaderFooter(wrap, hf);
     _updatePrintStyle(_sizeCm(settings.pageSize, settings.orientation), settings.margins, hf);
@@ -368,6 +373,9 @@ const ArtPage = (() => {
       const input = _marginInput(side);
       if (input) input.value = settings.margins[side].toFixed(1);
     });
+    form.querySelectorAll('[name="pageColumns"]').forEach(input => {
+      input.checked = Number(input.value) === settings.columns;
+    });
 
     const scope = document.getElementById('pageSetupScope');
     if (scope) {
@@ -392,18 +400,20 @@ const ArtPage = (() => {
       next[side] = Number.isFinite(value) ? value : current[side];
     });
 
+    const columns = ArtState.normalizeColumns(form.querySelector('[name="pageColumns"]:checked')?.value || 1);
     const section = _setupTarget;
     _setupTarget = null;
     _setupSettings = null;
     if (section?.isConnected) {
       ArtModals.close('modalPageSetup');
-      ArtEditor.setSectionSettings(section, { orientation, pageSize, margins: next });
+      ArtEditor.setSectionSettings(section, { orientation, pageSize, margins: next, columns });
       scheduleRulerUpdate();
       return;
     }
 
     ArtState.set('pageSize', pageSize);
     ArtState.set('orientation', orientation);
+    ArtState.set('columns', columns);
     setMargins(next);
     ArtModals.close('modalPageSetup');
     ArtHistory.pushNow?.();
@@ -496,17 +506,36 @@ const ArtPage = (() => {
     if (hf.footer) boxes.push(`@bottom-center { content: ${_cssString(hf.footer)}; ${font} }`);
     if (hf.pageNumber !== 'none') boxes.push(`@${hf.pageNumber === 'header' ? 'top' : 'bottom'}-right { content: counter(page); ${font} }`);
     const marginBoxes = boxes.length ? ` ${boxes.join(' ')}` : '';
-    style.textContent = `@page { size: ${size.width}cm ${size.height}cm; margin: ${m.top}cm ${m.right}cm ${m.bottom}cm ${m.left}cm;${marginBoxes} }`;
+    style.textContent = `@page { size: ${size.width}cm ${size.height}cm; margin: ${m.top}cm ${m.right}cm ${m.bottom}cm ${m.left}cm;${marginBoxes} }`
+      + ` @media print { #editor .page:not([data-art-section-key]) { width: ${_printTextWidth(size, m)}cm !important; } }`;
+  }
+
+  // Ширина області тексту на папері в сантиметрах — без округлення пікселів, щоб аркуш не
+  // вийшов за папір. Chrome розкладає документ для друку за шириною першого аркуша, тому
+  // аркуш розділу отримує ширину явно (див. setSectionPrintPages).
+  function _printTextWidth(size, m) {
+    return Math.round((size.width - m.left - m.right) * 1000) / 1000;
   }
 
   // Друк розділів: аркуші кожного розділу, крім першого, — іменована сторінка з власним
   // розміром і полями. Колонтитули з загального правила @page діють і на них.
   function setSectionPrintPages(entries = []) {
-    const text = entries.map(({ name, settings }) => {
+    // Chrome розкладає документ для друку за шириною першого аркуша, а якщо стос аркушів ширший
+    // за найвужчий папір документа, зменшує масштаб усього друку. Тому в документі з розділами
+    // всі аркуші й сам стос друкуються однаковою шириною — найвужчою шириною тексту серед
+    // розділів: нічого не обрізається й не зменшується, а ширший розділ лишає поле праворуч.
+    const first = documentSettings();
+    const widths = [_printTextWidth(_sizeCm(first.pageSize, first.orientation), first.margins)];
+    const pages = entries.map(({ name, settings }) => {
       const size = _sizeCm(settings.pageSize, settings.orientation);
       const m = settings.margins;
+      widths.push(_printTextWidth(size, m));
       return `@page ${name} { size: ${size.width}cm ${size.height}cm; margin: ${m.top}cm ${m.right}cm ${m.bottom}cm ${m.left}cm; }`;
-    }).join(' ');
+    });
+    const printWidth = Math.min(...widths);
+    const text = pages.length
+      ? `${pages.join(' ')} @media print { #editor .page:not([data-art-section-key]), #editor .page[data-art-section-key] { width: ${printWidth}cm !important; } .pages-wrap, #editor.document-editor { width: ${printWidth}cm !important; } }`
+      : '';
     let style = document.getElementById('pageSectionPrintGeometry');
     if (!style) {
       if (!text) return;

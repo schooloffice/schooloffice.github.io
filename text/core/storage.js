@@ -159,7 +159,7 @@ const ArtTextStorage = (() => {
     const editorHost = document.getElementById('editor');
     editorHost?.addEventListener('input', schedule);
     ArtState.on('change', change => {
-      if (['fileName', 'fileFormat', 'orientation', 'pageSize', 'margins', 'headerFooter'].includes(change?.key)) schedule();
+      if (['fileName', 'fileFormat', 'orientation', 'pageSize', 'margins', 'headerFooter', 'columns'].includes(change?.key)) schedule();
     });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) saveNow();

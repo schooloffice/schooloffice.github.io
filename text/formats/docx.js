@@ -26,8 +26,12 @@ const ArtDocx = (() => {
           if (directory.some(entry => /^word\/(header|footer)\d*\.xml$/i.test(entry.name))) {
             notices.push('Колонтитули й номери сторінок із цього .docx не переносяться в ПЛЮС Текст. Задайте їх заново: «Вставка → Колонтитули й номери сторінок».');
           }
-          if (await _countSections(fr.result, directory) > 1) {
+          const documentXml = await _documentXml(fr.result, directory);
+          if ((documentXml.match(/<w:sectPr[\s>/]/g) || []).length > 1) {
             notices.push('Розділи з власною орієнтацією, папером чи полями з цього .docx не переносяться в ПЛЮС Текст: документ відкрито одним розділом. Розриви розділів додайте заново: «Вставка → Розрив розділу».');
+          }
+          if (/<w:cols\b[^>]*w:num="(?:[2-9]|\d{2,})"/.test(documentXml)) {
+            notices.push('Колонки з цього .docx не переносяться в ПЛЮС Текст: текст відкрито в одну колонку. Колонки задає «Файл → Налаштування сторінки».');
           }
           const result = await mammoth.convertToHtml({ arrayBuffer: fr.result }, {
             styleMap: [
@@ -100,14 +104,15 @@ const ArtDocx = (() => {
     return new Response(stream).text();
   }
 
-  // Кількість розділів Word — елементи w:sectPr у document.xml.
-  async function _countSections(buffer, directory) {
+  // document.xml для підрахунку розділів (w:sectPr) і колонок (w:cols); порожній рядок, якщо
+  // частина завелика чи не розпаковується.
+  async function _documentXml(buffer, directory) {
     const entry = directory.find(item => item.name === 'word/document.xml');
-    if (!entry || entry.size > MAX_SECTION_SCAN_BYTES) return 0;
+    if (!entry || entry.size > MAX_SECTION_SCAN_BYTES) return '';
     try {
-      return ((await _zipEntryText(buffer, entry)).match(/<w:sectPr[\s>/]/g) || []).length;
+      return await _zipEntryText(buffer, entry);
     } catch {
-      return 0;
+      return '';
     }
   }
 
@@ -120,10 +125,13 @@ const ArtDocx = (() => {
       const numeric = Number(values[index]);
       margins[side] = values[index] !== undefined && values[index] !== '' && Number.isFinite(numeric) ? numeric : Number(base[side]);
     });
+    // П'ятий числовий токен — кількість колонок (1–3); без нього розділ має одну колонку.
+    const columnsValue = Math.round(Number(values[4]));
     return {
       orientation: ['portrait', 'landscape'].includes(orientation) ? orientation : (previous.orientation === 'landscape' ? 'landscape' : 'portrait'),
       pageSize: Object.prototype.hasOwnProperty.call(PAGE_SIZES_TWIPS, pageSize) ? pageSize : (previous.pageSize || 'a4'),
-      margins
+      margins,
+      columns: values[4] !== undefined && Number.isFinite(columnsValue) && columnsValue >= 1 ? Math.min(3, columnsValue) : 1
     };
   }
 
@@ -404,8 +412,13 @@ const ArtDocx = (() => {
         const geometry = pageGeometry(section.meta);
         const headers = band(Header, headerFooter.header, headerFooter.pageNumber === 'header', geometry.contentWidth);
         const footers = band(Footer, headerFooter.footer, headerFooter.pageNumber === 'footer', geometry.contentWidth);
+        // Колонки Word із тим самим проміжком 1,25 см, що й на аркуші.
+        const columns = Math.min(3, Math.max(1, Math.round(Number(section.meta.columns) || 1)));
         return {
-          properties: { page: { size: geometry.size, margin: geometry.margin } },
+          properties: {
+            page: { size: geometry.size, margin: geometry.margin },
+            ...(columns > 1 ? { column: { count: columns, space: Math.round(1.25 * CM_TO_TWIPS) } } : {})
+          },
           ...(headers ? { headers } : {}),
           ...(footers ? { footers } : {}),
           children: section.children

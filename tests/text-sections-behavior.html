@@ -254,12 +254,15 @@
         && pages()[0].offsetWidth === PORTRAIT && sectionPages().every(page => page.offsetWidth === LANDSCAPE);
       diagnostics.draft = { draftHas, normalized, restored: sections() };
 
-      // 7. Друк: аркуші розділу мають іменовану сторінку з власним розміром і полями.
+      // 7. Друк: аркуші розділу мають іменовану сторінку з власним розміром і полями, а всі аркуші
+      // й стос аркушів друкуються найвужчою шириною тексту серед розділів (тут 16,5 см першого),
+      // інакше Chrome зменшив би масштаб усього друку.
       const printText = doc.getElementById('pageSectionPrintGeometry')?.textContent || '';
       const namedPage = sectionPages()[0] ? win.getComputedStyle(sectionPages()[0]).page : '';
       const firstPage = win.getComputedStyle(pages()[0]).page;
       const printWorks = /^art-section-\d+$/.test(namedPage) && (firstPage === 'auto' || firstPage === '')
-        && new RegExp(`@page ${namedPage} \\{ size: 29\\.7cm 21cm; margin: 2cm 1\\.5cm 2cm 3\\.1cm;`).test(printText);
+        && new RegExp(`@page ${namedPage} \\{ size: 29\\.7cm 21cm; margin: 2cm 1\\.5cm 2cm 3\\.1cm;`).test(printText)
+        && /\.pages-wrap, #editor\.document-editor \{ width: 16\.5cm !important; \}/.test(printText);
       diagnostics.print = { namedPage, firstPage, printText };
 
       // 8. DOCX: окремі розділи Word без зайвого розриву сторінки; Mammoth розділів не читає — попередження.

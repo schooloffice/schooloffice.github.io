@@ -86,7 +86,7 @@ const ArtEditor = (() => {
     ArtState.on('change:zoom', _applyZoom);
     ArtState.on('change:spellcheck', _applySpellcheck);
     ArtState.on('change', change => {
-      if (['fileName', 'fileFormat', 'orientation', 'pageSize', 'margins', 'headerFooter'].includes(change?.key)) {
+      if (['fileName', 'fileFormat', 'orientation', 'pageSize', 'margins', 'headerFooter', 'columns'].includes(change?.key)) {
         _documentRevision += 1;
       }
     });
@@ -452,14 +452,19 @@ const ArtEditor = (() => {
     return _isPageBreak(node) && node.hasAttribute('data-art-section');
   }
 
+  // Сьомий необов'язковий токен — кількість колонок (C2ґ); без нього розділ має одну колонку.
   function _parseSection(value, fallback) {
-    const [orientation, pageSize, top, right, bottom, left] = String(value || '').trim().split(/\s+/);
-    return ArtPage.normalizeSettings({ orientation, pageSize, margins: { top, right, bottom, left } }, fallback);
+    const [orientation, pageSize, top, right, bottom, left, columns] = String(value || '').trim().split(/\s+/);
+    return ArtPage.normalizeSettings({
+      orientation, pageSize, margins: { top, right, bottom, left }, columns: columns === undefined ? 1 : columns
+    }, fallback);
   }
 
   function _formatSection(settings) {
     const m = settings.margins;
-    return [settings.orientation, settings.pageSize, m.top, m.right, m.bottom, m.left].join(' ');
+    const tokens = [settings.orientation, settings.pageSize, m.top, m.right, m.bottom, m.left];
+    if (settings.columns > 1) tokens.push(settings.columns);
+    return tokens.join(' ');
   }
 
   function _firstSection() {
@@ -502,9 +507,11 @@ const ArtEditor = (() => {
     if (key) {
       page.style.setProperty('page', `art-section-${section.index}`);
       page.dataset.artSectionKey = key;
+      page.dataset.columns = String(section.settings.columns || 1);
     } else {
       page.style.removeProperty('page');
       delete page.dataset.artSectionKey;
+      delete page.dataset.columns;
     }
     return true;
   }
@@ -1737,8 +1744,8 @@ const ArtEditor = (() => {
     // Переносимо одразу весь «хвіст», що вийшов за нижню межу аркуша: інакше
     // великий документ вимагав би сотні окремих перестановок з перерахунком
     // розкладки після кожної.
-    const limit = current.getBoundingClientRect().bottom;
-    let index = blocks.findIndex(block => block.getBoundingClientRect().bottom > limit + 1);
+    const layout = _pageLayout(current);
+    let index = blocks.findIndex(block => _pastPageEnd(block, layout));
     if (index === -1) index = blocks.length - 1;
 
     const first = blocks[index];
@@ -1801,14 +1808,41 @@ const ArtEditor = (() => {
       || _splitTextBlock(current, block, next);
   }
 
+  // ── Колонки (C2ґ) ───────────────────────────────────────────────────────
+  // У колонках (column-fill: auto) текст, що не вмістився, не опускається нижче області тексту,
+  // а стає зайвою колонкою праворуч. Тому «за межами аркуша» — це фрагмент блока в такій колонці.
+  function _columnCount(pageContent) {
+    const count = parseInt(getComputedStyle(pageContent).columnCount, 10);
+    return Number.isFinite(count) && count > 1 ? count : 1;
+  }
+
+  function _pageLayout(pageContent) {
+    return { content: pageContent, rect: pageContent.getBoundingClientRect(), columns: _columnCount(pageContent) };
+  }
+
+  function _pastPageEnd(element, layout) {
+    if (layout.columns > 1) {
+      return [...element.getClientRects()].some(rect => rect.width > 0 && rect.left >= layout.rect.right - 1);
+    }
+    return element.getBoundingClientRect().bottom > layout.rect.bottom + 1;
+  }
+
+  // Вищий за аркуш — не вміщається навіть на порожньому аркуші: у колонках рахуємо висоту
+  // всіх фрагментів блока проти висоти всіх колонок.
   function _isTallerThanPage(block, pageContent) {
     if (!block || !pageContent) return false;
+    const columns = _columnCount(pageContent);
+    if (columns > 1) {
+      const total = [...block.getClientRects()].reduce((sum, rect) => sum + rect.height, 0);
+      return total > pageContent.clientHeight * columns + 1;
+    }
     return block.getBoundingClientRect().height > pageContent.clientHeight + 1;
   }
 
   function _unsplittableOversizeBlock(pageContent) {
     const blocks = [...(pageContent?.children || [])];
-    const block = blocks.find(item => item.getBoundingClientRect().bottom > pageContent.getBoundingClientRect().bottom + 1);
+    const layout = pageContent ? _pageLayout(pageContent) : null;
+    const block = layout ? blocks.find(item => _pastPageEnd(item, layout)) : null;
     if (!block || !_isTallerThanPage(block, pageContent) || block.tagName !== 'TABLE') return null;
     if (blocks.slice(0, blocks.indexOf(block)).some(_hasMeaningfulContent)) return null;
 
@@ -1835,8 +1869,8 @@ const ArtEditor = (() => {
     const firstBodyIndex = headerRow && rows[0] === headerRow ? 1 : 0;
     if (rows.length - firstBodyIndex < 2) return false;
 
-    const limit = current.getBoundingClientRect().bottom;
-    let splitIndex = rows.findIndex(row => row.getBoundingClientRect().bottom > limit + 1);
+    const layout = _pageLayout(current);
+    let splitIndex = rows.findIndex(row => _pastPageEnd(row, layout));
     if (splitIndex === -1) return false;
     if (splitIndex <= firstBodyIndex) splitIndex = firstBodyIndex + 1;
     if (splitIndex >= rows.length) return false;
@@ -2188,6 +2222,12 @@ const ArtEditor = (() => {
 
   function _isOverflowing(pageContent) {
     if (!pageContent) return false;
+    if (_columnCount(pageContent) > 1) {
+      // Блоки заповнюють колонки по черзі, тож у зайву колонку першим потрапляє останній блок.
+      let lastBlock = pageContent.lastElementChild;
+      while (lastBlock && lastBlock.classList.contains('art-sel-marker')) lastBlock = lastBlock.previousElementSibling;
+      return !!lastBlock && _pastPageEnd(lastBlock, _pageLayout(pageContent));
+    }
     if (pageContent.scrollHeight > pageContent.clientHeight + 1) return true;
     // scrollHeight майже не зростає від порожнього абзацу в кінці аркуша,
     // тож для такого випадку окремо звіряємо нижню межу останнього блока.
@@ -2346,7 +2386,8 @@ const ArtEditor = (() => {
         orientation: documentState.orientation || 'portrait',
         margins: { ...(documentState.margins || {}) },
         pageSize: documentState.pageSize || 'a4',
-        headerFooter: ArtState.normalizeHeaderFooter(documentState.headerFooter)
+        headerFooter: ArtState.normalizeHeaderFooter(documentState.headerFooter),
+        columns: ArtState.normalizeColumns(documentState.columns)
       },
       html: String(logical.html),
       selection: logical.selection
@@ -2371,7 +2412,7 @@ const ArtEditor = (() => {
     clearSelectedImage();
     ArtHistory.suspend(() => {
       // restoreDocument нормалізує колонтитули з чернетки як недовірені дані.
-      ArtState.restoreDocument({ orientation, pageSize, margins, headerFooter: documentState.headerFooter });
+      ArtState.restoreDocument({ orientation, pageSize, margins, headerFooter: documentState.headerFooter, columns: documentState.columns });
       _setDocumentHTML(payload.html, { selection: payload.version === 2 ? payload.selection : null });
       ArtState.set('fileName', String(payload.fileName || 'Без назви').slice(0, 160));
       ArtState.set('fileFormat', String(payload.fileFormat || 'artdoc').slice(0, 20));

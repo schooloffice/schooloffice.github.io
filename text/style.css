@@ -1096,6 +1096,26 @@ body {
   clear: both;
 }
 
+/* Колонки (C2ґ): текст аркуша тече колонками по черзі, а надлишок стає зайвою колонкою
+   праворуч — пагінація переносить його на наступний аркуш. Аркуші першого розділу беруть
+   кількість колонок документа (.pages-wrap), аркуші інших розділів — свою (.page). */
+.pages-wrap[data-columns="2"] .page:not([data-art-section-key]) > .page-content,
+.page[data-columns="2"] > .page-content {
+  column-count: 2;
+}
+
+.pages-wrap[data-columns="3"] .page:not([data-art-section-key]) > .page-content,
+.page[data-columns="3"] > .page-content {
+  column-count: 3;
+}
+
+/* Заповнення по черзі (а не вирівнювання колонок) — і на екрані, і в друку, де висота
+   області тексту стає auto. Без column-count ці властивості нічого не змінюють. */
+.page-content {
+  column-gap: 1.25cm;
+  column-fill: auto;
+}
+
 .art-image-block.is-selected .art-image-frame {
   box-shadow: 0 0 0 2px var(--accent), 0 0 0 5px rgba(37, 99, 235, .16);
 }
@@ -1657,11 +1677,15 @@ body {
     display: none !important;
   }
 
+  /* Фон оболонки (html і body разом зі спільним фоном застосунку з UI_TOKENS.css) у друку білий:
+     .editor-scroll коротший за надрукований потік, і з фоновою графікою під останнім аркушем
+     проступав сірий прямокутник. */
   body,
   html {
     display: block !important;
     overflow: visible !important;
     height: auto !important;
+    background: #fff !important;
   }
 
   .editor-scroll {
@@ -1670,16 +1694,29 @@ body {
     background: #fff;
   }
 
+  /* На екрані min-width: max-content тримає ширину аркушів для прокручування. У друку ширина
+     аркуша не фіксована, і max-content колонок із таблицею не має меж — сторінки ставали
+     ширшими за папір (C2ґ). Стос аркушів — від лівого краю області тексту: з центруванням
+     аркуш альбомного розділу, ширший за перший аркуш, зсував усі аркуші за лівий край паперу. */
   .pages-wrap {
     transform: none !important;
+    min-width: 0 !important;
+    width: 100%;
+    justify-content: flex-start;
   }
 
+  /* Аркуші друкуються від лівого краю області тексту: аркуш альбомного розділу ширший за
+     перший аркуш і з вирівнюванням по центру зсунувся б за лівий край паперу. */
   .document-editor {
     gap: 0;
+    align-items: flex-start;
   }
 
+  /* Аркуш займає всю ширину області друку. З width: auto у флекс-колонці з
+     align-items: center він стискався до «природної» ширини вмісту, а в колонках вона
+     не обмежена — текст і таблиці опинялися поза папером (C2ґ). */
   .page {
-    width: auto;
+    width: 100%;
     min-height: auto;
     padding: 0;
     box-shadow: none;
@@ -1688,8 +1725,13 @@ body {
     break-after: page;
   }
 
+  /* У друку висота області тексту — auto, тож заповнення колонок по черзі не має межі й увесь
+     текст ішов би однією колонкою через кілька аркушів. Вирівняні колонки не вищі за область
+     тексту (на екрані вміст уже вмістився в колонки цієї висоти), тож аркуш лишається одним
+     і нічого не обрізається (C2ґ). */
   .page-content {
     height: auto;
+    column-fill: balance;
   }
 
   .page:last-child {
