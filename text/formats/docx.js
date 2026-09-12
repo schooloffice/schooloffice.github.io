@@ -19,6 +19,9 @@ const ArtDocx = (() => {
       const fr = new FileReader();
       fr.onload = async () => {
         try {
+          const notices = _hasHeaderOrFooterParts(fr.result)
+            ? ['Колонтитули й номери сторінок із цього .docx не переносяться в ПЛЮС Текст. Задайте їх заново: «Вставка → Колонтитули й номери сторінок».']
+            : [];
           const result = await mammoth.convertToHtml({ arrayBuffer: fr.result }, {
             styleMap: [
               "p[style-name='Heading 1'] => h1:fresh",
@@ -35,7 +38,7 @@ const ArtDocx = (() => {
           });
           const html = ArtSanitize.clean(_mapPageBreaks(result.value));
           _validateConvertedHtml(html);
-          resolve({ html, meta: { format: 'docx', fileName: file.name, warnings: result.messages || [] } });
+          resolve({ html, meta: { format: 'docx', fileName: file.name, warnings: result.messages || [], notices } });
         } catch (e) {
           reject(new Error('Не вдалося прочитати .docx: ' + (e.message || e)));
         }
@@ -43,6 +46,33 @@ const ArtDocx = (() => {
       fr.onerror = () => reject(new Error('Не вдалося прочитати файл'));
       fr.readAsArrayBuffer(file);
     });
+  }
+
+  // Mammoth не читає колонтитулів. Імена частин ZIP записані в центральному каталозі
+  // відкритим текстом, тож наявність колонтитулів видно без розпакування.
+  function _hasHeaderOrFooterParts(buffer) {
+    try {
+      const view = new DataView(buffer);
+      const bytes = buffer.byteLength;
+      const decoder = new TextDecoder();
+      for (let end = bytes - 22; end >= Math.max(0, bytes - 65557); end -= 1) {
+        if (view.getUint32(end, true) !== 0x06054b50) continue;
+        const count = view.getUint16(end + 10, true);
+        let offset = view.getUint32(end + 16, true);
+        for (let index = 0; index < count && offset + 46 <= bytes; index += 1) {
+          if (view.getUint32(offset, true) !== 0x02014b50) return false;
+          const nameLength = view.getUint16(offset + 28, true);
+          if (offset + 46 + nameLength > bytes) return false;
+          const name = decoder.decode(new Uint8Array(buffer, offset + 46, nameLength));
+          if (/^word\/(header|footer)\d*\.xml$/i.test(name)) return true;
+          offset += 46 + nameLength + view.getUint16(offset + 30, true) + view.getUint16(offset + 32, true);
+        }
+        return false;
+      }
+    } catch {
+      // Пошкоджений каталог: Mammoth сам повідомить про помилку формату.
+    }
+    return false;
   }
 
   // Позначка розриву сторінки: невидимі роздільники навколо тексту, якого немає в документах.
@@ -115,7 +145,7 @@ const ArtDocx = (() => {
 
   async function exportDocx(html, meta = {}) {
     if (typeof docx === 'undefined') throw new Error('Бібліотека docx.js не завантажена');
-    const { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, UnderlineType, PageOrientation, Table, TableRow, TableCell, WidthType, PageBreak } = docx;
+    const { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, UnderlineType, PageOrientation, Table, TableRow, TableCell, WidthType, PageBreak, Header, Footer, Tab, TabStopType, PageNumber } = docx;
     const div = document.createElement('div');
     div.innerHTML = html;
     const children = [];
@@ -257,12 +287,37 @@ const ArtDocx = (() => {
     const pageMargin = Object.fromEntries(
       Object.entries(sourceMargins).map(([side, cm]) => [side, Math.round(Number(cm) * CM_TO_TWIPS)])
     );
+
+    // Колонтитул Word: текст по центру, номер сторінки (поле PAGE) праворуч — на табуляціях.
+    const contentWidth = Math.max(1, pageSize.width - pageMargin.left - pageMargin.right);
+    const headerFooter = ArtState.normalizeHeaderFooter(meta.headerFooter);
+    function band(Ctor, text, withNumber) {
+      if (!text && !withNumber) return undefined;
+      const runChildren = [new Tab(), text];
+      if (withNumber) runChildren.push(new Tab(), PageNumber.CURRENT);
+      return {
+        default: new Ctor({
+          children: [new Paragraph({
+            tabStops: [
+              { type: TabStopType.CENTER, position: Math.round(contentWidth / 2) },
+              { type: TabStopType.RIGHT, position: contentWidth }
+            ],
+            children: [new TextRun({ children: runChildren, font: 'Times New Roman', size: 22 })]
+          })]
+        })
+      };
+    }
+    const headers = band(Header, headerFooter.header, headerFooter.pageNumber === 'header');
+    const footers = band(Footer, headerFooter.footer, headerFooter.pageNumber === 'footer');
+
     const doc = new Document({
       numbering: {
         config: [{ reference: 'numbered-list', levels: [{ level: 0, format: 'decimal', text: '%1.', alignment: AlignmentType.START }] }]
       },
       sections: [{
         properties: { page: { size: pageSize, margin: pageMargin } },
+        ...(headers ? { headers } : {}),
+        ...(footers ? { footers } : {}),
         children
       }]
     });

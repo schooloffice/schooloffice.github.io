@@ -83,7 +83,7 @@ const ArtEditor = (() => {
     ArtState.on('change:zoom', _applyZoom);
     ArtState.on('change:spellcheck', _applySpellcheck);
     ArtState.on('change', change => {
-      if (['fileName', 'fileFormat', 'orientation', 'pageSize', 'margins'].includes(change?.key)) {
+      if (['fileName', 'fileFormat', 'orientation', 'pageSize', 'margins', 'headerFooter'].includes(change?.key)) {
         _documentRevision += 1;
       }
     });
@@ -141,6 +141,8 @@ const ArtEditor = (() => {
       clearFindHighlights();
       clearSelectedImage();
       ArtState.resetDocument?.();
+      // Колонтитули, які адаптер формату прочитав із файлу (зараз RTF).
+      if (result.meta.headerFooter) ArtState.set('headerFooter', ArtState.normalizeHeaderFooter(result.meta.headerFooter));
       _setDocumentHTML(result.html);
       ArtState.set('fileName', _stripExt(file.name));
       ArtState.set('fileFormat', result.meta.format);
@@ -148,8 +150,11 @@ const ArtEditor = (() => {
       ArtHistory.markSaved();
       _updateFileName();
       _syncView();
-      if (result.meta.warnings?.length) {
-        ArtModals.info('Файл відкрито з застереженнями', 'Деяке форматування могло бути спрощено.');
+      // notices — конкретні втрати, про які адаптер знає точно; warnings — загальні повідомлення конвертера.
+      const notices = [...(result.meta.notices || [])];
+      if (result.meta.warnings?.length) notices.push('Деяке форматування могло бути спрощено.');
+      if (notices.length) {
+        ArtModals.info('Файл відкрито з застереженнями', notices.join(' '));
       }
       _announce(`Файл ${file.name} відкрито`);
     } catch (err) {
@@ -186,7 +191,7 @@ const ArtEditor = (() => {
         blob = new Blob([ArtTxt.exportTxt(html)], { type: 'text/plain;charset=utf-8' });
         ext = 'txt';
       } else if (format === 'rtf') {
-        blob = new Blob([ArtRtf.exportRtf(html)], { type: 'application/rtf;charset=utf-8' });
+        blob = new Blob([ArtRtf.exportRtf(html, ArtState.documentSnapshot?.() || {})], { type: 'application/rtf;charset=utf-8' });
         ext = 'rtf';
       } else if (format === 'docx') {
         blob = await ArtDocx.exportDocx(html, ArtState.documentSnapshot?.() || {
@@ -1077,7 +1082,17 @@ const ArtEditor = (() => {
     content.dataset.placeholder = 'Почни вводити текст…';
     content.setAttribute('aria-label', 'Сторінка документа');
     page.appendChild(content);
+    page.appendChild(_createPageChrome());
     return page;
+  }
+
+  // Шар колонтитулів аркуша: порожній і неінтерактивний, текст малює CSS (див. ui/page.js).
+  function _createPageChrome() {
+    const chrome = document.createElement('div');
+    chrome.className = 'page-chrome';
+    chrome.setAttribute('aria-hidden', 'true');
+    chrome.contentEditable = 'false';
+    return chrome;
   }
 
   function _getPages() { return [..._editor.querySelectorAll('.page')]; }
@@ -1746,7 +1761,8 @@ const ArtEditor = (() => {
     ArtSelection.normalizeEditor(_editor);
     _getPages().forEach(page => {
       const content = _getPageContent(page);
-      if (!content) page.appendChild(_createPage().firstElementChild);
+      if (!content) page.prepend(_createPage().firstElementChild);
+      if (!page.querySelector(':scope > .page-chrome')) page.appendChild(_createPageChrome());
       page.removeAttribute('data-art-oversize');
       page.removeAttribute('title');
       content?.removeAttribute('data-art-oversize');
@@ -1925,7 +1941,8 @@ const ArtEditor = (() => {
       document: {
         orientation: documentState.orientation || 'portrait',
         margins: { ...(documentState.margins || {}) },
-        pageSize: documentState.pageSize || 'a4'
+        pageSize: documentState.pageSize || 'a4',
+        headerFooter: ArtState.normalizeHeaderFooter(documentState.headerFooter)
       },
       html: String(logical.html),
       selection: logical.selection
@@ -1949,7 +1966,8 @@ const ArtEditor = (() => {
     clearFindHighlights();
     clearSelectedImage();
     ArtHistory.suspend(() => {
-      ArtState.restoreDocument({ orientation, pageSize, margins });
+      // restoreDocument нормалізує колонтитули з чернетки як недовірені дані.
+      ArtState.restoreDocument({ orientation, pageSize, margins, headerFooter: documentState.headerFooter });
       _setDocumentHTML(payload.html, { selection: payload.version === 2 ? payload.selection : null });
       ArtState.set('fileName', String(payload.fileName || 'Без назви').slice(0, 160));
       ArtState.set('fileFormat', String(payload.fileFormat || 'artdoc').slice(0, 20));

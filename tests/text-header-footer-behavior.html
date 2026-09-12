@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Text Header and Footer Smoke</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    iframe {
+      width: 1280px;
+      height: 900px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+    }
+
+    pre {
+      max-width: 1280px;
+      white-space: pre-wrap;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: .75rem;
+      padding: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Text Header and Footer Smoke</h1>
+  <!-- Колонтитули й номери сторінок (C2б) мають окрему сторінку: експорт і відкриття
+       DOCX/RTF читають Blob, а це витрачає бюджет віртуального часу сторінки. -->
+  <pre id="result">Running...</pre>
+  <iframe id="textFrame" src="../text/index.html"></iframe>
+
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('textFrame');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Опитуємо через setTimeout, а не requestAnimationFrame: під --virtual-time-budget
+    // щільний rAF-цикл не дає віртуальному годиннику рухатися рівномірно.
+    function waitFor(predicate, label, timeout = 6000) {
+      const started = performance.now();
+      return new Promise((resolve, reject) => {
+        function tick() {
+          let ok = false;
+          try { ok = !!predicate(); } catch { ok = false; }
+          if (ok) return resolve();
+          if (performance.now() - started > timeout) return reject(new Error(`Timed out waiting for ${label}`));
+          setTimeout(tick, 50);
+        }
+        tick();
+      });
+    }
+
+    function check(label, ok) {
+      return { label, ok: !!ok };
+    }
+
+    function pageContents(doc) {
+      return Array.from(doc.querySelectorAll('#editor .page-content'));
+    }
+
+    async function resetDocument(win, doc) {
+      win.art.editor.newDoc();
+      await waitFor(() => pageContents(doc).length === 1 && doc.querySelector('#editor .page-content'), 'text document reset');
+      await wait(150);
+    }
+
+    // C2(б): колонтитули й номер сторінки для всього документа. Це налаштування аркуша,
+    // а не абзаци: у логічному потоці, пошуку й лічильнику слів їх немає.
+    async function runHeaderFooterChecks(win, doc, editor) {
+      const diagnostics = {};
+      const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      const BACKSLASH = String.fromCharCode(92);
+      const empty = { header: '', footer: '', pageNumber: 'none' };
+      const exportHTML = () => win.art.editor.getExportHTML();
+      const state = () => win.art.state.get('headerFooter') || null;
+      const sameSettings = (actual, expected) => !!actual && actual.header === expected.header
+        && actual.footer === expected.footer && actual.pageNumber === expected.pageNumber;
+      async function settle() {
+        let previous = -1;
+        for (let i = 0; i < 40; i += 1) {
+          await wait(120);
+          const now = pageContents(doc).length;
+          if (now === previous) break;
+          previous = now;
+        }
+        await wait(250);
+      }
+      async function load(html) {
+        await resetDocument(win, doc);
+        pageContents(doc)[0].innerHTML = html;
+        editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+        await settle();
+        win.art.history.init(editor);
+        win.art.history.markSaved();
+      }
+      const pages = () => Array.from(doc.querySelectorAll('#editor .page'));
+      const wrap = () => doc.querySelector('.pages-wrap');
+      // Текст смуги — вміст псевдоелемента декоративного шару аркуша, не вузол документа.
+      const band = (page, pseudo) => {
+        const chrome = page?.querySelector('.page-chrome');
+        if (!chrome) return null;
+        const content = win.getComputedStyle(chrome, pseudo).content;
+        // Обчислений рядок CSS екранує лапки й зворотні скісні.
+        return /^["']/.test(content) ? content.slice(1, -1).replace(/\\(.)/g, '$1') : '';
+      };
+      const bandsEverywhere = (header, footer) => pages().length > 0
+        && pages().every(page => band(page, '::before') === header && band(page, '::after') === footer);
+      const modalOpen = id => !!doc.getElementById(id)?.classList.contains('active');
+      const field = id => doc.getElementById(id) || {};
+      async function applyDialog(values) {
+        win.art.menu.dispatch('header-footer');
+        await wait(100);
+        const opened = modalOpen('modalHeaderFooter');
+        const prefilled = {
+          header: field('headerFooterHeader').value,
+          footer: field('headerFooterFooter').value,
+          pageNumber: doc.querySelector('[name="headerFooterPageNumber"]:checked')?.value
+        };
+        if (values === 'clear') {
+          doc.querySelector('[data-header-footer-clear]')?.click();
+        } else if (values) {
+          field('headerFooterHeader').value = values.header;
+          field('headerFooterFooter').value = values.footer;
+          const radio = doc.querySelector(`[name="headerFooterPageNumber"][value="${values.pageNumber}"]`);
+          if (radio) radio.checked = true;
+        }
+        doc.querySelector('[data-header-footer-apply]')?.click();
+        await wait(150);
+        return { opened, prefilled, closed: !modalOpen('modalHeaderFooter') };
+      }
+      function openThroughEditor(file) {
+        const input = doc.getElementById('fileInput');
+        const transfer = new win.DataTransfer();
+        transfer.items.add(file);
+        input.files = transfer.files;
+        input.dispatchEvent(new win.Event('change', { bubbles: true }));
+      }
+      // Мінімальне читання ZIP для перевірки частин .docx.
+      async function zipEntries(blob) {
+        const buffer = await blob.arrayBuffer();
+        const view = new DataView(buffer);
+        const entries = new Map();
+        for (let end = buffer.byteLength - 22; end >= Math.max(0, buffer.byteLength - 65557); end -= 1) {
+          if (view.getUint32(end, true) !== 0x06054b50) continue;
+          let offset = view.getUint32(end + 16, true);
+          const count = view.getUint16(end + 10, true);
+          for (let index = 0; index < count; index += 1) {
+            const nameLength = view.getUint16(offset + 28, true);
+            const local = view.getUint32(offset + 42, true);
+            const name = new TextDecoder().decode(new Uint8Array(buffer, offset + 46, nameLength));
+            const dataStart = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+            entries.set(name, {
+              method: view.getUint16(offset + 10, true),
+              bytes: new Uint8Array(buffer, dataStart, view.getUint32(offset + 20, true))
+            });
+            offset += 46 + nameLength + view.getUint16(offset + 30, true) + view.getUint16(offset + 32, true);
+          }
+          break;
+        }
+        return entries;
+      }
+      async function entryText(entry) {
+        if (!entry) return '';
+        if (entry.method === 0) return new TextDecoder().decode(entry.bytes);
+        const stream = new Blob([entry.bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+        return new Response(stream).text();
+      }
+
+      const threePages = '<p>Перша сторінка</p><hr style="break-after: page;"><p>Друга сторінка</p><hr style="break-after: page;"><p>Третя сторінка</p>';
+      await load(threePages);
+      const pagesBefore = pageContents(doc).length;
+      const contentHeightBefore = pageContents(doc)[0].clientHeight;
+      const exportBefore = exportHTML();
+      const defaultsEmpty = sameSettings(state(), empty) && bandsEverywhere('', '');
+
+      // 1. Вставлення через «Вставка → Колонтитули й номери сторінок».
+      const first = { header: 'Ліцей №1', footer: 'Контрольна робота', pageNumber: 'footer' };
+      const inserted = await applyDialog(first);
+      await settle();
+      const insertWorks = defaultsEmpty && inserted.opened && inserted.closed && sameSettings(state(), first)
+        && bandsEverywhere(first.header, first.footer)
+        && wrap()?.dataset.pageNumberPosition === 'footer'
+        && pages().map(page => page.dataset.pageNumber).join(',') === '1,2,3'
+        && win.art.state.isDirty() && win.art.history.canUndo();
+      const outOfFlow = exportHTML() === exportBefore && !/Ліцей|Контрольна/.test(editor.textContent || '')
+        && pageContents(doc).length === pagesBefore && pageContents(doc)[0].clientHeight === contentHeightBefore;
+      diagnostics.insert = {
+        defaultsEmpty, inserted, state: state(), pages: pageContents(doc).length,
+        header: band(pages()[1], '::before'), footer: band(pages()[1], '::after'),
+        position: wrap()?.dataset.pageNumberPosition
+      };
+
+      // 2. Undo прибирає колонтитули, redo повертає.
+      win.art.history.undo();
+      await settle();
+      const undoClears = sameSettings(state(), empty) && bandsEverywhere('', '') && wrap()?.dataset.pageNumberPosition === 'none';
+      win.art.history.redo();
+      await settle();
+      const redoRestores = sameSettings(state(), first) && bandsEverywhere(first.header, first.footer);
+
+      // 3. Зміна: діалог показує поточні значення.
+      const second = { header: 'Ліцей №2', footer: '', pageNumber: 'header' };
+      const changed = await applyDialog(second);
+      const changeWorks = sameSettings(changed.prefilled, first) && sameSettings(state(), second)
+        && bandsEverywhere(second.header, '') && wrap()?.dataset.pageNumberPosition === 'header';
+      diagnostics.change = { changed, state: state() };
+
+      // 4. Чернетка зберігає колонтитули; значення з чернетки перевіряються як недовірені.
+      const draft = win.art.editor.getDraftPayload();
+      const draftHas = sameSettings(draft.document?.headerFooter, second);
+      win.art.editor.restoreDraft({
+        ...draft,
+        document: { ...draft.document, headerFooter: { header: `${'x'.repeat(500)}${String.fromCharCode(10)}<b>`, footer: 5, pageNumber: 'evil' } }
+      });
+      await settle();
+      const tampered = state();
+      const draftValidated = !!tampered && /^x{120}$/.test(tampered.header) && tampered.footer === '' && tampered.pageNumber === 'none';
+      win.art.editor.restoreDraft(draft);
+      await settle();
+      const draftKeeps = draftHas && draftValidated && sameSettings(state(), second) && bandsEverywhere(second.header, '');
+      diagnostics.draft = { draftHas, tampered: tampered && { headerLength: tampered.header.length, footer: tampered.footer, pageNumber: tampered.pageNumber } };
+
+      // 5. Друк: колонтитули й номер — у полях аркуша (@page), текст екранується.
+      win.art.page.setHeaderFooter({ header: 'a"} body{display:none} @page{', footer: 'Підпис', pageNumber: 'footer' });
+      win.art.history.pushNow();
+      const printStyle = doc.getElementById('pagePrintGeometry');
+      const printText = printStyle?.textContent || '';
+      const printRules = printStyle?.sheet ? [...printStyle.sheet.cssRules] : [];
+      const printPlaces = printRules.length === 1 && /@top-center\s*\{/.test(printText) && /@bottom-center\s*\{/.test(printText)
+        && /@bottom-right\s*\{[^}]*counter\(page\)/.test(printText) && !printText.includes('{display');
+      const chromeHiddenInPrint = [...doc.styleSheets].some(sheet => {
+        let rules = [];
+        try { rules = [...sheet.cssRules]; } catch { return false; }
+        return rules.some(rule => rule.media && /print/.test(rule.media.mediaText)
+          && [...rule.cssRules].some(inner => /\.page-chrome/.test(inner.selectorText || '') && inner.style.display === 'none'));
+      });
+      diagnostics.print = { rules: printRules.length, text: printText, chromeHiddenInPrint };
+
+      // 6. Видалення: «Прибрати колонтитули», undo повертає.
+      const cleared = await applyDialog('clear');
+      const deleteWorks = cleared.closed && sameSettings(state(), empty) && bandsEverywhere('', '')
+        && wrap()?.dataset.pageNumberPosition === 'none'
+        && !/@top-center|@bottom-center|counter\(page\)/.test(doc.getElementById('pagePrintGeometry')?.textContent || '');
+      win.art.history.undo();
+      await settle();
+      const undoDeleteRestores = state()?.footer === 'Підпис' && state()?.pageNumber === 'footer' && bandsEverywhere(state()?.header, 'Підпис');
+      diagnostics.clear = { cleared, deleteWorks, undoDeleteRestores, afterUndo: state() };
+
+      // 7. DOCX: колонтитули Word із полем PAGE.
+      const exported = { header: 'Lyceum 1', footer: 'Test paper', pageNumber: 'footer' };
+      const source = '<p>Body text</p>';
+      let docxExports = false;
+      let docxBlob = null;
+      try {
+        docxBlob = await win.art.formats.docx.exportDocx(source, { ...win.art.state.documentSnapshot(), headerFooter: exported });
+        const entries = await zipEntries(docxBlob);
+        const names = [...entries.keys()];
+        const headerXml = await entryText(entries.get(names.find(name => /^word\/header\d*\.xml$/.test(name))));
+        const footerXml = await entryText(entries.get(names.find(name => /^word\/footer\d*\.xml$/.test(name))));
+        docxExports = headerXml.includes('Lyceum 1') && footerXml.includes('Test paper') && /PAGE/.test(footerXml) && !/PAGE/.test(headerXml);
+        diagnostics.docx = { names: names.filter(name => /header|footer/.test(name)), footerHasPage: /PAGE/.test(footerXml) };
+      } catch (error) {
+        diagnostics.docx = { error: error.message };
+      }
+
+      // 8. RTF: {\header}/{\footer} з полем PAGE; відкритий через редактор файл застосовує їх до документа,
+      // а текст колонтитулів не потрапляє в документ.
+      const rtf = win.art.formats.rtf.exportRtf(source, { headerFooter: exported });
+      const rtfExports = rtf.includes(`{${BACKSLASH}header`) && rtf.includes(`{${BACKSLASH}footer`) && rtf.includes('PAGE');
+      openThroughEditor(new win.File([rtf], 'hf.rtf', { type: 'application/rtf' }));
+      await waitFor(() => sameSettings(state(), exported), 'rtf header and footer applied', 6000).catch(() => {});
+      await settle();
+      const rtfOpenApplies = sameSettings(state(), exported) && bandsEverywhere('Lyceum 1', 'Test paper')
+        && !/Lyceum|Test paper|PAGE/.test(exportHTML()) && /Body text/.test(exportHTML()) && !win.art.state.isDirty();
+      diagnostics.rtf = { rtfExports, opened: state(), body: exportHTML().slice(0, 160) };
+
+      // 9. Mammoth не читає колонтитулів: відкриття .docx чесно попереджає й не лишає старих колонтитулів.
+      let docxOpenWarns = false;
+      if (docxBlob) {
+        openThroughEditor(new win.File([docxBlob], 'hf.docx', { type: DOCX_MIME }));
+        await waitFor(() => modalOpen('modalInfo'), 'docx header notice', 6000).catch(() => {});
+        const notice = doc.getElementById('modalInfoText')?.textContent || '';
+        docxOpenWarns = /колонтитул/i.test(notice) && sameSettings(state(), empty)
+          && !/Lyceum|Test paper/.test(exportHTML()) && /Body text/.test(exportHTML());
+        diagnostics.docxOpen = { notice, state: state() };
+        doc.querySelector('#modalInfo [data-close-modal]')?.click();
+        await wait(100);
+      }
+
+      return {
+        diagnostics,
+        checks: [
+          check('header, footer and page numbers are applied to every page from the dialog', insertWorks),
+          check('header and footer stay out of the document flow and keep pagination', outOfFlow),
+          check('undo removes and redo restores header and footer', undoClears && redoRestores),
+          check('the header and footer dialog shows current values and changes them', changeWorks),
+          check('local draft keeps header and footer and validates draft values', draftKeeps),
+          check('print puts header, footer and page number into page margins with escaped text', printPlaces && chromeHiddenInPrint),
+          check('clearing header and footer removes them and undo brings them back', deleteWorks && undoDeleteRestores),
+          check('DOCX exports header, footer and a PAGE field', docxExports),
+          check('opening DOCX warns that header and footer are not carried over', docxOpenWarns),
+          check('RTF keeps header, footer and page number both ways', rtfExports && rtfOpenApplies)
+        ]
+      };
+    }
+
+    async function run() {
+      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+
+      const win = frame.contentWindow;
+      const doc = frame.contentDocument;
+
+      await waitFor(() => (
+        typeof win.TextApp?.boot === 'function' &&
+        !!win.art?.editor &&
+        !!doc.querySelector('#editor .page-content')
+      ), 'Text boot');
+
+      const editor = doc.getElementById('editor');
+      const headerFooter = await runHeaderFooterChecks(win, doc, editor);
+      const checks = headerFooter.checks;
+      const failed = checks.filter(item => !item.ok);
+
+      result.textContent = checks
+        .map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}`)
+        .concat([
+          '',
+          'Diagnostics:',
+          `header/footer: ${JSON.stringify(headerFooter.diagnostics)}`,
+          // Під --virtual-time-budget це віртуальний час сторінки: бюджет раннера — 35000 мс.
+          `virtual time ms: ${Math.round(performance.now())}`
+        ])
+        .concat(failed.length ? [`FAILED: ${failed.map(item => item.label).join('; ')}`] : ['PASSED'])
+        .join('\n');
+
+      if (failed.length) {
+        document.body.dataset.textHeaderFooter = 'failed';
+        throw new Error(failed.map(item => item.label).join('; '));
+      }
+
+      document.body.dataset.textHeaderFooter = 'passed';
+    }
+
+    run().catch(err => {
+      document.body.dataset.textHeaderFooter = 'failed';
+      const previous = result.textContent === 'Running...' ? '' : result.textContent + String.fromCharCode(10, 10);
+      result.textContent = previous + (err?.stack || err?.message || String(err));
+    });
+  </script>
+</body>
+</html>

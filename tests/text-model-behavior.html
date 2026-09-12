@@ -31,9 +31,9 @@
 </head>
 <body>
   <h1>Text Document Model Smoke</h1>
-  <!-- Логічна модель документа (C1) і структурні можливості (C2) мають окрему сторінку:
+  <!-- Логічна модель документа (C1) і розрив сторінки (C2а) мають окрему сторінку:
        кожен сценарій перекомпоновує довгі документи, а бюджет віртуального часу
-       раннера рахується на сторінку. -->
+       раннера рахується на сторінку. Колонтитули (C2б) — text-header-footer-behavior.html. -->
   <pre id="result">Running...</pre>
   <iframe id="textFrame" src="../text/index.html"></iframe>
 
@@ -174,22 +174,27 @@
       await settle();
       const draftKeepsBreak = draft.html.includes('break-after') && breakCount(exportHTML()) === 1 && pageContents(doc).length === 2;
 
-      // 7. DOCX і RTF переносять розрив в обидва боки.
+      // 7. DOCX і RTF переносять розрив в обидва боки. Файл без колонтитулів відкривається
+      // без попередження про колонтитули (C2б).
       const source = '<p>Перша</p><hr style="break-after: page;"><p>Друга</p>';
       let docxRoundTrip = '';
+      let docxNotices = null;
       try {
         const blob = await win.art.formats.docx.exportDocx(source, {});
         const file = new win.File([blob], 'break.docx', {
           type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         });
-        docxRoundTrip = (await win.art.formats.docx.importDocx(file)).html;
+        const imported = await win.art.formats.docx.importDocx(file);
+        docxRoundTrip = imported.html;
+        docxNotices = imported.meta.notices || null;
       } catch (error) {
         docxRoundTrip = `error: ${error.message}`;
       }
       const docxKeepsBreak = breakCount(docxRoundTrip) === 1 && !/class=/.test(docxRoundTrip)
         && docxRoundTrip.includes('<p>Перша</p>') && docxRoundTrip.includes('<p>Друга</p>')
-        && win.art.formats.docx.describeExportLimits(source).length === 0;
-      diagnostics.docx = docxRoundTrip;
+        && win.art.formats.docx.describeExportLimits(source).length === 0
+        && Array.isArray(docxNotices) && docxNotices.length === 0;
+      diagnostics.docx = { html: docxRoundTrip, notices: docxNotices };
       const rtf = win.art.formats.rtf.exportRtf(source);
       let rtfImported = '';
       try {

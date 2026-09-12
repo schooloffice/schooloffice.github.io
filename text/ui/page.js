@@ -37,6 +37,8 @@ const ArtPage = (() => {
     ArtState.on('change:pageSize', () => apply());
     ArtState.on('change:orientation', () => apply());
     ArtState.on('change:margins', () => apply());
+    // Колонтитули лежать у полях аркуша й не змінюють місця для тексту — без перекомпонування.
+    ArtState.on('change:headerFooter', () => apply({ repaginate: false }));
     ArtState.on('change:zoom', () => scheduleRulerUpdate());
 
     document.querySelector('.editor-scroll')?.addEventListener('scroll', scheduleRulerUpdate, { passive: true });
@@ -44,6 +46,7 @@ const ArtPage = (() => {
 
     _bindRulerHandles();
     _bindDialog();
+    _bindHeaderFooterDialog();
     apply({ repaginate: false });
   }
 
@@ -72,7 +75,9 @@ const ArtPage = (() => {
     wrap.style.setProperty('--page-pad-right', Math.round(m.right * CM_TO_PX) + 'px');
     wrap.style.setProperty('--page-pad-bottom', Math.round(m.bottom * CM_TO_PX) + 'px');
     wrap.style.setProperty('--page-pad-left', Math.round(m.left * CM_TO_PX) + 'px');
-    _updatePrintStyle(size, m);
+    const hf = headerFooter();
+    _applyHeaderFooter(wrap, hf);
+    _updatePrintStyle(size, m, hf);
 
     if (options.repaginate !== false) ArtEditor.refreshLayout?.();
     scheduleRulerUpdate();
@@ -94,6 +99,35 @@ const ArtPage = (() => {
   }
 
   function resetMargins() { setMargins(Object.assign({}, DEFAULT_MARGINS)); }
+
+  // ── Колонтитули й номери сторінок ───────────────────────────────────────
+  function headerFooter() {
+    return ArtState.normalizeHeaderFooter(ArtState.get('headerFooter'));
+  }
+
+  function setHeaderFooter(next) {
+    const merged = ArtState.normalizeHeaderFooter(Object.assign({}, headerFooter(), next));
+    ArtState.set('headerFooter', merged);
+    return merged;
+  }
+
+  // Колонтитули — оформлення аркуша, а не абзаци документа. Текст іде в CSS-змінні:
+  // кожен аркуш, зокрема новий після пагінації, показує його псевдоелементами шару
+  // .page-chrome, тож у вмісті, пошуку й лічильнику слів цього тексту немає.
+  function _applyHeaderFooter(wrap, hf) {
+    wrap.style.setProperty('--art-header-text', _cssString(hf.header));
+    wrap.style.setProperty('--art-footer-text', _cssString(hf.footer));
+    wrap.dataset.pageNumberPosition = hf.pageNumber;
+  }
+
+  // Рядок CSS, у якому все, крім літер, цифр і пробілу, записано шістнадцятковими
+  // escape-послідовностями: текст користувача не може закрити рядок чи правило.
+  function _cssString(text) {
+    const body = Array.from(String(text || '')).map(ch => (
+      /[\p{L}\p{N} ]/u.test(ch) ? ch : `\\${ch.codePointAt(0).toString(16)} `
+    )).join('');
+    return `"${body}"`;
+  }
 
   // ── Лінійка ─────────────────────────────────────────────────────────────
   function scheduleRulerUpdate() {
@@ -283,6 +317,52 @@ const ArtPage = (() => {
     ArtHistory.pushNow?.();
   }
 
+  // ── Діалог «Колонтитули й номери сторінок» ──────────────────────────────
+  function openHeaderFooter() {
+    const form = document.getElementById('headerFooterForm');
+    if (!form) return;
+
+    const hf = headerFooter();
+    const header = document.getElementById('headerFooterHeader');
+    const footer = document.getElementById('headerFooterFooter');
+    if (header) header.value = hf.header;
+    if (footer) footer.value = hf.footer;
+    form.querySelectorAll('[name="headerFooterPageNumber"]').forEach(input => {
+      input.checked = input.value === hf.pageNumber;
+    });
+
+    ArtModals.open('modalHeaderFooter');
+  }
+
+  function applyHeaderFooterForm() {
+    const form = document.getElementById('headerFooterForm');
+    if (!form) return;
+
+    setHeaderFooter({
+      header: document.getElementById('headerFooterHeader')?.value || '',
+      footer: document.getElementById('headerFooterFooter')?.value || '',
+      pageNumber: form.querySelector('[name="headerFooterPageNumber"]:checked')?.value || 'none'
+    });
+    ArtModals.close('modalHeaderFooter');
+    ArtHistory.pushNow?.();
+  }
+
+  function _bindHeaderFooterDialog() {
+    document.getElementById('headerFooterForm')?.addEventListener('submit', event => {
+      event.preventDefault();
+      applyHeaderFooterForm();
+    });
+    // Як «Повернути стандартні поля»: лише очищає форму, зміна настає після «Застосувати».
+    document.querySelector('[data-header-footer-clear]')?.addEventListener('click', () => {
+      ['headerFooterHeader', 'headerFooterFooter'].forEach(id => {
+        const input = document.getElementById(id);
+        if (input) input.value = '';
+      });
+      const none = document.querySelector('[name="headerFooterPageNumber"][value="none"]');
+      if (none) none.checked = true;
+    });
+  }
+
   function _marginInput(side) {
     return document.getElementById('pageMargin' + side[0].toUpperCase() + side.slice(1));
   }
@@ -309,18 +389,27 @@ const ArtPage = (() => {
 
   function _round(value) { return Math.round(value * 10) / 10; }
 
-  function _updatePrintStyle(size, m) {
+  function _updatePrintStyle(size, m, hf = headerFooter()) {
     let style = document.getElementById('pagePrintGeometry');
     if (!style) {
       style = document.createElement('style');
       style.id = 'pagePrintGeometry';
       document.head.appendChild(style);
     }
-    style.textContent = `@page { size: ${size.width}cm ${size.height}cm; margin: ${m.top}cm ${m.right}cm ${m.bottom}cm ${m.left}cm; }`;
+    // У друку колонтитули стоять у полях аркуша (@page margin boxes), а номер —
+    // лічильник сторінок друку. Екранний шар .page-chrome у друку прихований.
+    const font = "font-family: 'Times New Roman', serif; font-size: 11pt; color: #334155;";
+    const boxes = [];
+    if (hf.header) boxes.push(`@top-center { content: ${_cssString(hf.header)}; ${font} }`);
+    if (hf.footer) boxes.push(`@bottom-center { content: ${_cssString(hf.footer)}; ${font} }`);
+    if (hf.pageNumber !== 'none') boxes.push(`@${hf.pageNumber === 'header' ? 'top' : 'bottom'}-right { content: counter(page); ${font} }`);
+    const marginBoxes = boxes.length ? ` ${boxes.join(' ')}` : '';
+    style.textContent = `@page { size: ${size.width}cm ${size.height}cm; margin: ${m.top}cm ${m.right}cm ${m.bottom}cm ${m.left}cm;${marginBoxes} }`;
   }
 
   return {
     init, apply, openSetup, applySetupForm, setMargins, resetMargins,
+    headerFooter, setHeaderFooter, openHeaderFooter, applyHeaderFooterForm,
     updateRuler, margins, pageSizeCm, SIZES, DEFAULT_MARGINS
   };
 })();

@@ -1293,6 +1293,14 @@ if ((Test-Path $textStylePath) -and (Test-Path $textDocxPath)) {
   # C2(а): розрив сторінки не додає зайвої сторінки в друку й переноситься в DOCX.
   Assert-True ($textStyle -match '@media print[\s\S]*hr\[style\*="break-after"\][\s\S]*?break-after:\s*auto\s*!important') 'text/style.css: print must neutralize the inline break of a page break'
   Assert-True ($textDocx -match 'new PageBreak\(\)' -and $textDocx -match "breakType === 'page'") 'text/formats/docx.js: page breaks must be exported and imported'
+  # C2(б): колонтитули не є абзацами: на екрані — окремий шар аркуша, у друку — поля @page, у DOCX — Header/Footer.
+  Assert-True ($textStyle -match '@media print[\s\S]*\.page-chrome\s*\{\s*display:\s*none') 'text/style.css: print must hide the screen header/footer layer'
+  Assert-True ($textDocx -match 'PageNumber\.CURRENT' -and $textDocx -match 'word\\/\(header\|footer\)') 'text/formats/docx.js: header/footer must be exported and flagged on import'
+  $textPagePath = Join-Path $Root 'text/ui/page.js'
+  if (Test-Path $textPagePath) {
+    $textPage = Get-Content -Raw -Encoding UTF8 $textPagePath
+    Assert-True ($textPage -match '@top-center' -and $textPage -match 'counter\(page\)') 'text/ui/page.js: header, footer and page numbers must print in page margin boxes'
+  }
 }
 
 $textHistoryPath = Join-Path $Root 'text/core/history.js'

@@ -155,6 +155,9 @@
           <span><i class="fa-solid fa-file-circle-plus fa-fw"></i> Розрив сторінки</span>
           <span class="shortcut">Ctrl+Enter</span>
         </button>
+        <button class="menu-item" data-action="header-footer" role="menuitem">
+          <span><i class="fa-solid fa-heading fa-fw"></i> Колонтитули й номери сторінок…</span>
+        </button>
       </div>
     </div>
 
@@ -612,6 +615,51 @@
       <div class="modal-actions modal-actions-spaced">
         <button class="btn-secondary" type="button" data-close-modal="modalPageSetup">Скасувати</button>
         <button class="btn-primary" type="submit" data-page-setup-apply form="pageSetupForm">Застосувати</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Колонтитули й номери сторінок -->
+  <div id="modalHeaderFooter" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalHeaderFooterTitle">
+    <div class="modal-box">
+      <div class="modal-title" id="modalHeaderFooterTitle">
+        <i class="fa-solid fa-heading" aria-hidden="true"></i>
+        Колонтитули й номери сторінок
+      </div>
+
+      <form id="headerFooterForm" class="page-setup">
+        <label class="page-setup-field">
+          Верхній колонтитул
+          <input type="text" id="headerFooterHeader" maxlength="120" autocomplete="off" data-autofocus>
+        </label>
+        <label class="page-setup-field">
+          Нижній колонтитул
+          <input type="text" id="headerFooterFooter" maxlength="120" autocomplete="off">
+        </label>
+        <fieldset class="page-setup-group">
+          <legend>Номер сторінки</legend>
+          <label class="page-setup-radio">
+            <input type="radio" name="headerFooterPageNumber" value="none" checked>
+            <span>Без номера</span>
+          </label>
+          <label class="page-setup-radio">
+            <input type="radio" name="headerFooterPageNumber" value="footer">
+            <span>Унизу праворуч</span>
+          </label>
+          <label class="page-setup-radio">
+            <input type="radio" name="headerFooterPageNumber" value="header">
+            <span>Угорі праворуч</span>
+          </label>
+        </fieldset>
+        <p class="page-setup-note">Однакові на всіх сторінках документа. Друкуються в полях аркуша.</p>
+        <button class="page-setup-reset" type="button" data-header-footer-clear>
+          Прибрати колонтитули й номери
+        </button>
+      </form>
+
+      <div class="modal-actions modal-actions-spaced">
+        <button class="btn-secondary" type="button" data-close-modal="modalHeaderFooter">Скасувати</button>
+        <button class="btn-primary" type="submit" data-header-footer-apply form="headerFooterForm">Застосувати</button>
       </div>
     </div>
   </div>

@@ -2,10 +2,14 @@
 /* core/state.js — стан документа. Жодного DOM. */
 
 const ArtState = (() => {
+  const HEADER_FOOTER_TEXT_MAX = 120;
+  const PAGE_NUMBER_POSITIONS = Object.freeze(['none', 'footer', 'header']);
   const DEFAULT_DOCUMENT = Object.freeze({
     orientation: 'portrait',
     pageSize: 'a4',
-    margins: Object.freeze({ top: 2, right: 1.5, bottom: 2, left: 3 })
+    margins: Object.freeze({ top: 2, right: 1.5, bottom: 2, left: 3 }),
+    // Колонтитули всього документа: рядок угорі, рядок унизу й місце номера сторінки.
+    headerFooter: Object.freeze({ header: '', footer: '', pageNumber: 'none' })
   });
 
   const _state = {
@@ -15,6 +19,7 @@ const ArtState = (() => {
     orientation: DEFAULT_DOCUMENT.orientation,   // 'portrait' | 'landscape'
     pageSize:    DEFAULT_DOCUMENT.pageSize,       // 'a4' | 'a5' | 'letter'
     margins:     { ...DEFAULT_DOCUMENT.margins }, // см, як у шкільних роботах
+    headerFooter: { ...DEFAULT_DOCUMENT.headerFooter },
     zoom:        100,           // %
     spellcheck:  true,          // перевірка правопису браузером — вигляд, не документ
     fontFamily:  'Times New Roman',
@@ -52,7 +57,24 @@ const ArtState = (() => {
     return {
       orientation: _state.orientation,
       pageSize: _state.pageSize,
-      margins: { ..._state.margins }
+      margins: { ..._state.margins },
+      headerFooter: { ..._state.headerFooter }
+    };
+  }
+
+  // Колонтитули приходять і з чернетки та файлів, тож приводимо їх до безпечної форми:
+  // один рядок звичайного тексту без керівних символів і відоме місце номера сторінки.
+  function normalizeHeaderFooter(value) {
+    const source = value && typeof value === 'object' ? value : {};
+    const text = raw => Array.from((typeof raw === 'string' ? raw : '').replace(/\s+/g, ' ').trim())
+      .filter(ch => ch.charCodeAt(0) >= 32 && ch.charCodeAt(0) !== 127)
+      .slice(0, HEADER_FOOTER_TEXT_MAX)
+      .join('')
+      .trim();
+    return {
+      header: text(source.header),
+      footer: text(source.footer),
+      pageNumber: PAGE_NUMBER_POSITIONS.includes(source.pageNumber) ? source.pageNumber : 'none'
     };
   }
 
@@ -60,12 +82,14 @@ const ArtState = (() => {
     set('pageSize', next.pageSize || DEFAULT_DOCUMENT.pageSize);
     set('orientation', next.orientation || DEFAULT_DOCUMENT.orientation);
     set('margins', { ...DEFAULT_DOCUMENT.margins, ...(next.margins || {}) });
+    set('headerFooter', normalizeHeaderFooter(next.headerFooter));
   }
 
   function resetDocument() { restoreDocument(DEFAULT_DOCUMENT); }
 
   return {
     on, get, set, setDirty, isDirty, snapshot,
-    documentSnapshot, restoreDocument, resetDocument
+    documentSnapshot, restoreDocument, resetDocument,
+    normalizeHeaderFooter, HEADER_FOOTER_TEXT_MAX, PAGE_NUMBER_POSITIONS
   };
 })();

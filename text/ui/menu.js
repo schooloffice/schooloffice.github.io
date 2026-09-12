@@ -74,6 +74,7 @@ const ArtMenu = (() => {
       case 'toggle-spellcheck': ArtEditor.toggleSpellcheck(); break;
       case 'insert-hr': ArtToolbar.run(() => ArtSelection.insertHorizontalRule(document.getElementById('editor'))); break;
       case 'insert-page-break': ArtEditor.insertPageBreak(); break;
+      case 'header-footer': ArtPage.openHeaderFooter(); break;
       case 'insert-table': ArtModals.open('modalTable'); break;
       case 'insert-image': ArtEditor.openImageDialog(); break;
       case 'shortcuts': ArtModals.open('modalShortcuts'); break;

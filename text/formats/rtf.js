@@ -9,8 +9,9 @@ const ArtRtf = (() => {
       const fr = new FileReader();
       fr.onload = () => {
         try {
-          const html = _rtfToHtml(fr.result);
-          resolve({ html, meta: { format: 'rtf', fileName: file.name } });
+          const { rtf, headerFooter } = _extractHeaderFooter(fr.result);
+          const html = _rtfToHtml(rtf);
+          resolve({ html, meta: { format: 'rtf', fileName: file.name, ...(headerFooter ? { headerFooter } : {}) } });
         } catch (e) {
           reject(e);
         }
@@ -18,6 +19,59 @@ const ArtRtf = (() => {
       fr.onerror = () => reject(new Error('Не вдалося прочитати файл'));
       fr.readAsText(file, 'utf-8');
     });
+  }
+
+  // Групи колонтитулів ({\header …}, {\footerl …} тощо) — не текст документа: вирізаємо їх
+  // цілими, з вкладеними групами. Звичайні \header і \footer стають колонтитулами редактора.
+  function _extractHeaderFooter(source) {
+    let rtf = String(source || '');
+    const bands = {};
+    for (let guard = 0; guard < 64; guard += 1) {
+      const found = _findBandGroup(rtf);
+      if (!found) break;
+      if (!(found.word in bands)) bands[found.word] = rtf.slice(found.start, found.end);
+      rtf = rtf.slice(0, found.start) + rtf.slice(found.end);
+    }
+    const header = bands.header ?? bands.headerr;
+    const footer = bands.footer ?? bands.footerr;
+    if (header === undefined && footer === undefined) return { rtf, headerFooter: null };
+    const hasPageField = group => !!group && /fldinst[^}]*PAGE/.test(group);
+    return {
+      rtf,
+      headerFooter: {
+        header: _bandText(header),
+        footer: _bandText(footer),
+        pageNumber: hasPageField(footer) ? 'footer' : hasPageField(header) ? 'header' : 'none'
+      }
+    };
+  }
+
+  function _findBandGroup(rtf) {
+    const match = /\{\\((?:header|footer)[lrf]?)(?![a-z])/.exec(rtf);
+    if (!match) return null;
+    let depth = 0;
+    for (let index = match.index; index < rtf.length; index += 1) {
+      const ch = rtf[index];
+      if (ch === '\\') { index += 1; continue; }
+      if (ch === '{') depth += 1;
+      else if (ch === '}' && --depth === 0) return { word: match[1], start: match.index, end: index + 1 };
+    }
+    return { word: match[1], start: match.index, end: rtf.length };
+  }
+
+  // Текст колонтитула без поля номера, керівних слів і дужок; \uN? — символ Unicode.
+  function _bandText(group) {
+    if (!group) return '';
+    return group
+      .replace(/\{\\\*\\fldinst[^}]*\}/g, '')
+      .replace(/\{\\fldrslt[^}]*\}/g, '')
+      .replace(/\\u(-?\d+)\??/g, (_, code) => String.fromCharCode(Number(code) < 0 ? Number(code) + 65536 : Number(code)))
+      .replace(/\\'[0-9a-fA-F]{2}/g, '')
+      .replace(/\\[a-z]+-?\d* ?/gi, ' ')
+      .replace(/\\([{}\\])/g, '$1')
+      .replace(/[{}]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   function _rtfToHtml(rtf) {
@@ -63,11 +117,12 @@ const ArtRtf = (() => {
   }
 
   // ── EXPORT ──────────────────────────────────
-  function exportRtf(html) {
+  function exportRtf(html, meta = {}) {
     const div = document.createElement('div');
     div.innerHTML = html;
     let body = '';
     div.childNodes.forEach(n => { body += _nodeToRtf(n); });
+    const bands = _headerFooterRtf(meta.headerFooter);
 
     return [
       '{\\rtf1\\ansi\\ansicpg1251\\uc1\\deff0',
@@ -78,9 +133,26 @@ const ArtRtf = (() => {
       '}',
       '{\\colortbl;\\red0\\green0\\blue0;}',
       '\\widowctrl\\hyphauto\\f1\\fs28',
+      ...(bands ? [bands] : []),
       body,
       '}',
     ].join('\n');
+  }
+
+  // Колонтитули всього документа: текст по центру, номер сторінки — поле PAGE праворуч.
+  function _headerFooterRtf(value) {
+    const settings = ArtState.normalizeHeaderFooter(value);
+    const band = (word, text, withNumber) => {
+      if (!text && !withNumber) return '';
+      const parts = [];
+      if (text) parts.push(`\\pard\\qc\\f0\\fs22 ${_encodeRtf(text)}\\par`);
+      if (withNumber) parts.push('\\pard\\qr\\f0\\fs22 {\\field{\\*\\fldinst PAGE}{\\fldrslt 1}}\\par');
+      return `{\\${word}${parts.join('')}}`;
+    };
+    return [
+      band('header', settings.header, settings.pageNumber === 'header'),
+      band('footer', settings.footer, settings.pageNumber === 'footer')
+    ].filter(Boolean).join('\n');
   }
 
   function _nodeToRtf(node) {

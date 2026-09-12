@@ -667,6 +667,12 @@ body {
   border-radius: .25rem;
 }
 
+.page-setup-note {
+  margin: 0;
+  font-size: .82rem;
+  color: var(--slate-m);
+}
+
 .page-setup-margins {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -745,6 +751,69 @@ body {
   color: #94a3b8;
   font-size: 12px;
   font-weight: 700;
+}
+
+/* Колонтитули й номер сторінки — оформлення аркуша, а не абзаци документа. Текст іде
+   з налаштувань через CSS-змінні (ui/page.js), тож його немає у вмісті, пошуку й лічильнику слів. */
+.page-chrome {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+  font-family: 'Times New Roman', serif;
+  font-size: 11pt;
+  line-height: 1.2;
+  color: var(--slate);
+}
+
+.page-chrome::before,
+.page-chrome::after {
+  position: absolute;
+  left: var(--page-pad-left);
+  right: var(--page-pad-right);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.page-chrome::before {
+  content: var(--art-header-text, "");
+  top: calc(var(--page-pad-top) / 2);
+  transform: translateY(-50%);
+}
+
+.page-chrome::after {
+  content: var(--art-footer-text, "");
+  bottom: calc(var(--page-pad-bottom) / 2);
+  transform: translateY(50%);
+}
+
+/* Номер сторінки праворуч у тій самій смузі: текст колонтитула не заходить під нього. */
+.pages-wrap[data-page-number-position="header"] .page-chrome::before,
+.pages-wrap[data-page-number-position="footer"] .page-chrome::after {
+  padding-inline: 3em;
+}
+
+.pages-wrap[data-page-number-position="footer"] .page::after,
+.pages-wrap[data-page-number-position="header"] .page::after {
+  right: var(--page-pad-right);
+  color: var(--slate);
+  font-family: 'Times New Roman', serif;
+  font-size: 11pt;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.pages-wrap[data-page-number-position="footer"] .page::after {
+  bottom: calc(var(--page-pad-bottom) / 2);
+  transform: translateY(50%);
+}
+
+.pages-wrap[data-page-number-position="header"] .page::after {
+  top: calc(var(--page-pad-top) / 2);
+  bottom: auto;
+  transform: translateY(-50%);
 }
 
 .page-content {
@@ -1558,6 +1627,11 @@ body {
 
   .page::after {
     display: none;
+  }
+
+  /* Колонтитули й номер друкуються в полях аркуша правилом @page (ui/page.js). */
+  .page-chrome {
+    display: none !important;
   }
 
   /* Аркуш уже закінчується розривом (.page { break-after: page }); власний
