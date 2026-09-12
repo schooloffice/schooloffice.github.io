@@ -145,7 +145,7 @@ const ArtDocx = (() => {
 
   async function exportDocx(html, meta = {}) {
     if (typeof docx === 'undefined') throw new Error('Бібліотека docx.js не завантажена');
-    const { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, UnderlineType, PageOrientation, Table, TableRow, TableCell, WidthType, PageBreak, Header, Footer, Tab, TabStopType, PageNumber } = docx;
+    const { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, UnderlineType, PageOrientation, Table, TableRow, TableCell, WidthType, PageBreak, Header, Footer, Tab, TabStopType, LeaderType, PageNumber } = docx;
     const div = document.createElement('div');
     div.innerHTML = html;
     const children = [];
@@ -257,13 +257,43 @@ const ArtDocx = (() => {
       return new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } });
     }
 
+    const isLandscape = meta.orientation === 'landscape';
+    const baseSize = PAGE_SIZES_TWIPS[meta.pageSize] || PAGE_SIZES_TWIPS.a4;
+    const pageSize = isLandscape
+      ? { orientation: PageOrientation.LANDSCAPE, width: baseSize.height, height: baseSize.width }
+      : { width: baseSize.width, height: baseSize.height };
+    const sourceMargins = { ...DEFAULT_MARGINS_CM, ...(meta.margins || {}) };
+    const pageMargin = Object.fromEntries(
+      Object.entries(sourceMargins).map(([side, cm]) => [side, Math.round(Number(cm) * CM_TO_TWIPS)])
+    );
+    const contentWidth = Math.max(1, pageSize.width - pageMargin.left - pageMargin.right);
+
+    // Зміст — звичайний текст: назва по центру, пункт — назва, крапкова табуляція й номер праворуч.
+    // Поле TOC Word не створюємо: номери взято з розкладки ПЛЮС Тексту (див. describeExportLimits).
+    function tocParagraph(node) {
+      const kind = node.getAttribute('data-art-toc');
+      const spans = node.querySelectorAll(':scope > span');
+      if (kind === 'title') {
+        return new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: (node.textContent || '').trim(), bold: true, size: 32 })] });
+      }
+      if (!/^[1-4]$/.test(kind || '') || spans.length < 2) {
+        return new Paragraph({ children: [new TextRun({ text: (node.textContent || '').trim(), italics: kind === 'empty' })] });
+      }
+      return new Paragraph({
+        indent: { left: (Number(kind) - 1) * 360 },
+        tabStops: [{ type: TabStopType.RIGHT, position: contentWidth, leader: LeaderType.DOT }],
+        children: [new TextRun({ children: [spans[0].textContent.trim(), new Tab(), spans[spans.length - 1].textContent.trim()] })]
+      });
+    }
+
     [...div.childNodes].forEach(node => {
       if (node.nodeType !== Node.ELEMENT_NODE) {
         if ((node.textContent || '').trim()) children.push(new Paragraph({ children: collectRuns(node) }));
         return;
       }
       const tag = node.tagName.toLowerCase();
-      if (['p','div','blockquote'].includes(tag)) children.push(para(node));
+      if (tag === 'p' && node.hasAttribute('data-art-toc')) children.push(tocParagraph(node));
+      else if (['p','div','blockquote'].includes(tag)) children.push(para(node));
       else if (['h1','h2','h3','h4'].includes(tag)) children.push(para(node, { heading: HeadingLevel[`HEADING_${tag.slice(1)}`] }));
       else if (tag === 'ul' || tag === 'ol') {
         [...node.children].forEach((li, idx) => children.push(new Paragraph({
@@ -278,18 +308,8 @@ const ArtDocx = (() => {
     });
 
     if (!children.length) children.push(new Paragraph({ children: [new TextRun('')] }));
-    const isLandscape = meta.orientation === 'landscape';
-    const baseSize = PAGE_SIZES_TWIPS[meta.pageSize] || PAGE_SIZES_TWIPS.a4;
-    const pageSize = isLandscape
-      ? { orientation: PageOrientation.LANDSCAPE, width: baseSize.height, height: baseSize.width }
-      : { width: baseSize.width, height: baseSize.height };
-    const sourceMargins = { ...DEFAULT_MARGINS_CM, ...(meta.margins || {}) };
-    const pageMargin = Object.fromEntries(
-      Object.entries(sourceMargins).map(([side, cm]) => [side, Math.round(Number(cm) * CM_TO_TWIPS)])
-    );
 
     // Колонтитул Word: текст по центру, номер сторінки (поле PAGE) праворуч — на табуляціях.
-    const contentWidth = Math.max(1, pageSize.width - pageMargin.left - pageMargin.right);
     const headerFooter = ArtState.normalizeHeaderFooter(meta.headerFooter);
     function band(Ctor, text, withNumber) {
       if (!text && !withNumber) return undefined;
@@ -376,6 +396,9 @@ const ArtDocx = (() => {
       notes.push('колір виділення тексту у Word стане жовтим');
     }
     if ([...box.querySelectorAll('hr')].some(hr => !_isPageBreakNode(hr))) notes.push('горизонтальну лінію замінено рядком символів');
+    if (box.querySelector('[data-art-toc]')) {
+      notes.push('зміст збережено як текст із номерами сторінок ПЛЮС Тексту: Word не оновлює його сам, і номери у Word можуть відрізнятися');
+    }
 
     return notes;
   }

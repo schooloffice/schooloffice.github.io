@@ -932,6 +932,73 @@ body {
   background: var(--white);
 }
 
+/* Зміст (C2в): абзаци з data-art-toc. Назва по центру; пункт — назва, крапки й номер. */
+.page-content p[data-art-toc] {
+  cursor: default;
+}
+
+.page-content p[data-art-toc="title"] {
+  text-align: center;
+  font-weight: 700;
+  font-size: 1.15em;
+}
+
+.page-content p[data-art-toc="empty"] {
+  color: var(--slate-m);
+  font-style: italic;
+}
+
+.page-content p[data-art-toc="1"],
+.page-content p[data-art-toc="2"],
+.page-content p[data-art-toc="3"],
+.page-content p[data-art-toc="4"] {
+  display: flex;
+  align-items: baseline;
+  gap: .35em;
+}
+
+.page-content p[data-art-toc="2"] {
+  padding-left: 1.5em;
+}
+
+.page-content p[data-art-toc="3"] {
+  padding-left: 3em;
+}
+
+.page-content p[data-art-toc="4"] {
+  padding-left: 4.5em;
+}
+
+.page-content p[data-art-toc] > span:first-child {
+  min-width: 0;
+}
+
+.page-content p[data-art-toc] > span:last-child {
+  order: 2;
+  flex: none;
+}
+
+/* Крапкова лінія між назвою пункту й номером. */
+.page-content p[data-art-toc="1"]::after,
+.page-content p[data-art-toc="2"]::after,
+.page-content p[data-art-toc="3"]::after,
+.page-content p[data-art-toc="4"]::after {
+  content: '';
+  order: 1;
+  flex: 1 1 1.5em;
+  min-width: 1.5em;
+  border-bottom: 1px dotted currentColor;
+  transform: translateY(-.3em);
+}
+
+/* Застарілий зміст: заголовки чи аркуші змінилися після останнього оновлення. */
+.page-content p[data-art-toc-stale]::after {
+  content: ' · застарів — «Вставка → Оновити зміст»';
+  font-size: .7em;
+  font-weight: 600;
+  color: #b45309;
+}
+
 .page-content a {
   color: var(--accent);
 }
@@ -1632,6 +1699,11 @@ body {
   /* Колонтитули й номер друкуються в полях аркуша правилом @page (ui/page.js). */
   .page-chrome {
     display: none !important;
+  }
+
+  /* Позначка застарілого змісту — підказка на екрані, не частина документа. */
+  .page-content p[data-art-toc-stale]::after {
+    content: none !important;
   }
 
   /* Аркуш уже закінчується розривом (.page { break-after: page }); власний

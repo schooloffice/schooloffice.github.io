@@ -6,7 +6,8 @@ const ArtFind = (() => {
   // Збіг не перетинає межу абзацу, пункту списку чи клітинки таблиці.
   const UNIT_SELECTOR = 'td,th,li,p,h1,h2,h3,h4,blockquote,div';
   // Повторені пагінатором заголовки таблиць і маркери каретки не є текстом документа.
-  const SKIP_SELECTOR = 'tr[data-art-table-repeat], .art-sel-marker, [aria-hidden="true"]';
+  // Пункти змісту повторюють заголовки й змінюються лише командою «Оновити зміст».
+  const SKIP_SELECTOR = 'tr[data-art-table-repeat], .art-sel-marker, [aria-hidden="true"], [data-art-toc]';
   // Розрив рядка чи зображення всередині абзацу розділяє слова.
   const BREAK_TAGS = new Set(['BR', 'IMG', 'HR', 'FIGURE']);
   const MAX_PAINTED = 2000;

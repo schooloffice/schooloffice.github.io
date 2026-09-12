@@ -7,7 +7,7 @@
 // незалежно від того, як документ зараз розкладено по аркушах. Виділення зберігається
 // як логічні якорі — шлях від кореня цього потоку, а не від сторінкового DOM.
 const ArtDocumentModel = (() => {
-  const LAYOUT_ATTRIBUTES = ['data-art-split', 'data-art-flow-tail', 'data-art-oversize', 'data-art-table-part'];
+  const LAYOUT_ATTRIBUTES = ['data-art-split', 'data-art-flow-tail', 'data-art-oversize', 'data-art-table-part', 'data-art-toc-stale'];
   const TEXT_BLOCKS = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'BLOCKQUOTE']);
   const LIST_BLOCKS = new Set(['UL', 'OL']);
   const MAX_ANCHOR_DEPTH = 64;
@@ -305,6 +305,8 @@ const ArtDocumentModel = (() => {
     LAYOUT_ATTRIBUTES.forEach(name => {
       temp.querySelectorAll(`[${name}]`).forEach(node => node.removeAttribute(name));
     });
+    // Незмінність пунктів змісту редактор ставить на аркуші; у документ вона не входить.
+    temp.querySelectorAll('[data-art-toc]').forEach(node => node.removeAttribute('contenteditable'));
     if (portable) _portableImages(temp, points);
     _trimEdgeWhitespace(temp, points);
 

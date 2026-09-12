@@ -386,16 +386,16 @@ const ArtEditor = (() => {
     return index > -1 && index < pages.length - 1 ? pages[index + 1].firstElementChild : null;
   }
 
-  // Backspace на початку блока одразу після розриву або Delete у кінці блока перед ним
-  // прибирає сам розрив, навіть якщо він стоїть на попередньому аркуші.
-  function _removeAdjacentPageBreak(backward) {
+  // Сусідній блок (і через межу аркуша), якщо каретка стоїть на самому початку блока
+  // (backward) або в самому його кінці; інакше — порожнє значення.
+  function _blockAcrossCaretEdge(backward) {
     const range = ArtSelection.getRange(_editor);
-    if (!range || !range.collapsed) return false;
+    if (!range || !range.collapsed) return null;
     const node = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement;
     const page = node?.closest('.page-content');
-    if (!page || node.closest('table, li')) return false;
+    if (!page || node.closest('table, li')) return null;
     const block = [...page.children].find(child => child === node || child.contains(node));
-    if (!block || _isPageBreak(block)) return false;
+    if (!block || _isPageBreak(block)) return null;
 
     const probe = document.createRange();
     probe.selectNodeContents(block);
@@ -403,7 +403,13 @@ const ArtEditor = (() => {
     else probe.setStart(range.startContainer, range.startOffset);
     if (probe.toString().replace(/​/g, '').length) return false;
 
-    const neighbour = backward ? _previousLogicalBlock(block) : _nextLogicalBlock(block);
+    return backward ? _previousLogicalBlock(block) : _nextLogicalBlock(block);
+  }
+
+  // Backspace на початку блока одразу після розриву або Delete у кінці блока перед ним
+  // прибирає сам розрив, навіть якщо він стоїть на попередньому аркуші.
+  function _removeAdjacentPageBreak(backward) {
+    const neighbour = _blockAcrossCaretEdge(backward);
     if (!_isPageBreak(neighbour)) return false;
     ArtHistory.pushNow();
     neighbour.remove();
@@ -421,6 +427,200 @@ const ArtEditor = (() => {
     for (let i = blocks.length - 1; i > breakIndex; i -= 1) next.prepend(blocks[i]);
     _cleanupPage(current);
     _cleanupPage(next);
+    return true;
+  }
+
+  // ── Зміст (C2в) ─────────────────────────────────────────────────────────
+  // Зміст — абзаци верхнього рівня з позначкою data-art-toc (title, 1–4, empty): пагінація
+  // переносить їх як звичайні абзаци, а назва й пункти не є H1–H4, тож зміст не включає себе.
+  // На аркушах пункти незмінні (contenteditable="false") і перебудовуються лише командою.
+  // Номери сторінок беруться з поточної розкладки аркушів; застарілий зміст позначається.
+  const TOC_HEADINGS = new Set(['H1', 'H2', 'H3', 'H4']);
+  const TOC_ZWSP = String.fromCharCode(0x200B);
+  const TOC_TAB = String.fromCharCode(9);
+
+  function _isTocBlock(node) {
+    return !!node && node.nodeType === Node.ELEMENT_NODE && node.hasAttribute('data-art-toc');
+  }
+
+  function _tocBlocks() {
+    return [..._editor.querySelectorAll('.page-content > [data-art-toc]')];
+  }
+
+  function _tocItems() {
+    return _tocBlocks().filter(block => /^[1-4]$/.test(block.getAttribute('data-art-toc')));
+  }
+
+  function _tocText(raw) {
+    return String(raw || '').split(TOC_ZWSP).join('').replace(/\s+/g, ' ').trim().slice(0, 300);
+  }
+
+  // Заголовки H1–H4 верхнього рівня з номером аркуша, на якому вони починаються.
+  // Частини заголовка, розрізаного сторінкою, — один пункт.
+  function _collectTocHeadings() {
+    const headings = [];
+    const bySplit = new Map();
+    _getPages().forEach((page, index) => {
+      [...(_getPageContent(page)?.children || [])].forEach(block => {
+        if (!TOC_HEADINGS.has(block.tagName)) return;
+        const splitId = block.getAttribute('data-art-split');
+        const head = splitId ? bySplit.get(splitId) : null;
+        if (head) {
+          head.raw += block.textContent || '';
+          return;
+        }
+        const entry = { level: Number(block.tagName.slice(1)), raw: block.textContent || '', page: index + 1 };
+        if (splitId) bySplit.set(splitId, entry);
+        headings.push(entry);
+      });
+    });
+    return headings
+      .map(entry => ({ level: entry.level, text: _tocText(entry.raw), page: entry.page }))
+      .filter(entry => entry.text);
+  }
+
+  function _createTocBlock(kind, text, page) {
+    const block = document.createElement('p');
+    block.setAttribute('data-art-toc', kind);
+    block.setAttribute('contenteditable', 'false');
+    if (page === undefined) {
+      block.textContent = text;
+      return block;
+    }
+    const label = document.createElement('span');
+    label.textContent = text;
+    const number = document.createElement('span');
+    number.textContent = String(page);
+    // Табуляція між назвою й номером — для TXT і копіювання; на аркуші її не видно.
+    block.append(label, document.createTextNode(TOC_TAB), number);
+    return block;
+  }
+
+  function _buildTocBlocks(headings) {
+    const blocks = [_createTocBlock('title', 'Зміст')];
+    if (!headings.length) blocks.push(_createTocBlock('empty', 'Заголовків H1–H4 ще немає. Додайте їх і оновіть зміст.'));
+    headings.forEach(entry => blocks.push(_createTocBlock(String(entry.level), entry.text, entry.page)));
+    return blocks;
+  }
+
+  // contenteditable не проходить санітайзер і не входить у документ, тож ставимо його на аркушах.
+  function _lockTocBlocks() {
+    _tocBlocks().forEach(block => block.setAttribute('contenteditable', 'false'));
+  }
+
+  // Зміст сам займає місце й може зсунути заголовки: перекомпоновуємо й звіряємо номери,
+  // доки вони не встояться.
+  function _numberTocFromLayout() {
+    for (let pass = 0; pass < 4; pass += 1) {
+      _repaginate(true);
+      const headings = _collectTocHeadings();
+      const items = _tocItems();
+      if (items.length !== headings.length) return false;
+      let changed = false;
+      items.forEach((item, index) => {
+        const number = item.lastElementChild;
+        if (number && number.textContent !== String(headings[index].page)) {
+          number.textContent = String(headings[index].page);
+          changed = true;
+        }
+      });
+      if (!changed) return true;
+    }
+    return false;
+  }
+
+  // Зміст, що вже не відповідає заголовкам чи аркушам, лише позначаємо (атрибут верстки,
+  // серіалізатор його знімає): тихо змінювати документ без команди не можна.
+  function _markStaleToc() {
+    const blocks = _tocBlocks();
+    if (!blocks.length) return;
+    const expected = _collectTocHeadings().map(entry => `${entry.level}|${entry.text}|${entry.page}`).join('\n');
+    const actual = _tocItems().map(item => (
+      `${item.getAttribute('data-art-toc')}|${_tocText(item.firstElementChild?.textContent)}|${_tocText(item.lastElementChild?.textContent)}`
+    )).join('\n');
+    const title = blocks.find(block => block.getAttribute('data-art-toc') === 'title') || blocks[0];
+    blocks.forEach(block => { if (block !== title) block.removeAttribute('data-art-toc-stale'); });
+    title.toggleAttribute('data-art-toc-stale', expected !== actual);
+  }
+
+  function _tocInsertionBlock() {
+    let range = ArtSelection.getRange(_editor);
+    if (!range) {
+      ArtSelection.focusEditor(_editor);
+      range = ArtSelection.getRange(_editor);
+    }
+    const node = range
+      ? (range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement)
+      : null;
+    const page = node?.closest('.page-content');
+    if (page && node === page) {
+      const child = page.childNodes[range.startOffset];
+      if (child?.nodeType === Node.ELEMENT_NODE) return child;
+    } else if (page) {
+      const block = [...page.children].find(child => child === node || child.contains(node));
+      if (block) return block;
+    }
+    const pages = ArtSelection.getPageContents(_editor);
+    return pages[pages.length - 1]?.lastElementChild || null;
+  }
+
+  function _finishTocChange(caretBlock) {
+    if (caretBlock?.isConnected) {
+      const caret = document.createRange();
+      caret.selectNodeContents(caretBlock);
+      caret.collapse(true);
+      ArtSelection.restore(caret);
+      ArtSelection.remember(_editor);
+    }
+    _numberTocFromLayout();
+    _editor.dispatchEvent(new Event('input', { bubbles: true }));
+    ArtHistory.pushNow();
+  }
+
+  // Один зміст на документ: повторна команда оновлює наявний.
+  function insertToc() {
+    if (_tocBlocks().length) return updateToc();
+    const anchor = _tocInsertionBlock();
+    if (!anchor) return false;
+    ArtHistory.pushNow();
+    const blocks = _buildTocBlocks(_collectTocHeadings());
+    const emptyParagraph = ['P', 'DIV'].includes(anchor.tagName) && !_isTocBlock(anchor)
+      && !_tocText(anchor.textContent) && !anchor.querySelector('img,table,hr');
+    if (emptyParagraph) anchor.replaceWith(...blocks);
+    else anchor.before(...blocks);
+    let next = _nextLogicalBlock(blocks[blocks.length - 1]);
+    if (!next) {
+      next = document.createElement('p');
+      next.innerHTML = '<br>';
+      blocks[blocks.length - 1].after(next);
+    }
+    _finishTocChange(next);
+    _announce('Зміст вставлено');
+    return true;
+  }
+
+  function updateToc() {
+    const existing = _tocBlocks();
+    if (!existing.length) {
+      ArtModals.info('Змісту ще немає', 'Щоб додати зміст із заголовків H1–H4, виберіть «Вставка → Зміст».');
+      return false;
+    }
+    ArtHistory.pushNow();
+    existing[0].before(..._buildTocBlocks(_collectTocHeadings()));
+    existing.forEach(block => block.remove());
+    _finishTocChange(null);
+    _announce('Зміст оновлено');
+    return true;
+  }
+
+  function removeToc() {
+    const existing = _tocBlocks();
+    if (!existing.length) return false;
+    ArtHistory.pushNow();
+    const next = _nextLogicalBlock(existing[existing.length - 1]);
+    existing.forEach(block => block.remove());
+    _finishTocChange(next && !_isTocBlock(next) ? next : null);
+    _announce('Зміст видалено');
     return true;
   }
 
@@ -482,6 +682,13 @@ const ArtEditor = (() => {
     if ((e.key === 'Delete' || e.key === 'Backspace') && _selectedImage) {
       e.preventDefault();
       _removeSelectedImage();
+      return;
+    }
+
+    // Текст не зливається з пунктом змісту: зміст змінюють лише його команди.
+    if ((e.key === 'Delete' || e.key === 'Backspace') && _isTocBlock(_blockAcrossCaretEdge(e.key === 'Backspace'))) {
+      e.preventDefault();
+      _announce('Зміст змінюється командами «Оновити зміст» і «Видалити зміст»');
       return;
     }
 
@@ -1313,6 +1520,7 @@ const ArtEditor = (() => {
       _removeTrailingEmptyPages();
       _editor.querySelectorAll('[data-art-flow-tail]').forEach(el => el.removeAttribute('data-art-flow-tail'));
       _updatePageNumbers();
+      _markStaleToc();
       _updateEmptyState();
       _updateStatusBar();
       _updateTableContext();
@@ -1514,7 +1722,8 @@ const ArtEditor = (() => {
   }
 
   function _splitTextBlock(current, block, next) {
-    if (!block || !['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'BLOCKQUOTE'].includes(block.tagName)) return false;
+    // Пункт змісту не ділиться: він переходить на наступний аркуш цілим.
+    if (!block || _isTocBlock(block) || !['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'BLOCKQUOTE'].includes(block.tagName)) return false;
     const totalChars = _countTextChars(block);
     if (totalChars < 2) return false;
 
@@ -1759,6 +1968,7 @@ const ArtEditor = (() => {
     if (!_getPages().length) _editor.appendChild(_createPage());
     _upgradeImageBlocks();
     ArtSelection.normalizeEditor(_editor);
+    _lockTocBlocks();
     _getPages().forEach(page => {
       const content = _getPageContent(page);
       if (!content) page.prepend(_createPage().firstElementChild);
@@ -2000,7 +2210,7 @@ const ArtEditor = (() => {
 
   return {
     init, newDoc, saveAs, setOrientation, setZoom, hasSelectedImage, setSelectedImageLayout,
-    insertTable, insertPageBreak, tableAction, toggleTableMenu, hideTableMenu, refreshLayout, openImageDialog, clearFindHighlights, editFileName,
+    insertTable, insertPageBreak, insertToc, updateToc, removeToc, tableAction, toggleTableMenu, hideTableMenu, refreshLayout, openImageDialog, clearFindHighlights, editFileName,
     getDraftPayload, restoreDraft, clearDocument, getDocumentRevision, setSpellcheck, toggleSpellcheck,
     MAX_TEXT_FILE_BYTES, MAX_DOCX_FILE_BYTES, MAX_IMAGE_FILE_BYTES, MAX_IMAGE_PIXELS,
     // Логічний (не сторінковий) HTML документа — те, що йде у файл.

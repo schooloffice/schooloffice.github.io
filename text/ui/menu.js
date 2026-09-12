@@ -75,6 +75,9 @@ const ArtMenu = (() => {
       case 'insert-hr': ArtToolbar.run(() => ArtSelection.insertHorizontalRule(document.getElementById('editor'))); break;
       case 'insert-page-break': ArtEditor.insertPageBreak(); break;
       case 'header-footer': ArtPage.openHeaderFooter(); break;
+      case 'insert-toc': ArtEditor.insertToc(); break;
+      case 'update-toc': ArtEditor.updateToc(); break;
+      case 'remove-toc': ArtEditor.removeToc(); break;
       case 'insert-table': ArtModals.open('modalTable'); break;
       case 'insert-image': ArtEditor.openImageDialog(); break;
       case 'shortcuts': ArtModals.open('modalShortcuts'); break;

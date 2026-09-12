@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Text Table of Contents Smoke</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    iframe {
+      width: 1280px;
+      height: 900px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+    }
+
+    pre {
+      max-width: 1280px;
+      white-space: pre-wrap;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: .75rem;
+      padding: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Text Table of Contents Smoke</h1>
+  <!-- Зміст (C2в) має окрему сторінку: кожен сценарій перекомпоновує документ, а бюджет
+       віртуального часу раннера рахується на сторінку. -->
+  <pre id="result">Running...</pre>
+  <iframe id="textFrame" src="../text/index.html"></iframe>
+
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('textFrame');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Опитуємо через setTimeout, а не requestAnimationFrame: під --virtual-time-budget
+    // щільний rAF-цикл не дає віртуальному годиннику рухатися рівномірно.
+    function waitFor(predicate, label, timeout = 6000) {
+      const started = performance.now();
+      return new Promise((resolve, reject) => {
+        function tick() {
+          let ok = false;
+          try { ok = !!predicate(); } catch { ok = false; }
+          if (ok) return resolve();
+          if (performance.now() - started > timeout) return reject(new Error(`Timed out waiting for ${label}`));
+          setTimeout(tick, 50);
+        }
+        tick();
+      });
+    }
+
+    function check(label, ok) {
+      return { label, ok: !!ok };
+    }
+
+    function pageContents(doc) {
+      return Array.from(doc.querySelectorAll('#editor .page-content'));
+    }
+
+    async function resetDocument(win, doc) {
+      win.art.editor.newDoc();
+      await waitFor(() => pageContents(doc).length === 1 && doc.querySelector('#editor .page-content'), 'text document reset');
+      await wait(150);
+    }
+
+    // C2(в): зміст із заголовків H1–H4. Номери сторінок беруться з розкладки аркушів, а після
+    // змін документа зміст позначається застарілим, доки його не оновлять командою.
+    async function runTocChecks(win, doc, editor) {
+      const diagnostics = {};
+      const BACKSLASH = String.fromCharCode(92);
+      const TAB = String.fromCharCode(9);
+      const exportHTML = () => win.art.editor.getExportHTML();
+      async function settle() {
+        let previous = -1;
+        for (let i = 0; i < 40; i += 1) {
+          await wait(120);
+          const now = pageContents(doc).length;
+          if (now === previous) break;
+          previous = now;
+        }
+        await wait(250);
+      }
+      async function load(html) {
+        await resetDocument(win, doc);
+        pageContents(doc)[0].innerHTML = html;
+        editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+        await settle();
+        win.art.history.init(editor);
+        win.art.history.markSaved();
+      }
+      const placeCaret = (node, offset) => {
+        const caret = doc.createRange();
+        caret.setStart(node, offset);
+        caret.collapse(true);
+        editor.focus();
+        win.getSelection().removeAllRanges();
+        win.getSelection().addRange(caret);
+      };
+      const modalOpen = id => !!doc.getElementById(id)?.classList.contains('active');
+      const tocBlocks = () => Array.from(doc.querySelectorAll('#editor .page-content > [data-art-toc]'));
+      const entries = () => tocBlocks().filter(block => /^[1-4]$/.test(block.dataset.artToc)).map(block => {
+        const spans = block.querySelectorAll(':scope > span');
+        return {
+          level: Number(block.dataset.artToc),
+          text: (spans[0]?.textContent || '').trim(),
+          page: (spans[spans.length - 1]?.textContent || '').trim()
+        };
+      });
+      const describe = list => list.map(entry => `${entry.level}|${entry.text}|${entry.page}`).join(';');
+      // Сторінка, на якій справді стоїть заголовок, — незалежно від того, що записано в змісті.
+      const headingPage = text => {
+        const pages = Array.from(doc.querySelectorAll('#editor .page'));
+        return String(pages.findIndex(page => Array.from(page.querySelectorAll('.page-content > h1, .page-content > h2, .page-content > h3, .page-content > h4'))
+          .some(heading => heading.textContent.trim() === text)) + 1);
+      };
+      const numbersMatchLayout = () => entries().length > 0 && entries().every(entry => entry.page === headingPage(entry.text));
+      const stale = () => !!doc.querySelector('#editor [data-art-toc-stale]');
+      const locked = () => tocBlocks().length > 0 && tocBlocks().every(block => block.getAttribute('contenteditable') === 'false');
+      async function zipEntries(blob) {
+        const buffer = await blob.arrayBuffer();
+        const view = new DataView(buffer);
+        const entriesMap = new Map();
+        for (let end = buffer.byteLength - 22; end >= Math.max(0, buffer.byteLength - 65557); end -= 1) {
+          if (view.getUint32(end, true) !== 0x06054b50) continue;
+          let offset = view.getUint32(end + 16, true);
+          const count = view.getUint16(end + 10, true);
+          for (let index = 0; index < count; index += 1) {
+            const nameLength = view.getUint16(offset + 28, true);
+            const local = view.getUint32(offset + 42, true);
+            const name = new TextDecoder().decode(new Uint8Array(buffer, offset + 46, nameLength));
+            const dataStart = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+            entriesMap.set(name, {
+              method: view.getUint16(offset + 10, true),
+              bytes: new Uint8Array(buffer, dataStart, view.getUint32(offset + 20, true))
+            });
+            offset += 46 + nameLength + view.getUint16(offset + 30, true) + view.getUint16(offset + 32, true);
+          }
+          break;
+        }
+        return entriesMap;
+      }
+      async function entryText(entry) {
+        if (!entry) return '';
+        if (entry.method === 0) return new TextDecoder().decode(entry.bytes);
+        const stream = new Blob([entry.bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+        return new Response(stream).text();
+      }
+      const pageBreak = '<hr style="break-after: page;">';
+
+      // 1. Вставлення в порожній абзац: назва й пункти H1–H4 з номерами з розкладки.
+      await load(`<p><br></p><h1>Вступ</h1><p>Текст вступу.</p>${pageBreak}<h2>Розділ 1</h2><p>Текст розділу.</p>${pageBreak}<h3>Підрозділ 1.1</h3><p>Текст підрозділу.</p>`);
+      placeCaret(pageContents(doc)[0].querySelector('p'), 0);
+      win.art.menu.dispatch('insert-toc');
+      await settle();
+      const inserted = describe(entries());
+      const insertWorks = inserted === '1|Вступ|1;2|Розділ 1|2;3|Підрозділ 1.1|3'
+        && tocBlocks()[0]?.dataset.artToc === 'title' && pageContents(doc)[0].firstElementChild === tocBlocks()[0]
+        && locked() && numbersMatchLayout() && !stale()
+        && win.art.state.isDirty() && win.art.history.canUndo();
+      // Зміст не включає себе: його назва й пункти — абзаци, а не H1–H4.
+      const notSelf = tocBlocks().length === 4 && tocBlocks().every(block => block.tagName === 'P')
+        && !entries().some(entry => /Зміст/.test(entry.text));
+      diagnostics.insert = { inserted, pages: pageContents(doc).length, first: tocBlocks().slice(0, 2).map(block => block.outerHTML) };
+
+      // 2. Undo прибирає зміст, redo повертає.
+      win.art.history.undo();
+      await settle();
+      const undoRemoves = tocBlocks().length === 0 && !!doc.querySelector('#editor h1');
+      win.art.history.redo();
+      await settle();
+      const redoRestores = describe(entries()) === inserted && locked();
+
+      // 3. Нова назва й новий аркуш: зміст позначається застарілим, «Оновити зміст» бере дані з розкладки.
+      doc.querySelector('#editor h2').textContent = 'Розділ перший';
+      const extraBreak = doc.createElement('hr');
+      extraBreak.setAttribute('style', 'break-after: page;');
+      const filler = doc.createElement('p');
+      filler.textContent = 'Додаткова сторінка.';
+      doc.querySelector('#editor h3').before(filler, extraBreak);
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await settle();
+      const staleAfterEdit = stale() && !/data-art-toc-stale|contenteditable/.test(exportHTML());
+      win.art.menu.dispatch('update-toc');
+      await settle();
+      const updated = describe(entries());
+      const updateWorks = staleAfterEdit && updated === '1|Вступ|1;2|Розділ перший|2;3|Підрозділ 1.1|4'
+        && numbersMatchLayout() && !stale() && tocBlocks().length === 4 && locked();
+      diagnostics.update = { staleAfterEdit, updated, pages: pageContents(doc).length };
+
+      // 4. Backspace на початку блока після змісту не зливає текст зі змістом.
+      placeCaret(doc.querySelector('#editor h1').firstChild, 0);
+      const backspace = new win.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true });
+      editor.dispatchEvent(backspace);
+      await settle();
+      const backspaceProtected = backspace.defaultPrevented && describe(entries()) === updated
+        && doc.querySelector('#editor h1')?.textContent === 'Вступ';
+
+      // 5. Чернетка — переносна форма без службових атрибутів; після відновлення зміст той самий.
+      const draft = win.art.editor.getDraftPayload();
+      const draftClean = /data-art-toc="1"/.test(draft.html) && !/contenteditable|data-art-toc-stale/.test(draft.html);
+      win.art.editor.restoreDraft(draft);
+      await settle();
+      const draftKeeps = draftClean && describe(entries()) === updated && locked() && !stale();
+      diagnostics.draft = { draftClean, afterRestore: describe(entries()) };
+
+      // 6. Пошук знаходить сам заголовок, а не його пункт у змісті. З урахуванням регістру:
+      // «Розділ перший» є лише в заголовку й у змісті.
+      let findCount = -1;
+      try { findCount = win.art.find.collect('Розділ перший', { matchCase: true }).length; } catch { findCount = -1; }
+      const findSkipsToc = findCount === 1;
+      diagnostics.findCount = findCount;
+
+      // 7. Позначка «застарів» — лише на екрані.
+      const staleHiddenInPrint = [...doc.styleSheets].some(sheet => {
+        let rules = [];
+        try { rules = [...sheet.cssRules]; } catch { return false; }
+        return rules.some(rule => rule.media && /print/.test(rule.media.mediaText)
+          && [...rule.cssRules].some(inner => /data-art-toc-stale/.test(inner.selectorText || '')
+            && (inner.style.content === 'none' || inner.style.display === 'none')));
+      });
+
+      // 8. Формати: DOCX/RTF/TXT зберігають зміст як текст; DOCX чесно попереджає, що Word його не оновлює.
+      const html = exportHTML();
+      const docxWarns = win.art.formats.docx.describeExportLimits(html).some(note => /зміст/i.test(note));
+      let docxToc = false;
+      try {
+        const blob = await win.art.formats.docx.exportDocx(html, win.art.state.documentSnapshot());
+        const xml = await entryText((await zipEntries(blob)).get('word/document.xml'));
+        docxToc = xml.includes('Розділ перший') && /w:leader="dot"/.test(xml) && /<w:tab\/>/.test(xml);
+        diagnostics.docx = { leader: /w:leader="dot"/.test(xml), tab: /<w:tab\/>/.test(xml), text: xml.includes('Розділ перший') };
+      } catch (error) {
+        diagnostics.docx = { error: error.message };
+      }
+      const rtf = win.art.formats.rtf.exportRtf(html, win.art.state.documentSnapshot());
+      const rtfToc = rtf.includes(`${BACKSLASH}tldot`) && rtf.includes(`${BACKSLASH}tab 4`);
+      const txt = win.art.formats.txt.exportTxt(html);
+      const txtToc = txt.includes(`Розділ перший${TAB}2`);
+      diagnostics.formats = { docxWarns, docxToc, rtfToc, txtToc };
+
+      // 9. «Видалити зміст», undo повертає.
+      win.art.menu.dispatch('remove-toc');
+      await settle();
+      const removeWorks = tocBlocks().length === 0 && !/data-art-toc/.test(exportHTML()) && doc.querySelector('#editor h1')?.textContent === 'Вступ';
+      win.art.history.undo();
+      await settle();
+      const undoRemoveRestores = describe(entries()) === updated && locked();
+
+      // 10. Без змісту «Оновити зміст» пояснює, що робити; без заголовків зміст чесно порожній.
+      await load('<p>Лише текст без заголовків.</p>');
+      win.art.menu.dispatch('update-toc');
+      await wait(150);
+      const updateWithoutTocExplains = modalOpen('modalInfo') && /зміст/i.test(doc.getElementById('modalInfoText')?.textContent || '') && tocBlocks().length === 0;
+      doc.querySelector('#modalInfo [data-close-modal]')?.click();
+      await wait(100);
+      placeCaret(pageContents(doc)[0].querySelector('p').firstChild, 0);
+      win.art.menu.dispatch('insert-toc');
+      await settle();
+      const emptyToc = tocBlocks().length === 2 && tocBlocks()[1].dataset.artToc === 'empty' && !stale()
+        && /Лише текст без заголовків/.test(exportHTML());
+      diagnostics.empty = { updateWithoutTocExplains, blocks: tocBlocks().map(block => block.dataset.artToc) };
+
+      return {
+        diagnostics,
+        checks: [
+          check('table of contents is inserted from H1-H4 with page numbers from the layout', insertWorks),
+          check('table of contents does not include itself', notSelf),
+          check('undo removes and redo restores the table of contents', undoRemoves && redoRestores),
+          check('changed headings and pages mark the table stale and update refreshes it', updateWorks),
+          check('Backspace after the table of contents does not merge text into it', backspaceProtected),
+          check('local draft keeps the table of contents without layout attributes', draftKeeps),
+          check('find skips table of contents entries', findSkipsToc),
+          check('stale marker is shown on screen only', staleHiddenInPrint),
+          check('DOCX, RTF and TXT keep the table as text with an honest DOCX warning', docxWarns && docxToc && rtfToc && txtToc),
+          check('remove command deletes the table and undo brings it back', removeWorks && undoRemoveRestores),
+          check('without a table update explains and without headings the table is explicitly empty', updateWithoutTocExplains && emptyToc)
+        ]
+      };
+    }
+
+    async function run() {
+      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+
+      const win = frame.contentWindow;
+      const doc = frame.contentDocument;
+
+      await waitFor(() => (
+        typeof win.TextApp?.boot === 'function' &&
+        !!win.art?.editor &&
+        !!doc.querySelector('#editor .page-content')
+      ), 'Text boot');
+
+      const editor = doc.getElementById('editor');
+      const toc = await runTocChecks(win, doc, editor);
+      const checks = toc.checks;
+      const failed = checks.filter(item => !item.ok);
+
+      result.textContent = checks
+        .map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}`)
+        .concat([
+          '',
+          'Diagnostics:',
+          `toc: ${JSON.stringify(toc.diagnostics)}`,
+          // Під --virtual-time-budget це віртуальний час сторінки: бюджет раннера — 35000 мс.
+          `virtual time ms: ${Math.round(performance.now())}`
+        ])
+        .concat(failed.length ? [`FAILED: ${failed.map(item => item.label).join('; ')}`] : ['PASSED'])
+        .join('\n');
+
+      if (failed.length) {
+        document.body.dataset.textToc = 'failed';
+        throw new Error(failed.map(item => item.label).join('; '));
+      }
+
+      document.body.dataset.textToc = 'passed';
+    }
+
+    run().catch(err => {
+      document.body.dataset.textToc = 'failed';
+      const previous = result.textContent === 'Running...' ? '' : result.textContent + String.fromCharCode(10, 10);
+      result.textContent = previous + (err?.stack || err?.message || String(err));
+    });
+  </script>
+</body>
+</html>

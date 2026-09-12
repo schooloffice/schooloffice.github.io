@@ -1301,6 +1301,14 @@ if ((Test-Path $textStylePath) -and (Test-Path $textDocxPath)) {
     $textPage = Get-Content -Raw -Encoding UTF8 $textPagePath
     Assert-True ($textPage -match '@top-center' -and $textPage -match 'counter\(page\)') 'text/ui/page.js: header, footer and page numbers must print in page margin boxes'
   }
+  # C2(в): зміст — абзаци з позначкою, що проходить санітайзер; у DOCX — крапкова табуляція й попередження.
+  $textSanitizePath = Join-Path $Root 'text/core/sanitize.js'
+  if (Test-Path $textSanitizePath) {
+    $textSanitize = Get-Content -Raw -Encoding UTF8 $textSanitizePath
+    Assert-True ($textSanitize -match "'data-art-toc'") 'text/core/sanitize.js: the table of contents marker must survive sanitizing'
+  }
+  Assert-True ($textDocx -match 'LeaderType\.DOT' -and $textDocx -match "querySelector\('\[data-art-toc\]'\)") 'text/formats/docx.js: table of contents must export with dot leaders and warn before saving'
+  Assert-True ($textStyle -match '@media print[\s\S]*data-art-toc-stale\]::after\s*\{\s*content:\s*none') 'text/style.css: the stale table of contents marker must not print'
 }
 
 $textHistoryPath = Join-Path $Root 'text/core/history.js'

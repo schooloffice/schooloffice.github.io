@@ -121,7 +121,8 @@ const ArtRtf = (() => {
     const div = document.createElement('div');
     div.innerHTML = html;
     let body = '';
-    div.childNodes.forEach(n => { body += _nodeToRtf(n); });
+    const context = { tocTabTwips: _contentWidthTwips(meta) };
+    div.childNodes.forEach(n => { body += _nodeToRtf(n, context); });
     const bands = _headerFooterRtf(meta.headerFooter);
 
     return [
@@ -155,12 +156,37 @@ const ArtRtf = (() => {
     ].filter(Boolean).join('\n');
   }
 
-  function _nodeToRtf(node) {
+  const PAGE_SIZES_CM = { a4: [21, 29.7], a5: [14.8, 21], letter: [21.6, 27.9] };
+  const RTF_LINE_END = String.fromCharCode(10);
+
+  // Ширина тексту між полями у twips — позиція правої табуляції для номерів змісту.
+  function _contentWidthTwips(meta = {}) {
+    const [width, height] = PAGE_SIZES_CM[meta.pageSize] || PAGE_SIZES_CM.a4;
+    const pageWidth = meta.orientation === 'landscape' ? height : width;
+    const left = Number(meta.margins?.left ?? 3) || 0;
+    const right = Number(meta.margins?.right ?? 1.5) || 0;
+    return Math.max(720, Math.round((pageWidth - left - right) * 1440 / 2.54));
+  }
+
+  // Зміст — текст: назва по центру, пункт — назва, крапкова табуляція й номер праворуч.
+  function _tocRtf(node, context) {
+    const kind = node.getAttribute('data-art-toc');
+    const spans = node.querySelectorAll(':scope > span');
+    const text = _encodeRtf((node.textContent || '').trim());
+    if (kind === 'title') return `\\pard\\qc\\sa160{\\b\\fs32 ${text}}\\par${RTF_LINE_END}`;
+    if (!/^[1-4]$/.test(kind || '') || spans.length < 2) return `\\pard\\sa120 ${text}\\par${RTF_LINE_END}`;
+    const indent = (Number(kind) - 1) * 360;
+    const label = _encodeRtf(spans[0].textContent.trim());
+    const page = _encodeRtf(spans[spans.length - 1].textContent.trim());
+    return `\\pard\\li${indent}\\sa60\\tqr\\tldot\\tx${context?.tocTabTwips || 9354} ${label}\\tab ${page}\\par${RTF_LINE_END}`;
+  }
+
+  function _nodeToRtf(node, context = {}) {
     if (node.nodeType === Node.TEXT_NODE) return _encodeRtf(node.textContent);
     if (node.nodeType !== Node.ELEMENT_NODE) return '';
 
     const tag = node.tagName.toLowerCase();
-    const inner = () => Array.from(node.childNodes).map(_nodeToRtf).join('');
+    const inner = () => Array.from(node.childNodes).map(child => _nodeToRtf(child, context)).join('');
 
     const headings = {
       h1: '\\pard\\sb240\\sa120\\b\\fs48 ',
@@ -168,6 +194,8 @@ const ArtRtf = (() => {
       h3: '\\pard\\sb160\\sa80\\b\\fs32 ',
       h4: '\\pard\\sb120\\sa60\\b\\fs28 ',
     };
+
+    if (tag === 'p' && node.hasAttribute('data-art-toc')) return _tocRtf(node, context);
 
     switch (tag) {
       case 'b': case 'strong': return `{\\b ${inner()}}`;
