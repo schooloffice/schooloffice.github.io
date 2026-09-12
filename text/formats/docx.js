@@ -27,9 +27,13 @@ const ArtDocx = (() => {
               "p[style-name='Заголовок 1'] => h1:fresh",
               "p[style-name='Заголовок 2'] => h2:fresh",
               "p[style-name='Заголовок 3'] => h3:fresh"
-            ]
+            ],
+            // Розрив сторінки Word → позначка в тексті → явний розрив редактора (_mapPageBreaks).
+            // styleMap тут не підходить: у цій версії Mammoth правило br[type='page']
+            // застосовується й до звичайних розривів рядка.
+            transformDocument: mammoth.transforms?.run ? mammoth.transforms.run(_markPageBreaks) : undefined
           });
-          const html = ArtSanitize.clean(result.value);
+          const html = ArtSanitize.clean(_mapPageBreaks(result.value));
           _validateConvertedHtml(html);
           resolve({ html, meta: { format: 'docx', fileName: file.name, warnings: result.messages || [] } });
         } catch (e) {
@@ -39,6 +43,55 @@ const ArtDocx = (() => {
       fr.onerror = () => reject(new Error('Не вдалося прочитати файл'));
       fr.readAsArrayBuffer(file);
     });
+  }
+
+  // Позначка розриву сторінки: невидимі роздільники навколо тексту, якого немає в документах.
+  const PAGE_BREAK_MARKER = `${String.fromCharCode(0x2063)}ART-PAGE-BREAK${String.fromCharCode(0x2063)}`;
+
+  function _markPageBreaks(run) {
+    const children = (run.children || []).map(child => (
+      child.type === 'break' && child.breakType === 'page' ? { type: 'text', value: PAGE_BREAK_MARKER } : child
+    ));
+    return { ...run, children };
+  }
+
+  // Абзац із позначкою ділимо в її місці: текст до — свій абзац, далі явний розрив редактора
+  // (форма, що проходить санітайзер), текст після — новий абзац того ж типу. Порожні половини
+  // прибираємо. Розрив усередині таблиці чи списку Word не переносимо — лише знімаємо позначку.
+  function _mapPageBreaks(html) {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const root = template.content;
+    const owner = root.ownerDocument;
+    const splittable = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE']);
+    const findMarker = () => {
+      const walker = owner.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.data.includes(PAGE_BREAK_MARKER)) return node;
+      }
+      return null;
+    };
+
+    for (let marker = findMarker(), guard = 0; marker && guard < MAX_IMPORTED_DOM_NODES; marker = findMarker(), guard += 1) {
+      const offset = marker.data.indexOf(PAGE_BREAK_MARKER);
+      marker.deleteData(offset, PAGE_BREAK_MARKER.length);
+      let block = marker.parentNode;
+      while (block && block.parentNode !== root) block = block.parentNode;
+      if (!block || block.nodeType !== Node.ELEMENT_NODE || !splittable.has(block.tagName)) continue;
+
+      const after = owner.createRange();
+      after.setStart(marker, offset);
+      after.setEnd(block, block.childNodes.length);
+      const tail = block.cloneNode(false);
+      tail.appendChild(after.extractContents());
+      const pageBreak = owner.createElement('hr');
+      pageBreak.setAttribute('style', 'break-after: page;');
+      block.after(pageBreak);
+      if ((tail.textContent || '').trim() || tail.querySelector('img')) pageBreak.after(tail);
+      if (!(block.textContent || '').trim() && !block.querySelector('img')) block.remove();
+    }
+    return template.innerHTML;
   }
 
   function _validateConvertedHtml(html) {
@@ -62,7 +115,7 @@ const ArtDocx = (() => {
 
   async function exportDocx(html, meta = {}) {
     if (typeof docx === 'undefined') throw new Error('Бібліотека docx.js не завантажена');
-    const { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, UnderlineType, PageOrientation, Table, TableRow, TableCell, WidthType } = docx;
+    const { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, UnderlineType, PageOrientation, Table, TableRow, TableCell, WidthType, PageBreak } = docx;
     const div = document.createElement('div');
     div.innerHTML = html;
     const children = [];
@@ -190,6 +243,7 @@ const ArtDocx = (() => {
         })));
       } else if (tag === 'table') children.push(tableFromNode(node));
       else if (tag === 'img') { const imgRun = _imageRunFromNode(node, ImageRun); if (imgRun) children.push(new Paragraph({ children: [imgRun] })); }
+      else if (tag === 'hr' && _isPageBreakNode(node)) children.push(new Paragraph({ children: [new PageBreak()] }));
       else if (tag === 'hr') children.push(new Paragraph({ children: [new TextRun('────────────────────────')] }));
     });
 
@@ -229,6 +283,11 @@ const ArtDocx = (() => {
     return new ImageRunCtor({ data, transformation: { width, height } });
   }
 
+  // Явний розрив сторінки редактора: <hr style="break-after: page">.
+  function _isPageBreakNode(node) {
+    return node?.tagName === 'HR' && (node.style.breakAfter === 'page' || node.style.pageBreakAfter === 'always');
+  }
+
   function _cellShading(cell) {
     const fill = _cssColorToHex(cell.style.backgroundColor);
     return fill ? { fill } : undefined;
@@ -261,7 +320,7 @@ const ArtDocx = (() => {
     if ([...box.querySelectorAll('[style*="background-color"]')].some(el => !/^(td|th)$/i.test(el.tagName))) {
       notes.push('колір виділення тексту у Word стане жовтим');
     }
-    if (box.querySelector('hr')) notes.push('горизонтальну лінію замінено рядком символів');
+    if ([...box.querySelectorAll('hr')].some(hr => !_isPageBreakNode(hr))) notes.push('горизонтальну лінію замінено рядком символів');
 
     return notes;
   }

@@ -36,6 +36,7 @@ const ArtRtf = (() => {
           '\\strike':   '<s>',  '\\strike0': '</s>',
           '\\par':      '</p><p>',
           '\\line':     '<br>',
+          '\\page':     '</p><hr style="break-after: page;"><p>',
           '\\tab':      '&nbsp;&nbsp;&nbsp;&nbsp;',
           '\\pard':     '', '\\plain': '',
         };
@@ -107,7 +108,10 @@ const ArtRtf = (() => {
       case 'br': return '\\line\n';
       case 'li': return `\\pard\\sa100 \\bullet  ${inner()}\\par\n`;
       case 'blockquote': return `\\pard\\li720\\sa160 ${inner()}\\par\n`;
-      case 'hr': return '\\pard\\brdrb\\brdrs\\brdrw10 \\par\n';
+      case 'hr':
+        // Явний розрив сторінки редактора → \page; звичайна лінія — нижня межа абзацу.
+        if (node.style.breakAfter === 'page' || node.style.pageBreakAfter === 'always') return '\\page\n';
+        return '\\pard\\brdrb\\brdrs\\brdrw10 \\par\n';
       default:   return inner();
     }
   }

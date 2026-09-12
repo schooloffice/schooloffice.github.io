@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Text Document Model Smoke</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    iframe {
+      width: 1280px;
+      height: 900px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+    }
+
+    pre {
+      max-width: 1280px;
+      white-space: pre-wrap;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: .75rem;
+      padding: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Text Document Model Smoke</h1>
+  <!-- Логічна модель документа (C1) і структурні можливості (C2) мають окрему сторінку:
+       кожен сценарій перекомпоновує довгі документи, а бюджет віртуального часу
+       раннера рахується на сторінку. -->
+  <pre id="result">Running...</pre>
+  <iframe id="textFrame" src="../text/index.html"></iframe>
+
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('textFrame');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Опитуємо через setTimeout, а не requestAnimationFrame: під --virtual-time-budget
+    // щільний rAF-цикл не дає віртуальному годиннику рухатися рівномірно.
+    function waitFor(predicate, label, timeout = 6000) {
+      const started = performance.now();
+      return new Promise((resolve, reject) => {
+        function tick() {
+          let ok = false;
+          try { ok = !!predicate(); } catch { ok = false; }
+          if (ok) return resolve();
+          if (performance.now() - started > timeout) return reject(new Error(`Timed out waiting for ${label}`));
+          setTimeout(tick, 50);
+        }
+        tick();
+      });
+    }
+
+    function check(label, ok) {
+      return { label, ok: !!ok };
+    }
+
+    function pageContents(doc) {
+      return Array.from(doc.querySelectorAll('#editor .page-content'));
+    }
+
+    async function resetDocument(win, doc) {
+      win.art.editor.newDoc();
+      await waitFor(() => pageContents(doc).length === 1 && doc.querySelector('#editor .page-content'), 'text document reset');
+      await wait(150);
+    }
+
+    // C2(а): явний розрив сторінки в логічній моделі.
+    async function runPageBreakChecks(win, doc, editor) {
+      const diagnostics = {};
+      const exportHTML = () => win.art.editor.getExportHTML();
+      const breakCount = html => (String(html).match(/<hr style="break-after: page;?">/g) || []).length;
+      const paragraphCount = html => (String(html).match(/<p>/g) || []).length;
+      async function settle() {
+        let previous = -1;
+        for (let i = 0; i < 40; i += 1) {
+          await wait(120);
+          const now = pageContents(doc).length;
+          if (now === previous) break;
+          previous = now;
+        }
+        await wait(250);
+      }
+      async function load(html) {
+        await resetDocument(win, doc);
+        pageContents(doc)[0].innerHTML = html;
+        editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+        await settle();
+        win.art.history.init(editor);
+        win.art.history.markSaved();
+      }
+      const placeCaret = (node, offset) => {
+        const caret = doc.createRange();
+        caret.setStart(node, offset);
+        caret.collapse(true);
+        editor.focus();
+        win.getSelection().removeAllRanges();
+        win.getSelection().addRange(caret);
+      };
+      const firstTextOnPage = index => (pageContents(doc)[index]?.firstElementChild?.textContent || '').trim();
+
+      // 1. Вставлення посеред абзацу: друга половина починається з нового аркуша.
+      await load('<p>Перша частина Друга частина</p>');
+      const text = pageContents(doc)[0].querySelector('p').firstChild;
+      placeCaret(text, text.data.indexOf('Друга'));
+      win.art.menu.dispatch('insert-page-break');
+      await settle();
+      const inserted = exportHTML();
+      const insertWorks = breakCount(inserted) === 1 && pageContents(doc).length === 2
+        && firstTextOnPage(1) === 'Друга частина'
+        && (pageContents(doc)[0].textContent || '').includes('Перша частина')
+        && win.art.state.isDirty() && win.art.history.canUndo();
+      diagnostics.insert = { html: inserted, pages: pageContents(doc).length };
+
+      // 2. Undo прибирає розрив, redo повертає.
+      win.art.history.undo();
+      await settle();
+      const undoRemoves = breakCount(exportHTML()) === 0 && pageContents(doc).length === 1;
+      win.art.history.redo();
+      await settle();
+      const redoRestores = breakCount(exportHTML()) === 1 && pageContents(doc).length === 2 && firstTextOnPage(1) === 'Друга частина';
+
+      // 3. Зміна тексту перед розривом лишає розрив на місці.
+      pageContents(doc)[0].querySelector('p').firstChild.appendData(' і ще кілька слів');
+      editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await settle();
+      const editKeepsBreak = breakCount(exportHTML()) === 1 && pageContents(doc).length === 2
+        && firstTextOnPage(1) === 'Друга частина'
+        && (pageContents(doc)[0].textContent || '').includes('кілька слів');
+
+      // 4. Backspace на початку абзацу після розриву прибирає його через межу аркуша.
+      placeCaret(pageContents(doc)[1].querySelector('p').firstChild, 0);
+      const backspaceEvent = new win.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true });
+      const backspaceContext = {
+        layout: pageContents(doc).map(content => [...content.children]
+          .map(child => `${child.tagName}${child.style?.breakAfter ? '(break)' : ''}`).join(' ')),
+        selectionPage: pageContents(doc).indexOf(win.getSelection().anchorNode?.parentElement?.closest('.page-content')),
+        selectionOffset: win.getSelection().anchorOffset
+      };
+      editor.dispatchEvent(backspaceEvent);
+      backspaceContext.prevented = backspaceEvent.defaultPrevented;
+      await settle();
+      const backspaceRemoves = breakCount(exportHTML()) === 0 && pageContents(doc).length === 1 && paragraphCount(exportHTML()) === 2;
+      backspaceContext.html = exportHTML();
+      backspaceContext.pagesAfter = pageContents(doc).length;
+      win.art.history.undo();
+      await settle();
+      const undoBringsBreakBack = breakCount(exportHTML()) === 1 && pageContents(doc).length === 2;
+      diagnostics.backspace = { ...backspaceContext, backspaceRemoves, undoBringsBreakBack };
+
+      // 5. Ctrl+Enter вставляє лише розрив, без зайвого абзацу.
+      await load('<p>Один</p>');
+      const oneNode = pageContents(doc)[0].querySelector('p').firstChild;
+      placeCaret(oneNode, oneNode.data.length);
+      editor.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+      await settle();
+      const ctrlEnterHtml = exportHTML();
+      const ctrlEnterWorks = breakCount(ctrlEnterHtml) === 1 && paragraphCount(ctrlEnterHtml) === 2 && pageContents(doc).length === 2;
+      diagnostics.ctrlEnter = ctrlEnterHtml;
+
+      // 6. Локальна чернетка зберігає розрив.
+      const draft = win.art.editor.getDraftPayload();
+      win.art.editor.restoreDraft(draft);
+      await settle();
+      const draftKeepsBreak = draft.html.includes('break-after') && breakCount(exportHTML()) === 1 && pageContents(doc).length === 2;
+
+      // 7. DOCX і RTF переносять розрив в обидва боки.
+      const source = '<p>Перша</p><hr style="break-after: page;"><p>Друга</p>';
+      let docxRoundTrip = '';
+      try {
+        const blob = await win.art.formats.docx.exportDocx(source, {});
+        const file = new win.File([blob], 'break.docx', {
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        });
+        docxRoundTrip = (await win.art.formats.docx.importDocx(file)).html;
+      } catch (error) {
+        docxRoundTrip = `error: ${error.message}`;
+      }
+      const docxKeepsBreak = breakCount(docxRoundTrip) === 1 && !/class=/.test(docxRoundTrip)
+        && docxRoundTrip.includes('<p>Перша</p>') && docxRoundTrip.includes('<p>Друга</p>')
+        && win.art.formats.docx.describeExportLimits(source).length === 0;
+      diagnostics.docx = docxRoundTrip;
+      const rtf = win.art.formats.rtf.exportRtf(source);
+      let rtfImported = '';
+      try {
+        rtfImported = (await win.art.formats.rtf.importRtf(new win.File([rtf], 'break.rtf', { type: 'application/rtf' }))).html;
+      } catch {
+        rtfImported = '';
+      }
+      const rtfKeepsBreak = rtf.includes(`${String.fromCharCode(92)}page`) && breakCount(rtfImported) === 1;
+
+      // 8. Друк: аркуш уже закінчується розривом, тож власний break-after розриву вимкнено.
+      const printNeutralizesBreak = [...doc.styleSheets].some(sheet => {
+        let rules = [];
+        try { rules = [...sheet.cssRules]; } catch { return false; }
+        return rules.some(rule => rule.media && /print/.test(rule.media.mediaText)
+          && [...rule.cssRules].some(inner => /hr\[style\*="break-after"\]/.test(inner.selectorText || '') && inner.style.display === 'none'));
+      });
+
+      return {
+        diagnostics,
+        checks: [
+          check('page break inserted mid-paragraph starts the rest on a new page', insertWorks),
+          check('undo removes and redo restores a page break', undoRemoves && redoRestores),
+          check('editing text before a page break keeps the break', editKeepsBreak),
+          check('Backspace after a page break removes it across pages and undo brings it back', backspaceRemoves && undoBringsBreakBack),
+          check('Ctrl+Enter inserts only a page break', ctrlEnterWorks),
+          check('local draft keeps the page break', draftKeepsBreak),
+          check('DOCX keeps the page break both ways without warnings', docxKeepsBreak),
+          check('RTF keeps the page break both ways', rtfKeepsBreak),
+          check('print styles do not add an extra page for a page break', printNeutralizesBreak)
+        ]
+      };
+    }
+
+    // C1: логічна модель документа. Вміст не залежить від пагінації, історія зберігає
+    // логічний потік без верстки, виділення відновлюється після undo/redo.
+    async function runLogicalModelChecks(win, doc, editor) {
+      const diagnostics = {};
+      const exportHTML = () => win.art.editor.getExportHTML();
+      const countTags = (html, tag) => (String(html).match(new RegExp(`<${tag}[ >]`, 'g')) || []).length;
+      async function settle() {
+        let previous = -1;
+        for (let i = 0; i < 60; i += 1) {
+          await wait(150);
+          const now = pageContents(doc).length;
+          if (now === previous) break;
+          previous = now;
+        }
+        await wait(300);
+      }
+      async function load(html) {
+        await resetDocument(win, doc);
+        pageContents(doc)[0].innerHTML = html;
+        editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+        await settle();
+        win.art.history.init(editor);
+        win.art.history.markSaved();
+      }
+      // Як page.js: нові поля й окремий крок історії.
+      async function setMargins(margins) {
+        win.art.page.setMargins(margins);
+        win.art.history.pushNow();
+        await settle();
+      }
+      const defaultMargins = { top: 2, right: 1.5, bottom: 2, left: 3 };
+      const wideMargins = { top: 4.5, right: 3.5, bottom: 4.5, left: 4 };
+      const words = Array.from({ length: 1500 }, (_, index) => `word${index}`).join(' ');
+
+      // 1. Вміст однаковий до й після повторної пагінації; повтори заголовка не дублюються.
+      const items = Array.from({ length: 70 }, (_, index) => `<li>Пункт ${index + 1}</li>`).join('');
+      const rows = Array.from({ length: 60 }, (_, index) => `<tr><td>Рядок ${index + 1}</td><td>дані</td></tr>`).join('');
+      await load(`<p>${words}</p><ul>${items}</ul><table><thead><tr><th>Заголовок</th><th>Колонка</th></tr></thead><tbody>${rows}</tbody></table><p>Кінець</p>`);
+      const exportBefore = exportHTML();
+      const pagesBefore = pageContents(doc).length;
+      await setMargins(wideMargins);
+      const exportWide = exportHTML();
+      const pagesWide = pageContents(doc).length;
+      await setMargins(defaultMargins);
+      const exportAfter = exportHTML();
+      const contentStable = exportBefore === exportWide && exportBefore === exportAfter
+        && countTags(exportBefore, 'p') === 2 && countTags(exportBefore, 'ul') === 1 && countTags(exportBefore, 'table') === 1
+        && pagesWide !== pagesBefore;
+      const repeatedRowsOnScreen = doc.querySelectorAll('#editor tr[data-art-table-repeat]').length;
+      const exportKeepsHeaderOnce = repeatedRowsOnScreen > 0 && (exportAfter.match(/Заголовок/g) || []).length === 1;
+      diagnostics.pagination = {
+        pagesBefore, pagesWide, pagesAfter: pageContents(doc).length,
+        paragraphs: [countTags(exportBefore, 'p'), countTags(exportWide, 'p'), countTags(exportAfter, 'p')],
+        lists: [countTags(exportBefore, 'ul'), countTags(exportAfter, 'ul')],
+        same: [exportBefore === exportWide, exportBefore === exportAfter]
+      };
+
+      // 2. Знімок історії — логічний потік без .page, повторених рядків і службових позначок.
+      const snapshot = win.art.history.current?.() || null;
+      const snapshotIsLogical = !!snapshot
+        && !/page-content|class="page|data-art-|art-sel-marker/.test(snapshot.html)
+        && (snapshot.html.match(/Заголовок/g) || []).length === 1
+        && countTags(snapshot.html, 'p') === 2;
+      diagnostics.snapshot = snapshot
+        ? { bytes: snapshot.html.length, paragraphs: countTags(snapshot.html, 'p'), layoutMarkup: /page-content|data-art-/.test(snapshot.html) }
+        : null;
+
+      // 3. Виділення відновлюється після undo/redo, хоча сторінки перекомпоновано.
+      await load(Array.from({ length: 150 }, (_, index) => `<p>Paragraph ${index + 1} keeps its selection.</p>`).join(''));
+      const target = Array.from(editor.querySelectorAll('p')).find(p => p.textContent.startsWith('Paragraph 120 '));
+      const selected = doc.createRange();
+      selected.setStart(target.firstChild, 0);
+      selected.setEnd(target.firstChild, 13);
+      editor.focus();
+      win.getSelection().removeAllRanges();
+      win.getSelection().addRange(selected);
+      win.art.history.pushNow();
+      await setMargins(wideMargins);
+      win.art.history.undo();
+      await settle();
+      const undoSelection = win.getSelection().toString();
+      const undoMargins = win.art.page.margins();
+      win.art.history.redo();
+      await settle();
+      const redoSelection = win.getSelection().toString();
+      const selectionRestored = undoSelection === 'Paragraph 120' && redoSelection === 'Paragraph 120'
+        && undoMargins.top === defaultMargins.top;
+      diagnostics.selection = { undoSelection, redoSelection, undoTop: undoMargins.top };
+      await setMargins(defaultMargins);
+
+      // 4. Enter у розрізаному сторінкою абзаці лишає новий абзац і після серіалізації.
+      const exportedParagraphs = () => {
+        const box = doc.createElement('div');
+        box.innerHTML = exportHTML();
+        return Array.from(box.querySelectorAll('p')).map(p => p.textContent.trim());
+      };
+      const pressEnterAt = (textNode, offset) => {
+        const caret = doc.createRange();
+        caret.setStart(textNode, offset);
+        caret.collapse(true);
+        editor.focus();
+        win.getSelection().removeAllRanges();
+        win.getSelection().addRange(caret);
+        editor.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      };
+      await load(`<p>${words}</p><p>Кінець</p>`);
+      const headNode = pageContents(doc)[0].querySelector('p')?.firstChild;
+      pressEnterAt(headNode, headNode.data.indexOf('word100 '));
+      await settle();
+      const afterHeadEnter = exportedParagraphs();
+      const enterInHeadKeepsBreak = afterHeadEnter.length === 3
+        && afterHeadEnter[0].endsWith('word99') && afterHeadEnter[1].startsWith('word100')
+        && afterHeadEnter[1].endsWith('word1499') && afterHeadEnter[2] === 'Кінець';
+
+      await load(`<p>${words}</p><p>Кінець</p>`);
+      const tailNode = pageContents(doc)[1]?.querySelector('p')?.firstChild;
+      const tailText = tailNode?.data || '';
+      const tailSpace = tailText.indexOf(' ');
+      const tailWord = tailText.slice(tailSpace + 1).split(' ')[0];
+      const tailPrevious = `word${Number(tailWord.replace('word', '')) - 1}`;
+      pressEnterAt(tailNode, tailSpace + 1);
+      await settle();
+      const afterTailEnter = exportedParagraphs();
+      const enterInTailKeepsBreak = afterTailEnter.length === 3
+        && afterTailEnter[0].startsWith('word0') && afterTailEnter[0].endsWith(tailPrevious)
+        && afterTailEnter[1].startsWith(tailWord) && afterTailEnter[1].endsWith('word1499');
+      diagnostics.enter = {
+        head: afterHeadEnter.map(text => `${text.slice(0, 12)}…${text.slice(-9)}`),
+        tail: afterTailEnter.map(text => `${text.slice(0, 12)}…${text.slice(-9)}`),
+        tailWord
+      };
+
+      return {
+        diagnostics,
+        checks: [
+          check('document content is identical before and after repagination', contentStable),
+          check('export keeps a repeated table header once', exportKeepsHeaderOnce),
+          check('history stores the logical flow without page layout or repeated rows', snapshotIsLogical),
+          check('selection is restored after undo and redo across repagination', selectionRestored),
+          check('Enter in a paragraph split across pages keeps the new paragraph', enterInHeadKeepsBreak),
+          check('Enter in the continuation part keeps the new paragraph', enterInTailKeepsBreak)
+        ]
+      };
+    }
+
+    async function run() {
+      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+
+      const win = frame.contentWindow;
+      const doc = frame.contentDocument;
+
+      await waitFor(() => (
+        typeof win.TextApp?.boot === 'function' &&
+        !!win.art?.editor &&
+        !!doc.querySelector('#editor .page-content')
+      ), 'Text boot');
+
+      const editor = doc.getElementById('editor');
+      const logicalModel = await runLogicalModelChecks(win, doc, editor);
+      const pageBreak = await runPageBreakChecks(win, doc, editor);
+      const checks = [...logicalModel.checks, ...pageBreak.checks];
+      const failed = checks.filter(item => !item.ok);
+
+      result.textContent = checks
+        .map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}`)
+        .concat([
+          '',
+          'Diagnostics:',
+          `logical model: ${JSON.stringify(logicalModel.diagnostics)}`,
+          `page break: ${JSON.stringify(pageBreak.diagnostics)}`,
+          // Під --virtual-time-budget це віртуальний час сторінки: бюджет раннера — 35000 мс.
+          `virtual time ms: ${Math.round(performance.now())}`
+        ])
+        .concat(failed.length ? [`FAILED: ${failed.map(item => item.label).join('; ')}`] : ['PASSED'])
+        .join('\n');
+
+      if (failed.length) {
+        document.body.dataset.textModel = 'failed';
+        throw new Error(failed.map(item => item.label).join('; '));
+      }
+
+      document.body.dataset.textModel = 'passed';
+    }
+
+    run().catch(err => {
+      document.body.dataset.textModel = 'failed';
+      const previous = result.textContent === 'Running...' ? '' : result.textContent + String.fromCharCode(10, 10);
+      result.textContent = previous + (err?.stack || err?.message || String(err));
+    });
+  </script>
+</body>
+</html>

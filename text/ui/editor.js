@@ -28,6 +28,7 @@ const ArtEditor = (() => {
   let _resizeState = null;
   let _historyTimer = 0;
   let _documentRevision = 0;
+  let _splitCounter = 0;
 
   function init(editorEl, announcerEl) {
     _editor = editorEl;
@@ -49,9 +50,17 @@ const ArtEditor = (() => {
     });
     _editor.addEventListener('art:restored', () => {
       _normalizePages();
-      _syncView();
+      _repaginate(true);
+      _updateFileName();
+      _updateStatusBar();
+      _updatePageNumbers();
+      _updateEmptyState();
+      // Відновлена геометрія ставить у чергу перекомпонування без збереження виділення;
+      // замінюємо його своїм, з маркерами, щоб відновлене виділення не загубилося.
+      _queueRepaginate(true);
       ArtToolbar.updateState();
     });
+    ArtHistory.setRestorer((html, selection) => _setDocumentHTML(html, { trusted: true, selection }));
 
     document.addEventListener('selectionchange', () => {
       if (_editor.contains(document.activeElement) || document.activeElement === _editor) _updateTableContext();
@@ -281,6 +290,135 @@ const ArtEditor = (() => {
     });
   }
 
+  // ── Явний розрив сторінки ─────────────────────────────────────────────
+  // Логічна форма — <hr style="break-after: page">: тег і style проходять санітайзер,
+  // тож той самий розрив живе в історії, чернетці й файлі.
+  function _isPageBreak(node) {
+    return !!node && node.nodeType === Node.ELEMENT_NODE && node.tagName === 'HR'
+      && (node.style.breakAfter === 'page' || node.style.pageBreakAfter === 'always');
+  }
+
+  function _createPageBreak() {
+    const hr = document.createElement('hr');
+    hr.style.breakAfter = 'page';
+    return hr;
+  }
+
+  // Ctrl+Enter або «Вставка → Розрив сторінки»: текст після каретки починається з нового аркуша.
+  function insertPageBreak() {
+    // Поточне виділення в документі важливіше за запам'ятоване: Ctrl+Enter натискають там,
+    // де стоїть каретка. Із меню фокус уже поза документом — тоді відновлюємо збережене.
+    let range = ArtSelection.getRange(_editor);
+    if (!range) {
+      ArtSelection.focusEditor(_editor);
+      range = ArtSelection.getRange(_editor);
+    }
+    if (!range) return false;
+    ArtHistory.pushNow();
+    if (!range.collapsed) range.deleteContents();
+
+    const node = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement;
+    const page = node?.closest('.page-content');
+    if (!page) return false;
+    const block = [...page.children].find(child => child === node || child.contains(node)) || null;
+    const pageBreak = _createPageBreak();
+    let next;
+
+    const before = range.cloneRange();
+    if (block) before.setStart(block, 0);
+    const caretAtBlockStart = !!block && !before.toString().replace(/​/g, '').trim()
+      && !before.cloneContents().querySelector('img');
+
+    if (block && ENTER_BLOCKS.includes(block.tagName) && !node.closest('table, li') && caretAtBlockStart) {
+      // Каретка на початку абзацу: розрив стає перед ним, без порожнього абзацу.
+      block.before(pageBreak);
+      next = block;
+    } else if (block && ENTER_BLOCKS.includes(block.tagName) && !node.closest('table, li')) {
+      // Як Enter: половина абзацу після каретки переходить за розрив.
+      const tail = range.cloneRange();
+      tail.setEnd(block, block.childNodes.length);
+      const rest = tail.extractContents();
+      next = document.createElement(block.tagName === 'BLOCKQUOTE' ? 'blockquote' : 'p');
+      next.appendChild(rest);
+      if (!_hasMeaningfulContent(next)) next.innerHTML = '<br>';
+      if (!_hasMeaningfulContent(block)) block.innerHTML = '<br>';
+      block.after(pageBreak, next);
+      _detachSplitTail(block, next);
+    } else {
+      // Таблиця, список або зображення не розрізаються: розрив ставимо після блока.
+      next = document.createElement('p');
+      next.innerHTML = '<br>';
+      const anchor = block || page.lastElementChild;
+      if (anchor) anchor.after(pageBreak, next);
+      else page.append(pageBreak, next);
+    }
+
+    const caret = document.createRange();
+    caret.selectNodeContents(next);
+    caret.collapse(true);
+    ArtSelection.restore(caret);
+    ArtSelection.remember(_editor);
+    _editor.dispatchEvent(new Event('input', { bubbles: true }));
+    ArtHistory.pushNow();
+    return true;
+  }
+
+  function _previousLogicalBlock(block) {
+    let candidate = block.previousElementSibling;
+    while (candidate?.classList.contains('art-sel-marker')) candidate = candidate.previousElementSibling;
+    if (candidate) return candidate;
+    const pages = ArtSelection.getPageContents(_editor);
+    const index = pages.indexOf(block.parentElement);
+    return index > 0 ? pages[index - 1].lastElementChild : null;
+  }
+
+  function _nextLogicalBlock(block) {
+    let candidate = block.nextElementSibling;
+    while (candidate?.classList.contains('art-sel-marker')) candidate = candidate.nextElementSibling;
+    if (candidate) return candidate;
+    const pages = ArtSelection.getPageContents(_editor);
+    const index = pages.indexOf(block.parentElement);
+    return index > -1 && index < pages.length - 1 ? pages[index + 1].firstElementChild : null;
+  }
+
+  // Backspace на початку блока одразу після розриву або Delete у кінці блока перед ним
+  // прибирає сам розрив, навіть якщо він стоїть на попередньому аркуші.
+  function _removeAdjacentPageBreak(backward) {
+    const range = ArtSelection.getRange(_editor);
+    if (!range || !range.collapsed) return false;
+    const node = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement;
+    const page = node?.closest('.page-content');
+    if (!page || node.closest('table, li')) return false;
+    const block = [...page.children].find(child => child === node || child.contains(node));
+    if (!block || _isPageBreak(block)) return false;
+
+    const probe = document.createRange();
+    probe.selectNodeContents(block);
+    if (backward) probe.setEnd(range.startContainer, range.startOffset);
+    else probe.setStart(range.startContainer, range.startOffset);
+    if (probe.toString().replace(/​/g, '').length) return false;
+
+    const neighbour = backward ? _previousLogicalBlock(block) : _nextLogicalBlock(block);
+    if (!_isPageBreak(neighbour)) return false;
+    ArtHistory.pushNow();
+    neighbour.remove();
+    _editor.dispatchEvent(new Event('input', { bubbles: true }));
+    ArtHistory.pushNow();
+    return true;
+  }
+
+  // Усе, що стоїть після явного розриву, починається з наступного аркуша.
+  function _moveAfterPageBreak(current, index) {
+    const blocks = [...current.children];
+    const breakIndex = blocks.findIndex(_isPageBreak);
+    if (breakIndex === -1 || breakIndex === blocks.length - 1) return false;
+    const next = _getPageContent(_getOrCreatePage(index + 1));
+    for (let i = blocks.length - 1; i > breakIndex; i -= 1) next.prepend(blocks[i]);
+    _cleanupPage(current);
+    _cleanupPage(next);
+    return true;
+  }
+
   function openImageDialog() {
     ArtSelection.remember(_editor);
     const input = document.getElementById('imageInput');
@@ -339,6 +477,18 @@ const ArtEditor = (() => {
     if ((e.key === 'Delete' || e.key === 'Backspace') && _selectedImage) {
       e.preventDefault();
       _removeSelectedImage();
+      return;
+    }
+
+    if ((e.key === 'Delete' || e.key === 'Backspace') && _removeAdjacentPageBreak(e.key === 'Backspace')) {
+      e.preventDefault();
+      return;
+    }
+
+    // Ctrl+Enter обробляємо тут, до звичайного Enter: інакше вставився б ще й абзац.
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      insertPageBreak();
       return;
     }
 
@@ -754,6 +904,7 @@ const ArtEditor = (() => {
     if (!_hasMeaningfulContent(next)) next.innerHTML = '<br>';
     if (!_hasMeaningfulContent(block)) block.innerHTML = '<br>';
     block.insertAdjacentElement('afterend', next);
+    _detachSplitTail(block, next);
 
     const caret = document.createRange();
     caret.selectNodeContents(next);
@@ -940,60 +1091,30 @@ const ArtEditor = (() => {
     return page;
   }
 
-  function _setDocumentHTML(html) {
+  // trusted — логічний знімок історії з пам'яті (форма редагування, без санітайзера);
+  // інакше HTML недовірений (файл, чернетка) і проходить санітайзер.
+  // selection — логічні якорі: застосовуються до одного аркуша до пагінації, а
+  // перекомпонування зберігає їх маркерами.
+  function _setDocumentHTML(html, { trusted = false, selection = null } = {}) {
     _editor.innerHTML = '';
     const page = _createPage();
     _editor.appendChild(page);
     const content = _getPageContent(page);
-    content.innerHTML = ArtSanitize.clean(html || '<p><br></p>');
+    content.innerHTML = trusted ? (html || '<p><br></p>') : ArtSanitize.clean(html || '<p><br></p>');
+    const range = selection ? ArtDocumentModel.resolveSelection(content, selection) : null;
+    if (range) {
+      ArtSelection.restore(range);
+      ArtSelection.remember(_editor);
+    }
     _upgradeImageBlocks();
     _normalizePages();
-    _repaginate(false);
+    _repaginate(!!range);
     ArtSelection.focusEditor(_editor);
   }
 
+  // У файл іде логічний документ (див. core/document-model.js) у переносній формі.
   function _getExportHTML() {
-    const temp = document.createElement('div');
-    ArtSelection.getPageContents(_editor).forEach(content => {
-      [...content.childNodes].forEach(node => temp.appendChild(node.cloneNode(true)));
-    });
-
-    // У файл іде логічний документ: розрізані сторінками таблиці зшиваємо назад,
-    // повторені заголовки прибираємо.
-    _mergeAdjacentTables(temp);
-    temp.querySelectorAll('tr[data-art-table-repeat]').forEach(row => row.remove());
-    temp.querySelectorAll('table[data-art-table-part]').forEach(table => table.removeAttribute('data-art-table-part'));
-
-    temp.querySelectorAll('figure.art-image-block').forEach(figure => {
-      const img = figure.querySelector('img');
-      const frame = figure.querySelector('.art-image-frame');
-      if (!img) return figure.remove();
-
-      const cleanImg = img.cloneNode(true);
-      const width = parseFloat(frame?.style.width || figure.style.width || 0);
-      if (width) cleanImg.style.width = `${Math.round(width)}px`;
-
-      if (figure.classList.contains('img-align-left')) {
-        cleanImg.style.cssText += ';display:block;margin:.85rem 0 .85rem 0;';
-      }
-      if (figure.classList.contains('img-align-center')) {
-        cleanImg.style.cssText += ';display:block;margin:.85rem auto;';
-      }
-      if (figure.classList.contains('img-align-right')) {
-        cleanImg.style.cssText += ';display:block;margin:.85rem 0 .85rem auto;';
-      }
-      if (figure.classList.contains('img-wrap-left')) {
-        cleanImg.style.cssText += ';float:left;margin:.2rem 1rem .6rem 0;';
-      }
-      if (figure.classList.contains('img-wrap-right')) {
-        cleanImg.style.cssText += ';float:right;margin:.2rem 0 .6rem 1rem;';
-      }
-
-      cleanImg.removeAttribute('class');
-      figure.replaceWith(cleanImg);
-    });
-
-    return temp.innerHTML.trim() || '<p><br></p>';
+    return ArtDocumentModel.serialize(_editor, { portable: true }).html;
   }
 
   function _queueRepaginate(preserveSelection = true) {
@@ -1148,6 +1269,7 @@ const ArtEditor = (() => {
       let guardHit = false;
       for (let i = 0; i < pages.length; i++) {
         const current = _getPageContent(pages[i]);
+        if (_moveAfterPageBreak(current, i)) pages = _getPages();
         while (_isOverflowing(current)) {
           if (++layoutGuard > 250) { guardHit = true; break; }
           const oversize = _unsplittableOversizeBlock(current);
@@ -1241,10 +1363,13 @@ const ArtEditor = (() => {
 
   // Частина блока, яку цим же проходом уже перенесли на наступну сторінку,
   // стоїть на її початку — решта хвоста має лягти ПІСЛЯ неї, а не перед.
+  // Але власне продовження переносного блока має лишитися ПІСЛЯ нього: інакше частина
+  // таблиці чи абзацу, що не вмістилася, стала б позаду свого продовження.
   function _moveBlocksToNext(next, blocks, fromIndex) {
+    const head = blocks[fromIndex];
     let anchor = null;
     let node = next.firstElementChild;
-    while (node && node.hasAttribute('data-art-flow-tail')) {
+    while (node && node.hasAttribute('data-art-flow-tail') && !_isContinuationOf(node, head)) {
       anchor = node;
       node = node.nextElementSibling;
     }
@@ -1342,6 +1467,8 @@ const ArtEditor = (() => {
   function _pullFromNextIfFits(current, next) {
     if (!current || !next) return false;
     if (current.hasAttribute('data-art-oversize') || next.hasAttribute('data-art-oversize')) return false;
+    // Аркуш із явним розривом закінчується на ньому: нічого не підтягуємо.
+    if ([...current.children].some(_isPageBreak)) return false;
     if (_isPageEmpty(next)) return false;
     const first = next.firstElementChild;
     if (!first) return false;
@@ -1358,6 +1485,7 @@ const ArtEditor = (() => {
 
   function _splitListBlock(current, block, next) {
     if (!block || !['UL', 'OL'].includes(block.tagName) || block.children.length < 2) return false;
+    _ensureSplitId(block);
     const clone = block.cloneNode(false);
     while (_isOverflowing(current) && block.children.length > 1) {
       clone.prepend(block.lastElementChild);
@@ -1410,6 +1538,7 @@ const ArtEditor = (() => {
       return false;
     }
 
+    _ensureSplitId(block);
     const clone = block.cloneNode(false);
     clone.appendChild(fragment);
     if (!_hasMeaningfulContent(block)) block.innerHTML = '<br>';
@@ -1462,6 +1591,41 @@ const ArtEditor = (() => {
     return !!(node.textContent || '').trim() || !!node.querySelector?.('img,table,hr,li');
   }
 
+  // Частини одного блока, розрізаного сторінками, мають спільний data-art-split. Він
+  // переживає перекомпонування: коли частини знову опиняються поруч, вони зшиваються,
+  // а серіалізатор завжди віддає їх одним блоком.
+  function _newSplitId() {
+    _splitCounter += 1;
+    return `s${Date.now().toString(36)}${_splitCounter.toString(36)}`;
+  }
+
+  function _isContinuationOf(node, head) {
+    if (!node || !head) return false;
+    if (head.tagName === 'TABLE') {
+      return node.tagName === 'TABLE' && node.dataset.artTablePart === 'continued';
+    }
+    return !!head.dataset.artSplit && node.tagName === head.tagName && node.dataset.artSplit === head.dataset.artSplit;
+  }
+
+  function _ensureSplitId(block) {
+    if (!block.dataset.artSplit) block.dataset.artSplit = _newSplitId();
+  }
+
+  // Enter у частині розрізаного блока: друга половина й усі наступні частини того самого
+  // блока стають окремим логічним абзацом, а попередні частини лишаються разом.
+  function _detachSplitTail(block, next) {
+    const id = block.dataset.artSplit;
+    if (!id) return;
+    const fresh = _newSplitId();
+    next.dataset.artSplit = fresh;
+    _editor.querySelectorAll('[data-art-split]').forEach(node => {
+      if (node !== next && node.dataset.artSplit === id
+        && (next.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+        node.dataset.artSplit = fresh;
+      }
+    });
+  }
+
   function _cleanupPage(pageContent) {
     if (!pageContent) return;
     [...pageContent.childNodes].forEach(node => {
@@ -1469,6 +1633,7 @@ const ArtEditor = (() => {
     });
     _mergeAdjacentLists(pageContent);
     _mergeAdjacentTables(pageContent);
+    ArtDocumentModel.mergeSplitParts(pageContent);
     if (![...pageContent.children].length) {
       const p = document.createElement('p');
       p.innerHTML = '<br>';
@@ -1529,6 +1694,8 @@ const ArtEditor = (() => {
 
   function _isPageEmpty(pageContent) {
     if (!pageContent) return true;
+    // Аркуш, з якого підтягнули останній блок, лишається зовсім без елементів — він порожній.
+    if (!pageContent.firstElementChild) return !(pageContent.textContent || '').trim();
     if (pageContent.children.length !== 1) return false;
     const only = pageContent.firstElementChild;
     if (!only) return true;
@@ -1746,10 +1913,13 @@ const ArtEditor = (() => {
     });
   }
 
+  // Чернетка v2: логічний потік у переносній формі й логічні якорі виділення.
+  // v1 (той самий HTML без якорів) відкривається як і раніше.
   function getDraftPayload() {
     const documentState = ArtState.documentSnapshot?.() || {};
+    const logical = ArtDocumentModel.serialize(_editor, { portable: true, range: ArtSelection.getRange(_editor) });
     return {
-      version: 1,
+      version: 2,
       fileName: String(ArtState.get('fileName') || 'Без назви'),
       fileFormat: String(ArtState.get('fileFormat') || 'artdoc'),
       document: {
@@ -1757,12 +1927,13 @@ const ArtEditor = (() => {
         margins: { ...(documentState.margins || {}) },
         pageSize: documentState.pageSize || 'a4'
       },
-      html: String(_getExportHTML())
+      html: String(logical.html),
+      selection: logical.selection
     };
   }
 
   function restoreDraft(payload) {
-    if (!payload || payload.version !== 1 || typeof payload.html !== 'string') {
+    if (!payload || ![1, 2].includes(payload.version) || typeof payload.html !== 'string') {
       throw new Error('unsupported-text-draft');
     }
     const documentState = payload.document || {};
@@ -1779,7 +1950,7 @@ const ArtEditor = (() => {
     clearSelectedImage();
     ArtHistory.suspend(() => {
       ArtState.restoreDocument({ orientation, pageSize, margins });
-      _setDocumentHTML(ArtSanitize.clean(payload.html));
+      _setDocumentHTML(payload.html, { selection: payload.version === 2 ? payload.selection : null });
       ArtState.set('fileName', String(payload.fileName || 'Без назви').slice(0, 160));
       ArtState.set('fileFormat', String(payload.fileFormat || 'artdoc').slice(0, 20));
     });
@@ -1811,7 +1982,7 @@ const ArtEditor = (() => {
 
   return {
     init, newDoc, saveAs, setOrientation, setZoom, hasSelectedImage, setSelectedImageLayout,
-    insertTable, tableAction, toggleTableMenu, hideTableMenu, refreshLayout, openImageDialog, clearFindHighlights, editFileName,
+    insertTable, insertPageBreak, tableAction, toggleTableMenu, hideTableMenu, refreshLayout, openImageDialog, clearFindHighlights, editFileName,
     getDraftPayload, restoreDraft, clearDocument, getDocumentRevision, setSpellcheck, toggleSpellcheck,
     MAX_TEXT_FILE_BYTES, MAX_DOCX_FILE_BYTES, MAX_IMAGE_FILE_BYTES, MAX_IMAGE_PIXELS,
     // Логічний (не сторінковий) HTML документа — те, що йде у файл.

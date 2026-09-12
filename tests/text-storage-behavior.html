@@ -60,7 +60,8 @@
         ['getDraftPayload', 'restoreDraft', 'clearDocument'].every(name => typeof win.art.editor[name] === 'function')));
       const initialPayload = win.art.editor.getDraftPayload();
       checks.push(check('draft payload has the versioned Text shape',
-        initialPayload.version === 1
+        initialPayload.version === 2
+        && 'selection' in initialPayload
         && typeof initialPayload.fileName === 'string'
         && typeof initialPayload.fileFormat === 'string'
         && typeof initialPayload.document?.margins === 'object'
@@ -83,6 +84,19 @@
       checks.push(check('restore does not create an undo action and marks the draft dirty',
         !win.art.history.canUndo() && win.art.state.isDirty()));
 
+      // Чернетка версії 2 несе логічне виділення: шлях від кореня логічного потоку.
+      win.art.editor.restoreDraft({
+        version: 2,
+        fileName: 'Версія 2',
+        fileFormat: 'artdoc',
+        document: { orientation: 'portrait', pageSize: 'a4', margins: { top: 2, right: 1.5, bottom: 2, left: 3 } },
+        html: '<p>Перший</p><p>Другий абзац</p>',
+        selection: { start: { path: [1, 0], offset: 0 }, end: { path: [1, 0], offset: 6 } }
+      });
+      await wait(150);
+      checks.push(check('version 2 draft restores the logical selection',
+        win.getSelection().toString() === 'Другий' && (pageContent(doc).textContent || '').includes('Другий абзац')));
+
       win.art.editor.clearDocument();
       await wait(100);
       checks.push(check('clearDocument creates a clean empty document',
@@ -103,6 +117,24 @@
       checks.push(check('history stays within the 24 MiB memory budget',
         byteStats.bytes <= byteStats.maxBytes && byteStats.entries <= byteStats.maxEntries));
 
+      // Один знімок, більший за весь бюджет, не має викидати з історії поточний документ:
+      // старші кроки відкидаються, а поточний лишається базою для undo й dirty.
+      win.art.editor.clearDocument();
+      await wait(100);
+      pageContent(doc).innerHTML = '<p>Малий документ</p>';
+      win.art.history.pushNow();
+      pageContent(doc).textContent = 'x'.repeat(13 * 1024 * 1024);
+      win.art.history.pushNow();
+      const oversizedStats = win.art.history.getStats();
+      const oversizedCurrent = win.art.history.current?.()?.html || '';
+      win.art.history.undo();
+      await wait(200);
+      const oversizedKept = (pageContent(doc).textContent || '').startsWith('xxxx');
+      checks.push(check('one oversized snapshot does not wipe the current document from history',
+        oversizedStats.entries === 1 && oversizedCurrent.includes('xxxxxxxx') && oversizedKept));
+      win.art.editor.clearDocument();
+      await wait(100);
+
       win.art.editor.clearDocument();
       await store.clear();
       pageContent(doc).innerHTML = '<p id="autosaved">Автозбережена чернетка</p>';
@@ -111,7 +143,7 @@
       await win.art.storage.flush();
       const autosaved = await store.load();
       checks.push(check('input is autosaved through the shared store after 300 ms',
-        autosaved?.version === 1 && autosaved.html.includes('Автозбережена чернетка')));
+        autosaved?.version === 2 && autosaved.html.includes('Автозбережена чернетка')));
 
       frame.src = '../text/index.html?restore-race=1';
       await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));

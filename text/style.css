@@ -841,6 +841,28 @@ body {
   margin: .8em 0;
 }
 
+/* Явний розрив сторінки. Нульова висота у верстці: позначка ніколи сама не
+   переповнює аркуш і не переноситься на новий. Підпис видно лише на екрані. */
+.page-content hr[style*="break-after"] {
+  position: relative;
+  height: 0;
+  margin: 0;
+  border: 0;
+  border-top: 1px dashed var(--accent);
+  overflow: visible;
+}
+
+.page-content hr[style*="break-after"]::after {
+  content: 'Розрив сторінки';
+  position: absolute;
+  right: 0;
+  top: -.75em;
+  padding: 0 .4em;
+  font: 700 .7rem/1.4 'Nunito Sans', sans-serif;
+  color: var(--accent);
+  background: var(--white);
+}
+
 .page-content a {
   color: var(--accent);
 }
@@ -1536,6 +1558,14 @@ body {
 
   .page::after {
     display: none;
+  }
+
+  /* Аркуш уже закінчується розривом (.page { break-after: page }); власний
+     break-after розриву дав би ще одну порожню сторінку. */
+  .page-content hr[style*="break-after"] {
+    display: none !important;
+    break-after: auto !important;
+    page-break-after: auto !important;
   }
 
   .page-content {

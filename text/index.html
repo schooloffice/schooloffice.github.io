@@ -151,6 +151,10 @@
         <button class="menu-item" data-action="insert-hr" role="menuitem">
           <span><i class="fa-solid fa-minus fa-fw"></i> Горизонтальна лінія</span>
         </button>
+        <button class="menu-item" data-action="insert-page-break" role="menuitem">
+          <span><i class="fa-solid fa-file-circle-plus fa-fw"></i> Розрив сторінки</span>
+          <span class="shortcut">Ctrl+Enter</span>
+        </button>
       </div>
     </div>
 
@@ -647,6 +651,7 @@
         <kbd>Ctrl+P</kbd><span>Друк</span>
         <kbd>Ctrl+F</kbd><span>Пошук</span>
         <kbd>Ctrl+H</kbd><span>Знайти й замінити</span>
+        <kbd>Ctrl+Enter</kbd><span>Розрив сторінки</span>
         <kbd>Ctrl+A</kbd><span>Виділити все</span>
         <kbd>Ctrl+X</kbd><span>Вирізати</span>
         <kbd>Ctrl+C</kbd><span>Копіювати</span>
@@ -740,6 +745,7 @@
 ════════════════════════════════════════ -->
   <script src="../office-storage.js"></script>
   <script src="core/state.js"></script>
+  <script src="core/document-model.js"></script>
   <script src="core/history.js"></script>
   <script src="core/selection.js"></script>
   <script src="core/sanitize.js"></script>

@@ -138,6 +138,8 @@
       await wait(150);
     }
 
+    // Логічна модель документа (C1) і розрив сторінки (C2) — у text-model-behavior.html.
+
     // B2: перевірка правопису браузером — налаштування вигляду, а не документа.
     async function runSpellcheckChecks(win, doc, editor) {
       const item = doc.querySelector('.menu-item[data-action="toggle-spellcheck"]');
@@ -1075,7 +1077,9 @@
         `pages with normal/wide margins: ${pagesWithNormalMargins}/${pagesWithWideMargins}`,
         `ruler: ${JSON.stringify(rulerDiagnostics)}`,
         `find/replace: ${JSON.stringify(findReplace.diagnostics)}`,
-        `spellcheck: ${JSON.stringify(spellcheck.diagnostics)}`
+        `spellcheck: ${JSON.stringify(spellcheck.diagnostics)}`,
+        // Під --virtual-time-budget це віртуальний час сторінки: бюджет раннера — 35000 мс.
+        `virtual time ms: ${Math.round(performance.now())}`
       ];
 
       result.textContent = checks

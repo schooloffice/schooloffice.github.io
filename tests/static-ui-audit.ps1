@@ -1285,11 +1285,25 @@ if (Test-Path $textIndexPath) {
   Assert-True ($textIndex -match 'id="spellcheckHelp"') 'text/index.html: help must explain where the spellcheck dictionary comes from'
 }
 
+$textStylePath = Join-Path $Root 'text/style.css'
+$textDocxPath = Join-Path $Root 'text/formats/docx.js'
+if ((Test-Path $textStylePath) -and (Test-Path $textDocxPath)) {
+  $textStyle = Get-Content -Raw -Encoding UTF8 $textStylePath
+  $textDocx = Get-Content -Raw -Encoding UTF8 $textDocxPath
+  # C2(а): розрив сторінки не додає зайвої сторінки в друку й переноситься в DOCX.
+  Assert-True ($textStyle -match '@media print[\s\S]*hr\[style\*="break-after"\][\s\S]*?break-after:\s*auto\s*!important') 'text/style.css: print must neutralize the inline break of a page break'
+  Assert-True ($textDocx -match 'new PageBreak\(\)' -and $textDocx -match "breakType === 'page'") 'text/formats/docx.js: page breaks must be exported and imported'
+}
+
 $textHistoryPath = Join-Path $Root 'text/core/history.js'
 if (Test-Path $textHistoryPath) {
   $textHistory = Get-Content -Raw -Encoding UTF8 $textHistoryPath
   Assert-True ($textHistory -match 'MAX_HISTORY_ENTRIES\s*=\s*80') "text/core/history.js: history entry limit must be 80"
   Assert-True ($textHistory -match 'MAX_HISTORY_BYTES\s*=\s*24\s*\*\s*1024\s*\*\s*1024') "text/core/history.js: history byte limit must be 24 MiB"
+  # C1: історія зберігає логічний потік, а не сторінковий DOM.
+  Assert-True ($textHistory -match 'ArtDocumentModel\.serialize\(') "text/core/history.js: snapshots must use the logical document serializer"
+  Assert-True ($textHistory -notmatch 'html:\s*_editor\.innerHTML') "text/core/history.js: snapshots must not store the paginated editor DOM"
+  Assert-True (Test-Path (Join-Path $Root 'text/core/document-model.js')) "text/core/document-model.js: logical document model must exist"
 }
 
 $textDocxPath = Join-Path $Root 'text/formats/docx.js'

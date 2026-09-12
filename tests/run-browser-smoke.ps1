@@ -271,6 +271,7 @@ try {
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/browser-smoke.html" 'data-smoke="passed"' 'Browser smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/storage-ui-behavior.html" 'data-storage-ui="passed"' 'Storage UI smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-behavior.html" 'data-text-behavior="passed"' 'Text behavior smoke'
+  Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-model-behavior.html" 'data-text-model="passed"' 'Text document model smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-storage-behavior.html" 'data-text-storage="passed"' 'Text storage smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/flowcharts-behavior.html" 'data-flowcharts="passed"' 'Flowcharts behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/flowcharts-svg-behavior.html" 'data-flowcharts-svg="passed"' 'Flowcharts SVG behavior smoke'

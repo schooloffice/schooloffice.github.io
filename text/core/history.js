@@ -11,6 +11,9 @@ const ArtHistory = (() => {
   let _lastSaved = '';
   let _suspended = false;
   let _cb = null;
+  // Редактор відновлює логічний знімок сам: створює аркуш, вміст і виділення,
+  // а потім перекомпоновує сторінки.
+  let _restorer = null;
 
   function init(editor) {
     _editor = editor;
@@ -22,10 +25,13 @@ const ArtHistory = (() => {
     ArtState.setDirty(false);
   }
 
+  // Знімок — логічний потік документа (без аркушів, повторених рядків і маркерів)
+  // та логічні якорі виділення, а не сторінковий DOM.
   function snapshot() {
+    const logical = ArtDocumentModel.serialize(_editor, { range: ArtSelection.getRange(_editor) });
     return {
-      html: _editor.innerHTML,
-      selection: ArtSelection.serializeSelection(_editor),
+      html: logical.html,
+      selection: logical.selection,
       document: ArtState.documentSnapshot?.() || null
     };
   }
@@ -41,53 +47,20 @@ const ArtHistory = (() => {
     _historyBytes = _stack.reduce((sum, entry) => sum + (entry._bytes || _estimateBytes(entry)), 0);
   }
 
+  // Відкидаються лише старші кроки. Поточний знімок лишається навіть тоді, коли сам
+  // перевищує бюджет: це стан документа, від якого рахуються dirty й undo.
   function _trimToLimits() {
-    while (_stack.length > MAX_HISTORY_ENTRIES || _historyBytes > MAX_HISTORY_BYTES) {
+    while ((_stack.length > MAX_HISTORY_ENTRIES || _historyBytes > MAX_HISTORY_BYTES) && _index > 0) {
       const removed = _stack.shift();
       _historyBytes -= removed?._bytes || _estimateBytes(removed);
       _index -= 1;
     }
-    if (_index < 0) {
-      _stack = [];
-      _index = -1;
-      _historyBytes = 0;
-    }
   }
 
+  // Знімки вже канонічні, тож пагінація не дає «нового» кроку й не робить документ зміненим.
   function _snapshotKey(entry) {
     if (!entry) return '';
-    return JSON.stringify({ html: _logicalHTML(entry.html), document: entry.document || null });
-  }
-
-  // Пагінація змінює фізичні .page-обгортки, але не сам документ. Для dirty та
-  // усунення дублів історії порівнюємо логічний потік без службових клонів.
-  function _logicalHTML(html) {
-    const source = document.createElement('div');
-    source.innerHTML = html || '';
-    const logical = document.createElement('div');
-    const pageContents = [...source.querySelectorAll('.page-content')];
-    const containers = pageContents.length ? pageContents : [source];
-    containers.forEach(container => {
-      [...container.childNodes].forEach(node => logical.appendChild(node.cloneNode(true)));
-    });
-
-    logical.querySelectorAll('.art-sel-marker, tr[data-art-table-repeat]').forEach(node => node.remove());
-    logical.querySelectorAll('[data-art-flow-tail]').forEach(node => node.removeAttribute('data-art-flow-tail'));
-    logical.querySelectorAll('.is-selected').forEach(node => node.classList.remove('is-selected'));
-
-    let node = logical.firstElementChild;
-    while (node) {
-      const next = node.nextElementSibling;
-      if (node.tagName === 'TABLE' && next?.tagName === 'TABLE' && next.dataset.artTablePart === 'continued') {
-        const body = node.tBodies[0] || node;
-        [...(next.tBodies[0] || next).rows].forEach(row => body.appendChild(row));
-        next.remove();
-        continue;
-      }
-      node = next;
-    }
-    logical.querySelectorAll('table[data-art-table-part]').forEach(table => table.removeAttribute('data-art-table-part'));
-    return logical.innerHTML;
+    return JSON.stringify({ html: entry.html, document: entry.document || null });
   }
 
   function pushNow() {
@@ -130,8 +103,12 @@ const ArtHistory = (() => {
     _suspended = true;
     try {
       ArtState.restoreDocument?.(entry.document || undefined);
-      _editor.innerHTML = entry.html;
-      ArtSelection.restoreSerializedSelection(_editor, entry.selection);
+      if (_restorer) {
+        _restorer(entry.html, entry.selection);
+      } else {
+        const content = _editor.querySelector('.page-content') || _editor;
+        content.innerHTML = entry.html;
+      }
     } finally {
       _suspended = false;
     }
@@ -156,6 +133,18 @@ const ArtHistory = (() => {
 
   function onButtonsUpdate(fn) { _cb = fn; }
   function _notify() { _cb?.(); }
+  function setRestorer(fn) { _restorer = typeof fn === 'function' ? fn : null; }
+
+  // Копія поточного знімка (для перевірок і діагностики).
+  function current() {
+    const entry = _stack[_index];
+    if (!entry) return null;
+    return {
+      html: entry.html,
+      selection: entry.selection ? JSON.parse(JSON.stringify(entry.selection)) : null,
+      document: entry.document ? JSON.parse(JSON.stringify(entry.document)) : null
+    };
+  }
 
   function getStats() {
     return {
@@ -166,5 +155,5 @@ const ArtHistory = (() => {
     };
   }
 
-  return { init, pushNow, undo, redo, canUndo, canRedo, markSaved, suspend, onButtonsUpdate, getStats };
+  return { init, pushNow, undo, redo, canUndo, canRedo, markSaved, suspend, onButtonsUpdate, getStats, setRestorer, current };
 })();
