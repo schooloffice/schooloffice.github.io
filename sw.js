@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v70';
+const CACHE_VERSION = 'office-plus-v71';
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_STATUS_CACHE = `${CACHE_VERSION}-offline-status`;
 const OFFLINE_STATUS_URL = new URL('./__offline_status__', self.registration.scope).href;
@@ -82,6 +82,7 @@ const ALL_LOCAL_ASSETS = [
   './slides/js/object-commands.js',
   './slides/js/presentation-design.js',
   './slides/js/pptx-export.js',
+  './slides/js/pptx-import.js',
   './slides/js/project.js',
   './slides/js/runtime.js',
   './slides/js/slide-list.js',

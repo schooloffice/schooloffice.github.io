@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Slides PPTX Import Pilot</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    iframe { width: 1280px; height: 800px; border: 1px solid #d6dce5; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Slides PPTX Import Pilot</h1>
+  <pre id="result">Running...</pre>
+  <iframe id="slidesFrame" title="ПЛЮС Слайди"></iframe>
+
+  <script src="../office-storage.js"></script>
+  <script type="module">
+    import { PPTX_IMPORT_LIMITS, PptxImportError, importPptxArrayBuffer } from '../slides/js/pptx-import.js';
+    import { parsePresentationText } from '../slides/js/project.js';
+    import { SCHEMA_VERSION, TEXT_MODEL_VERSION } from '../slides/js/constants.js';
+    import { clearDraft, loadDraft, saveDraft } from '../slides/js/storage.js';
+
+    const result = document.getElementById('result');
+    const frame = document.getElementById('slidesFrame');
+    const checks = [];
+    const info = [];
+    const encoder = new TextEncoder();
+
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+    // Очікування умови, поки застосунок читає файл і розпаковує PPTX. Під --virtual-time-budget
+    // таке I/O не зупиняє віртуальний час: таймерне опитування «витрачало» 6 с, поки реальне читання
+    // під навантаженням ще тривало (відтворено вісьмома паралельними прогонами). Мережевий запит
+    // ставить віртуальний час на паузу, тож кожна ітерація чекає реальний round trip до локального
+    // сервера, а межа задана кількістю таких ітерацій.
+    const POLL_URL = '../vendor/pptxgenjs/pptxgen.bundle.js';
+    async function waitFor(predicate, label, maxPolls = 300) {
+      for (let poll = 0; poll < maxPolls; poll += 1) {
+        if (predicate()) return;
+        await fetch(POLL_URL, { cache: 'no-store' }).then(response => response.arrayBuffer()).catch(() => {});
+      }
+      if (!predicate()) throw new Error(label);
+    }
+
+    function check(name, ok, details = '') {
+      if (!ok) throw new Error(details ? `${name}: ${details}` : name);
+      checks.push(`PASS ${name}`);
+    }
+
+    const near = (value, expected, tolerance = 0.6) => Math.abs(value - expected) <= tolerance;
+    const sameList = (actual, expected) => JSON.stringify(actual) === JSON.stringify(expected);
+
+    // --- Мінімальний ZIP-writer для синтетичних пакетів (stored або deflate-raw). ---
+    function crc32(bytes) {
+      let crc = 0xffffffff;
+      for (const byte of bytes) {
+        crc ^= byte;
+        for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+      }
+      return (crc ^ 0xffffffff) >>> 0;
+    }
+
+    function concat(parts) {
+      const out = new Uint8Array(parts.reduce((sum, part) => sum + part.byteLength, 0));
+      let offset = 0;
+      parts.forEach(part => { out.set(part, offset); offset += part.byteLength; });
+      return out;
+    }
+
+    async function deflateRaw(bytes) {
+      const source = new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close(); } });
+      const reader = source.pipeThrough(new CompressionStream('deflate-raw')).getReader();
+      const chunks = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      return concat(chunks);
+    }
+
+    async function buildZip(files) {
+      const locals = [];
+      const centrals = [];
+      let offset = 0;
+      for (const file of files) {
+        const raw = typeof file.data === 'string' ? encoder.encode(file.data) : file.data;
+        const method = file.method ?? 0;
+        let packed = file.packed || (method === 8 ? await deflateRaw(raw) : raw);
+        if (file.corrupt) packed = new Uint8Array(packed.byteLength).fill(0xff);
+        const name = encoder.encode(file.name);
+        const size = file.declaredSize ?? raw.byteLength;
+        const crc = crc32(raw);
+        const local = new Uint8Array(30 + name.byteLength);
+        const lv = new DataView(local.buffer);
+        lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true); lv.setUint16(6, 0x0800, true); lv.setUint16(8, method, true);
+        lv.setUint32(14, crc, true); lv.setUint32(18, packed.byteLength, true); lv.setUint32(22, size, true); lv.setUint16(26, name.byteLength, true);
+        local.set(name, 30);
+        const central = new Uint8Array(46 + name.byteLength);
+        const cv = new DataView(central.buffer);
+        cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true); cv.setUint16(8, 0x0800, true); cv.setUint16(10, method, true);
+        cv.setUint32(16, crc, true); cv.setUint32(20, packed.byteLength, true); cv.setUint32(24, size, true); cv.setUint16(28, name.byteLength, true); cv.setUint32(42, offset, true);
+        central.set(name, 46);
+        locals.push(local, packed);
+        centrals.push(central);
+        offset += local.byteLength + packed.byteLength;
+      }
+      const centralSize = centrals.reduce((sum, part) => sum + part.byteLength, 0);
+      const end = new Uint8Array(22);
+      const ev = new DataView(end.buffer);
+      ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, files.length, true); ev.setUint16(10, files.length, true);
+      ev.setUint32(12, centralSize, true); ev.setUint32(16, offset, true);
+      return concat([...locals, ...centrals, end]).buffer;
+    }
+
+    // --- Синтетичний PPTX без макета, зразка й теми (імпорт має працювати з типовими значеннями). ---
+    const NS = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"';
+    const PNG_BYTES = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), char => char.charCodeAt(0));
+    const GIF_BYTES = encoder.encode('GIF89a\u0001\u0000\u0001\u0000');
+
+    function rels(list) {
+      return `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${list.map(([id, type, target, mode]) => `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${type}" Target="${target}"${mode ? ` TargetMode="${mode}"` : ''}/>`).join('')}</Relationships>`;
+    }
+
+    const slideXml = tree => `<?xml version="1.0" encoding="UTF-8"?><p:sld ${NS}><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${tree}</p:spTree></p:cSld></p:sld>`;
+    const picXml = (id, blip) => `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="Pic ${id}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip ${blip}/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${id * 127000}" y="0"/><a:ext cx="1270000" cy="1270000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
+
+    function pptxParts({ slide = slideXml(''), slideRels = rels([]), presentation, extra = [] } = {}) {
+      return [
+        { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/></Types>' },
+        { name: '_rels/.rels', data: rels([['rId1', 'officeDocument', 'ppt/presentation.xml']]) },
+        { name: 'ppt/presentation.xml', data: presentation || `<?xml version="1.0" encoding="UTF-8"?><p:presentation ${NS}><p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst><p:sldSz cx="12192000" cy="6858000"/></p:presentation>` },
+        { name: 'ppt/_rels/presentation.xml.rels', data: rels([['rId2', 'slide', 'slides/slide1.xml']]) },
+        { name: 'ppt/slides/slide1.xml', data: slide },
+        { name: 'ppt/slides/_rels/slide1.xml.rels', data: slideRels },
+        ...extra
+      ];
+    }
+
+    async function expectImportError(label, buffer, code) {
+      try {
+        await importPptxArrayBuffer(buffer, { fileName: `${label}.pptx` });
+      } catch (error) {
+        check(`${label} is rejected with ${code}`, error instanceof PptxImportError && error.code === code, `${error?.name} ${error?.code} ${error?.message}`);
+        check(`${label} explains the rejection to the user`, typeof error.message === 'string' && error.message.length > 10);
+        return;
+      }
+      check(`${label} is rejected with ${code}`, false, 'import succeeded');
+    }
+
+    async function fixture(name) {
+      const response = await fetch(`fixtures/compatibility/${name}.pptx`, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`fixture ${name} missing`);
+      return response.arrayBuffer();
+    }
+
+    async function importFixture(name) {
+      const buffer = await fixture(name);
+      const heapBefore = performance.memory?.usedJSHeapSize;
+      const started = performance.now();
+      const imported = await importPptxArrayBuffer(buffer, { fileName: `${name}.pptx` });
+      const elapsed = performance.now() - started;
+      const heapAfter = performance.memory?.usedJSHeapSize;
+      info.push(`INFO ${name}: ${buffer.byteLength} bytes, ${elapsed.toFixed(1)} ms, ${imported.report.slideCount} slides, ${imported.report.importedElements} objects${Number.isFinite(heapBefore) ? `, heap delta ${((heapAfter - heapBefore) / 1048576).toFixed(2)} MB` : ''}`);
+      check(`${name}: import finishes within 3 s`, elapsed < 3000, `${elapsed} ms`);
+      return imported;
+    }
+
+    const byText = (slide, text) => slide.elements.find(element => element.content === text);
+    const darkColor = hex => {
+      const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
+      return !!match && (Number.parseInt(match[1], 16) + Number.parseInt(match[2], 16) + Number.parseInt(match[3], 16)) / 3 < 80;
+    };
+
+    async function checkIndependentFixtures() {
+      // 1. Титульний слайд із placeholder-ами макета й слайд із фігурами, runs і фоном.
+      let { presentation, report } = await importFixture('powerpoint-simple-title-shapes');
+      check('simple title/shapes: slide order and count', presentation.slides.length === 2 && report.slideCount === 2);
+      let [first, second] = presentation.slides;
+      const title = byText(first, 'Кругообіг води');
+      const subtitle = byText(first, 'Урок природознавства');
+      check('simple title/shapes: title geometry inherited from the layout', !!title && near(title.x, 120) && near(title.y, 88.4) && near(title.w, 720) && near(title.h, 188), JSON.stringify(title));
+      check('simple title/shapes: title text style from layout and theme', title.type === 'text' && title.style.fontSize === 60 && title.style.align === 'center' && title.style.color === '#000000');
+      check('simple title/shapes: subtitle from its layout placeholder', !!subtitle && near(subtitle.y, 283.6) && subtitle.style.fontSize === 24 && subtitle.style.align === 'center' && subtitle.style.listType === 'none', JSON.stringify(subtitle));
+      check('simple title/shapes: master background from theme', first.background === '#ffffff', first.background);
+      check('simple title/shapes: explicit slide background', second.background === '#eff6ff', second.background);
+      const rect = byText(second, 'Випаровування');
+      check('simple title/shapes: rectangle with fill, outline and style text colour', !!rect && rect.type === 'shape' && rect.shape === 'rect' && near(rect.x, 60) && near(rect.y, 80) && near(rect.w, 300) && near(rect.h, 160)
+        && rect.style.fill === '#fef3c7' && rect.style.stroke === '#b45309' && rect.style.color === '#ffffff' && rect.style.align === 'center' && rect.style.fontSize === 18, JSON.stringify(rect));
+      const oval = byText(second, 'Хмара');
+      check('simple title/shapes: ellipse becomes a circle shape with theme outline', !!oval && oval.shape === 'circle' && near(oval.w, 220) && near(oval.h, 220) && oval.style.fill === '#bfdbfe' && darkColor(oval.style.stroke), JSON.stringify(oval));
+      const box = byText(second, 'Вода нагрівається і стає парою');
+      check('simple title/shapes: text runs joined with prevailing formatting', !!box && box.type === 'text' && box.style.fontSize === 28 && box.style.bold === false, JSON.stringify(box));
+      check('simple title/shapes: exact losses', sameList(report.warnings, ['Змішане форматування в текстовому блоці спрощено до переважного: 1']), JSON.stringify(report.warnings));
+
+      // 2. Вбудовані PNG і JPEG, підпис і повернуте зображення.
+      ({ presentation, report } = await importFixture('powerpoint-simple-images'));
+      [first, second] = presentation.slides;
+      const images = first.elements.filter(element => element.type === 'image');
+      check('simple images: embedded PNG and JPEG become data URLs', images.length === 2 && images[0].content.startsWith('data:image/png;base64,') && images[1].content.startsWith('data:image/jpeg;base64,'));
+      check('simple images: picture geometry', near(images[0].x, 60) && near(images[0].y, 60) && near(images[0].w, 360) && near(images[0].h, 240) && near(images[1].x, 520), JSON.stringify(images.map(({ x, y, w, h }) => ({ x, y, w, h }))));
+      check('simple images: centred caption', byText(first, 'Графік і фото з уроку')?.style.align === 'center');
+      check('simple images: rotation is kept', second.elements.length === 1 && second.elements[0].type === 'image' && near(second.elements[0].rotation, 15, 0.01));
+      check('simple images: no losses', sameList(report.warnings, []), JSON.stringify(report.warnings));
+
+      // 3. Формат 4:3, маркований список і повернутий прямокутник.
+      ({ presentation, report } = await importFixture('powerpoint-simple-4x3-bullets'));
+      [first] = presentation.slides;
+      const body = byText(first, 'Лід\nВода\nПара');
+      check('simple 4:3: bulleted body keeps paragraphs as list items', !!body && body.style.listType === 'bullet' && body.style.underline === false, JSON.stringify(body));
+      check('simple 4:3: title from master placeholder', byText(first, 'Стани води')?.type === 'text');
+      const turned = first.elements.find(element => element.type === 'shape');
+      check('simple 4:3: rotated rectangle fitted into 16:9 with side margins', !!turned && near(turned.rotation, 30, 0.01) && near(turned.x, 600) && near(turned.y, 360) && near(turned.w, 160) && near(turned.h, 90), JSON.stringify(turned));
+      check('simple 4:3: every object stays inside the fitted 4:3 area', first.elements.every(element => element.x >= 119 && element.x + element.w <= 841));
+      check('simple 4:3: exact losses', sameList(report.warnings, ['Слайди формату 4:3 вписано у формат 16:9 з полями', 'Змішане форматування в текстовому блоці спрощено до переважного: 1']), JSON.stringify(report.warnings));
+
+      // 4. Складний: група, таблиця, довільна фігура, зірка, градієнтний фон, перехід, анімація.
+      ({ presentation, report } = await importFixture('powerpoint-complex-group-table-freeform'));
+      [first] = presentation.slides;
+      check('complex group/table: only the supported text box is imported', first.elements.length === 1 && first.elements[0].content === 'Складний слайд', JSON.stringify(first.elements.map(element => element.content)));
+      check('complex group/table: gradient background uses the first stop', first.background === '#ffffff', first.background);
+      check('complex group/table: exact losses', sameList(report.warnings, [
+        'Градієнтний фон замінено першим кольором: 1',
+        'Групи об’єктів не перенесено: 1 (об’єктів у них: 2)',
+        'Таблиці не перенесено: 1',
+        'Фігури інших типів не перенесено: 2 (довільна фігура, зірка)',
+        'Переходи між слайдами не перенесено: 1',
+        'Анімації не перенесено: 1'
+      ]), JSON.stringify(report.warnings));
+
+      // 5. Складний: гіперпосилання, змішані runs, лінія, віддзеркалення, пов'язане зображення, нотатки.
+      ({ presentation, report } = await importFixture('powerpoint-complex-links-notes-linked-image'));
+      [first] = presentation.slides;
+      const linkText = byText(first, 'Докладніше на сайті');
+      check('complex links: text keeps the prevailing run size', !!linkText && linkText.style.fontSize === 24, JSON.stringify(linkText));
+      check('complex links: embedded picture imported, linked picture not fetched', first.elements.filter(element => element.type === 'image').length === 1
+        && first.elements.every(element => element.type !== 'image' || element.content.startsWith('data:image/png;base64,')));
+      check('complex links: exact losses', sameList(report.warnings, [
+        'Гіперпосилання не перенесено: 1',
+        'Змішане форматування в текстовому блоці спрощено до переважного: 1',
+        'Лінії та сполучні лінії не перенесено: 1',
+        'Віддзеркалення об’єктів не перенесено: 1',
+        'Зовнішні (пов’язані) зображення не завантажуються: 1',
+        'Нотатки доповідача не перенесено: 1'
+      ]), JSON.stringify(report.warnings));
+
+      // Імпортована модель — звичайна презентація ПЛЮС: save/open не змінює кількість об'єктів.
+      const titleShapes = await importPptxArrayBuffer(await fixture('powerpoint-simple-title-shapes'), { fileName: 'Урок.pptx' });
+      const reopened = parsePresentationText(JSON.stringify({ ...titleShapes.presentation, schemaVersion: SCHEMA_VERSION, textModelVersion: TEXT_MODEL_VERSION }));
+      check('imported presentation survives save and open', !!reopened && reopened.slides.length === 2
+        && reopened.slides.every((slide, index) => slide.elements.length === titleShapes.presentation.slides[index].elements.length) && titleShapes.presentation.fileName === 'Урок');
+    }
+
+    async function checkUnsafePackages() {
+      await expectImportError('random bytes', encoder.encode('це не zip-архів, а звичайний текст').buffer, 'not-zip');
+      const real = new Uint8Array(await fixture('powerpoint-simple-title-shapes'));
+      await expectImportError('truncated PPTX', real.slice(0, Math.floor(real.byteLength / 2)).buffer, 'not-zip');
+      await expectImportError('ZIP without a presentation', await buildZip([{ name: 'readme.txt', data: 'hello' }]), 'not-pptx');
+      await expectImportError('corrupted deflate stream', await buildZip(pptxParts().map(part => part.name === 'ppt/slides/slide1.xml' ? { ...part, method: 8, corrupt: true } : part)), 'corrupt-zip');
+      await expectImportError('oversized file', new ArrayBuffer(PPTX_IMPORT_LIMITS.MAX_FILE_BYTES + 1), 'too-large');
+      await expectImportError('too many ZIP entries', await buildZip(Array.from({ length: PPTX_IMPORT_LIMITS.MAX_ENTRIES + 1 }, (_, index) => ({ name: `ppt/extra/${index}.xml`, data: '' }))), 'too-many-entries');
+      await expectImportError('path traversal entry name', await buildZip([...pptxParts(), { name: '../evil.xml', data: '<x/>' }]), 'unsafe-path');
+      await expectImportError('XML with DTD entities', await buildZip(pptxParts({ slide: `<?xml version="1.0"?><!DOCTYPE p:sld [<!ENTITY boom "boom">]>${slideXml('').replace(/^<\?xml[^>]*\?>/, '')}` })), 'unsafe-xml');
+      const manyNodes = `<p:extLst>${'<p:ext uri="x"/>'.repeat(PPTX_IMPORT_LIMITS.MAX_XML_NODES + 10)}</p:extLst>`;
+      await expectImportError('XML with too many nodes', await buildZip(pptxParts({ slide: slideXml('').replace('</p:cSld>', `</p:cSld>${manyNodes}`) })), 'xml-too-complex');
+      await expectImportError('presentation without slides', await buildZip(pptxParts({ presentation: `<?xml version="1.0"?><p:presentation ${NS}><p:sldIdLst/><p:sldSz cx="12192000" cy="6858000"/></p:presentation>` })), 'no-slides');
+
+      // Zip bomb: великий коефіцієнт стиснення в каталозі та неправдивий розмір у заголовку.
+      const zeros = new Uint8Array(16 * 1024 * 1024);
+      const packedZeros = await deflateRaw(zeros);
+      await expectImportError('zip bomb by compression ratio', await buildZip(pptxParts().map(part => part.name === 'ppt/slides/slide1.xml' ? { name: part.name, data: zeros, method: 8, packed: packedZeros } : part)), 'zip-bomb');
+      await expectImportError('zip bomb with a lying size header', await buildZip(pptxParts().map(part => part.name === 'ppt/slides/slide1.xml' ? { name: part.name, data: zeros, method: 8, packed: packedZeros, declaredSize: 4096 } : part)), 'zip-bomb');
+
+      // Зовнішні ресурси, path traversal у зв'язках, відсутня частина й непідтримуваний формат.
+      const tree = [
+        picXml(2, 'r:embed="rId2"'),
+        picXml(3, 'r:link="rId3"'),
+        picXml(4, 'r:embed="rId4"'),
+        picXml(5, 'r:embed="rId5"'),
+        picXml(6, 'r:embed="rId6"'),
+        picXml(7, 'r:embed="rId7"')
+      ].join('');
+      const resourcesBefore = performance.getEntriesByType('resource').length;
+      const external = await importPptxArrayBuffer(await buildZip(pptxParts({
+        slide: slideXml(tree),
+        slideRels: rels([
+          ['rId2', 'image', 'https://example.com/tracker.png', 'External'],
+          ['rId3', 'image', 'file:///C:/secret/photo.png', 'External'],
+          ['rId4', 'image', '../../../../secret.png'],
+          ['rId5', 'image', '../media/image1.png'],
+          ['rId6', 'image', '../media/missing.png'],
+          ['rId7', 'image', '../media/image2.gif']
+        ]),
+        extra: [{ name: 'ppt/media/image1.png', data: PNG_BYTES }, { name: 'ppt/media/image2.gif', data: GIF_BYTES }]
+      })), { fileName: 'external.pptx' });
+      const externalElements = external.presentation.slides[0].elements;
+      check('external resources: only the embedded PNG is imported', externalElements.length === 1 && externalElements[0].content.startsWith('data:image/png;base64,'));
+      check('external resources: exact losses', sameList(external.report.warnings, [
+        'Зовнішні (пов’язані) зображення не завантажуються: 2',
+        'Посилання на частини поза пакетом відхилено: 1',
+        'Відсутні частини пакета пропущено: 1',
+        'Зображення форматів, крім PNG і JPEG, не перенесено: 1'
+      ]), JSON.stringify(external.report.warnings));
+      const requested = performance.getEntriesByType('resource').slice(resourcesBefore).map(entry => entry.name);
+      check('external resources: import makes no network or file requests', !requested.some(name => /example\.com|secret/.test(name)), requested.join(', '));
+      check('missing theme, layout and master fall back to defaults', external.presentation.slides[0].background === '#ffffff');
+    }
+
+    function loadFrame(url) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('slides iframe load timed out')), 8000);
+        frame.addEventListener('load', () => { clearTimeout(timer); resolve(); }, { once: true });
+        frame.src = url;
+      });
+    }
+
+    async function checkEditorFlow() {
+      await loadFrame('../slides/index.html');
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      await waitFor(() => typeof win.SlidesApp?.boot === 'function', 'SlidesApp boot exported');
+      await waitFor(() => doc.querySelectorAll('#stage .stage-element').length >= 1, 'stage rendered');
+      const slideCount = () => doc.querySelectorAll('#slideList .slide-card').length;
+      const stageText = () => doc.querySelector('#stage').textContent;
+      const modalOpen = () => !doc.querySelector('#modalOverlay').classList.contains('hidden');
+      const input = doc.querySelector('#pptxFileInput');
+      check('editor: File menu offers the PPTX import pilot', !!doc.querySelector('.menu-dropdown[data-menu="file"] [data-action="import-pptx"]'));
+      check('editor: PPTX input accepts only .pptx', !!input && input.accept.includes('.pptx') && !input.accept.includes('.json'));
+
+      const originalSlides = slideCount();
+      const originalText = stageText();
+      const choose = (bytes, name) => {
+        const transfer = new win.DataTransfer();
+        transfer.items.add(new win.File([bytes], name, { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }));
+        input.files = transfer.files;
+        input.dispatchEvent(new win.Event('change', { bubbles: true }));
+      };
+
+      choose(encoder.encode('пошкоджений файл'), 'broken.pptx');
+      await waitFor(() => modalOpen() && doc.querySelector('#modalTitle').textContent === 'PPTX не імпортовано', 'import failure modal');
+      check('editor: failed import explains the reason and keeps the document', doc.querySelector('#modalText').textContent.includes('Поточну презентацію не змінено')
+        && slideCount() === originalSlides && stageText() === originalText);
+      doc.querySelector('#modalConfirm').click();
+      await waitFor(() => !modalOpen(), 'failure modal closes');
+
+      const lessonBytes = new Uint8Array(await fixture('powerpoint-simple-title-shapes'));
+      choose(lessonBytes, 'Урок.pptx');
+      await waitFor(() => modalOpen() && doc.querySelector('#modalConfirm').textContent === 'Замінити презентацію', 'import confirmation modal');
+      const lossItems = [...doc.querySelectorAll('#modalBody li')].map(item => item.textContent);
+      check('editor: confirmation lists the exact losses before replacing', lossItems.length === 1 && lossItems[0] === 'Змішане форматування в текстовому блоці спрощено до переважного: 1', JSON.stringify(lossItems));
+      check('editor: document is untouched while waiting for the choice', slideCount() === originalSlides && stageText() === originalText);
+      doc.querySelector('#modalCancel').click();
+      await waitFor(() => !modalOpen(), 'confirmation cancelled');
+      check('editor: cancelling keeps the current presentation', slideCount() === originalSlides && stageText() === originalText);
+
+      choose(lessonBytes, 'Урок.pptx');
+      await waitFor(() => modalOpen() && doc.querySelector('#modalConfirm').textContent === 'Замінити презентацію', 'import confirmation modal again');
+      doc.querySelector('#modalConfirm').click();
+      await waitFor(() => slideCount() === 2 && stageText().includes('Кругообіг води'), 'imported presentation applied');
+      check('editor: confirmed import replaces the presentation', slideCount() === 2 && stageText().includes('Урок природознавства') && doc.querySelector('#fileName').textContent.includes('Урок'));
+      doc.querySelector('[data-action="undo"]').click();
+      await wait(120);
+      check('editor: imported presentation starts a new history', slideCount() === 2 && stageText().includes('Кругообіг води'));
+    }
+
+    async function run() {
+      await checkIndependentFixtures();
+      await checkUnsafePackages();
+      await checkEditorFlow();
+    }
+
+    async function runGuarded() {
+      // Чернетка Слайдів спільна для tests/ і slides/: зберігаємо й відновлюємо чернетку користувача.
+      let savedDraft = null;
+      try { savedDraft = await loadDraft(); } catch {}
+      try {
+        try { await clearDraft(); } catch {}
+        await run();
+      } finally {
+        await loadFrame('about:blank').catch(() => {});
+        await wait(350);
+        try {
+          if (savedDraft) await saveDraft(savedDraft);
+          else await clearDraft();
+        } catch {}
+      }
+    }
+
+    runGuarded().then(() => {
+      result.className = 'pass';
+      result.textContent = [...checks, ...info, '', 'PASSED'].join('\n');
+      document.body.dataset.slidesPptxImport = 'passed';
+    }).catch(error => {
+      result.className = 'fail';
+      result.textContent = [...checks, `FAIL ${error?.message || error}`, String(error?.stack || '')].join('\n');
+      document.body.dataset.slidesPptxImport = 'failed';
+    });
+  </script>
+</body>
+</html>

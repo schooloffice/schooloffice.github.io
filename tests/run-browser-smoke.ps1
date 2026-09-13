@@ -73,6 +73,90 @@ function Wait-ForServer {
   throw "Local smoke server did not start on port $PortNumber."
 }
 
+function Invoke-RawGet {
+  param(
+    [System.Net.Sockets.TcpClient]$Client,
+    [string]$Path
+  )
+
+  $stream = $Client.GetStream()
+  $stream.ReadTimeout = 10000
+  $request = [Text.Encoding]::ASCII.GetBytes("GET $Path HTTP/1.1`r`nHost: 127.0.0.1`r`nConnection: close`r`n`r`n")
+  try {
+    $stream.Write($request, 0, $request.Length)
+    $buffer = New-Object byte[] 512
+    $read = $stream.Read($buffer, 0, $buffer.Length)
+    if ($read -le 0) { return 'connection closed without a response' }
+    return ([Text.Encoding]::ASCII.GetString($buffer, 0, $read) -split "`r`n")[0]
+  } catch {
+    return "request failed: $($_.Exception.GetBaseException().Message)"
+  }
+}
+
+# Chrome тримає спекулятивні з'єднання відкритими й надсилає ними запит пізніше. Сервер не
+# повинен ні затримувати на них інші запити, ні закривати їх, поки браузер може ними скористатися:
+# інакше скрипт редактора не завантажується, а smoke падає з оманливим ReferenceError.
+function Assert-ServerKeepsPreconnectedSockets {
+  param([int]$PortNumber)
+
+  $idle = [System.Net.Sockets.TcpClient]::new('127.0.0.1', $PortNumber)
+  try {
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $parallel = [System.Net.Sockets.TcpClient]::new('127.0.0.1', $PortNumber)
+    try {
+      $status = Invoke-RawGet -Client $parallel -Path '/tests/browser-smoke.html'
+    } finally {
+      $parallel.Close()
+    }
+    if ($status -ne 'HTTP/1.1 200 OK' -or $stopwatch.ElapsedMilliseconds -gt 2000) {
+      throw "Local smoke server delays requests while another connection is idle: $status after $($stopwatch.ElapsedMilliseconds) ms."
+    }
+
+    # Довше за колишній 3-секундний тайм-аут читання, після якого сервер закривав з'єднання.
+    Start-Sleep -Milliseconds 3500
+    $late = Invoke-RawGet -Client $idle -Path '/tests/browser-smoke.html'
+    if ($late -ne 'HTTP/1.1 200 OK') {
+      throw "Local smoke server dropped a request sent on a preconnected connection after 3.5 s: $late."
+    }
+  } finally {
+    $idle.Close()
+  }
+}
+
+function Get-ServerLogLength {
+  if (-not $serverLogPath -or -not (Test-Path -LiteralPath $serverLogPath)) { return 0 }
+  return (Get-Item -LiteralPath $serverLogPath).Length
+}
+
+function Get-ServerLogSince {
+  param([long]$Offset)
+
+  if (-not $serverLogPath -or -not (Test-Path -LiteralPath $serverLogPath)) { return '' }
+  $stream = [IO.File]::Open($serverLogPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+  try {
+    if ($stream.Length -le $Offset) { return '' }
+    [void]$stream.Seek($Offset, [IO.SeekOrigin]::Begin)
+    return (New-Object IO.StreamReader($stream, [Text.Encoding]::UTF8)).ReadToEnd().Trim()
+  } finally {
+    $stream.Dispose()
+  }
+}
+
+# Незавантажений ресурс (404, обірвана відповідь) проявляється на сторінці як ReferenceError чи
+# незавершений тест. Журнал сервера за час цієї сторінки стає першим рядком помилки.
+function Add-ServerLogDetails {
+  param(
+    [string]$Message,
+    [long]$Offset,
+    [string]$Name
+  )
+
+  $log = Get-ServerLogSince $Offset
+  if (-not $log) { return $Message }
+  $entries = ($log -split "`r?`n" | Where-Object { $_ } | ForEach-Object { "  - $_" }) -join "`n"
+  return "${Name}: resources failed to load during this page (server log):`n$entries`n$Message"
+}
+
 # Профілі створює й видаляє лише цей запуск: тільки власні GUID-шляхи всередині
 # tests/, без очищення за маскою чужих або паралельних прогонів.
 function New-PageProfile {
@@ -166,6 +250,7 @@ function Invoke-SmokePage {
   $pageProfile = New-PageProfile
   $pageCache = Join-Path $pageProfile 'cache'
   $fallbackProfile = $null
+  $serverLogOffset = Get-ServerLogLength
   try {
     $baseArguments = @(
       '--headless=new',
@@ -242,6 +327,8 @@ function Invoke-SmokePage {
     } catch {
       throw "$($_.Exception.Message)`nBrowser stderr:`n$($result.Stderr)"
     }
+  } catch {
+    throw (Add-ServerLogDetails $_.Exception.Message $serverLogOffset $Name)
   } finally {
     Remove-PageProfile $pageProfile
     if ($fallbackProfile) { Remove-PageProfile $fallbackProfile }
@@ -252,6 +339,7 @@ $Port = if ($Port -gt 0) { $Port } else { Get-FreeTcpPort }
 $chromePath = if ($ChromePath) { (Resolve-Path -LiteralPath $ChromePath).Path } else { Get-ChromePath }
 $resolvedTests = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\') + '\'
 $ownedProfiles = New-Object System.Collections.Generic.List[string]
+$serverLogPath = [IO.Path]::Combine([IO.Path]::GetTempPath(), "office-plus-smoke-server-$([guid]::NewGuid()).log")
 $server = $null
 $serverCapture = $null
 $failure = $null
@@ -262,11 +350,13 @@ try {
     '-ExecutionPolicy', 'Bypass',
     '-File', (Join-Path $PSScriptRoot 'serve-office.ps1'),
     '-Port', $Port,
-    '-Root', $Root
+    '-Root', $Root,
+    '-LogPath', $serverLogPath
   )
   $server = $serverCapture.Process
 
   Wait-ForServer -PortNumber $Port
+  Assert-ServerKeepsPreconnectedSockets -PortNumber $Port
 
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/browser-smoke.html" 'data-smoke="passed"' 'Browser smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/storage-ui-behavior.html" 'data-storage-ui="passed"' 'Storage UI smoke'
@@ -282,6 +372,7 @@ try {
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/flowcharts-svg-behavior.html" 'data-flowcharts-svg="passed"' 'Flowcharts SVG behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/slides-behavior.html" 'data-slides-behavior="passed"' 'Slides behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/slides-domain-behavior.html" 'data-slides-domain="passed"' 'Slides domain smoke'
+  Invoke-SmokePage "http://127.0.0.1:$Port/tests/slides-pptx-import-behavior.html" 'data-slides-pptx-import="passed"' 'Slides PPTX import pilot smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/paint-behavior.html" 'data-paint-behavior="passed"' 'Paint behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-render-behavior.html" 'data-tables-render="passed"' 'Tables render smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-storage-viewport-behavior.html" 'data-tables-storage-viewport="passed"' 'Tables storage and viewport smoke'
@@ -301,6 +392,7 @@ try {
 
   # Повторна спроба для власних профілів, які ще тримав щойно зупинений процес.
   foreach ($ownedProfile in $ownedProfiles) { Remove-PageProfile $ownedProfile }
+  if (Test-Path -LiteralPath $serverLogPath) { Remove-Item -LiteralPath $serverLogPath -Force -ErrorAction SilentlyContinue }
 }
 
 if ($failure) {

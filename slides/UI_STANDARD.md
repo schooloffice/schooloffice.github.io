@@ -46,6 +46,7 @@
 - `slides/js/object-commands.js` — чисті правила групування, вирівнювання та розподілу.
 - `slides/js/presentation-design.js` — чисті доменні операції застосування тем і макетів.
 - `slides/js/pptx-export.js` — ізольований adapter для контрольованого PPTX export; не володіє моделлю редактора.
+- `slides/js/pptx-import.js` — пілот PPTX Import Lite: безпечне читання ZIP/XML і обмеженої підмножини PresentationML у нову нормалізовану модель зі звітом втрат; не змінює стан редактора. Контракт, ліміти й результати — `slides/PPTX_IMPORT_PILOT.md`.
 - `slides/js/slide-list.js` — список слайдів, thumbnails, reorder, move/duplicate/delete actions.
 - `slides/js/stage-renderer.js` — рендеринг сцени, елементів, handles і selected-state.
 - `slides/js/table-controller.js` — table-specific selection, clipboard, modal і command orchestration через callbacks coordinator-а.

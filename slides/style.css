@@ -1211,6 +1211,23 @@ ol.shape-text-element {
   color: #dc2626;
 }
 
+/* Список втрат перед заміною презентації імпортом PPTX. */
+.import-loss-list {
+  display: grid;
+  gap: .35rem;
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: .88rem;
+  line-height: 1.4;
+  color: var(--slate-2);
+}
+
+.import-loss-none {
+  margin: 0;
+  font-size: .88rem;
+  color: var(--slate-2);
+}
+
 /* Бейдж гіперпосилання на об'єкті (редактор). */
 .link-badge {
   position: absolute;

@@ -644,6 +644,7 @@ $runtimeFiles = @(
   'slides/js/object-commands.js',
   'slides/js/presentation-design.js',
   'slides/js/pptx-export.js',
+  'slides/js/pptx-import.js',
   'slides/js/project.js',
   'slides/js/runtime.js',
   'slides/js/slide-list.js',
@@ -744,6 +745,22 @@ if ((Test-Path $slidesConstantsPath) -and (Test-Path $slidesAppPath) -and (Test-
   Assert-True ($slidesAppSource -match 'createSlideSnapshot\(slide, \{ presentation: true \}\)') "slides/js/app.js: presentation should render the interactive snapshot"
   Assert-True ($slidesAppSource -notmatch '\bnew Function\(|\beval\(') "slides/js/app.js: click actions must not execute code strings"
   Assert-True ($slidesPptxExport -match 'element\.action \|\| element\.startHidden') "slides/js/pptx-export.js: should warn when click actions cannot be exported"
+}
+
+# PPTX Import Lite pilot: dependency-free adapter with ZIP/XML limits, no resource loading, explicit user choice before replacing the document.
+$slidesPptxImportPath = Join-Path $Root 'slides/js/pptx-import.js'
+if ((Test-Path $slidesPptxImportPath) -and (Test-Path $slidesAppPath) -and (Test-Path $slidesIndexPath)) {
+  $slidesPptxImport = Get-Content -Raw -Encoding UTF8 $slidesPptxImportPath
+  $slidesAppForImport = Get-Content -Raw -Encoding UTF8 $slidesAppPath
+  Assert-True ($slidesPptxImport -match 'export async function importPptxArrayBuffer\(') "slides/js/pptx-import.js: should expose a testable import adapter"
+  Assert-True ($slidesPptxImport -match 'export const PPTX_IMPORT_LIMITS') "slides/js/pptx-import.js: should declare explicit ZIP and XML limits"
+  Assert-True ($slidesPptxImport -match "new DecompressionStream\('deflate-raw'\)") "slides/js/pptx-import.js: should inflate ZIP entries natively under a byte limit"
+  Assert-True ($slidesPptxImport -match '<!DOCTYPE\|<!ENTITY') "slides/js/pptx-import.js: should reject DTD and entity declarations"
+  Assert-True ($slidesPptxImport -notmatch '\bfetch\(|XMLHttpRequest|new Image\(|\.src\s*=') "slides/js/pptx-import.js: import must not load external resources"
+  Assert-True ($slidesPptxImport -notmatch "from '\.\./\.\./vendor/") "slides/js/pptx-import.js: pilot must not depend on vendored libraries"
+  Assert-True ($slidesAppForImport -match "import\('\./pptx-import\.js'\)") "slides/js/app.js: PPTX import adapter should be loaded on demand"
+  Assert-True ($slidesAppForImport -match 'replacePresentation\(presentation, \{ statusText') "slides/js/app.js: imported PPTX should replace the document only through the confirmed rollback path"
+  Assert-True (($slidesHtml -match 'data-action="import-pptx"') -and ($slidesHtml -match 'id="pptxFileInput"[^>]*accept="\.pptx')) "slides/index.html: File menu should offer the PPTX import pilot with a .pptx picker"
 }
 
 $slidesHistoryPath = Join-Path $Root 'slides/js/history.js'
@@ -1509,6 +1526,23 @@ $landingViewport = [regex]::Match($landingHtml, '<meta\s+name="viewport"\s+conte
 Assert-True $landingViewport.Success 'index.html: viewport meta is required'
 Assert-True ($landingViewport.Groups[1].Value -notmatch '(?i)user-scalable\s*=\s*(no|0)|maximum-scale\s*=\s*1(\.0)?\b') 'index.html: viewport must not block user zoom'
 Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')) -match 'accessibility-smoke\.html') 'run-browser-smoke.ps1: contrast and zoom smoke must be registered'
+
+# Browser smoke infrastructure: the local server must not block on or drop idle preconnected sockets,
+# failed pages must carry the server request log, and accessibility smoke waits for observable conditions.
+$serveOfficePath = Join-Path $Root 'tests/serve-office.ps1'
+$smokeRunnerPath = Join-Path $Root 'tests/run-browser-smoke.ps1'
+$accessibilitySmokePath = Join-Path $Root 'tests/accessibility-smoke.html'
+if ((Test-Path $serveOfficePath) -and (Test-Path $smokeRunnerPath) -and (Test-Path $accessibilitySmokePath)) {
+  $serveOffice = Get-Content -Raw -Encoding UTF8 $serveOfficePath
+  $smokeRunner = Get-Content -Raw -Encoding UTF8 $smokeRunnerPath
+  $accessibilitySmoke = Get-Content -Raw -Encoding UTF8 $accessibilitySmokePath
+  Assert-True ($serveOffice -match '\[System\.Net\.Sockets\.Socket\]::Select\(') 'tests/serve-office.ps1: should serve connections from a Select loop instead of blocking on idle preconnected sockets'
+  Assert-True ($serveOffice -notmatch 'ReadTimeout\s*=') 'tests/serve-office.ps1: must not close connections after a short blocking read timeout'
+  Assert-True ($smokeRunner -match 'Assert-ServerKeepsPreconnectedSockets -PortNumber \$Port') 'run-browser-smoke.ps1: should verify that the server keeps preconnected sockets usable'
+  Assert-True ($smokeRunner -match "'-LogPath', \`$serverLogPath" -and $smokeRunner -match 'Add-ServerLogDetails') 'run-browser-smoke.ps1: failed pages should include the server log of resources that failed to load'
+  Assert-True ($accessibilitySmoke -match 'async function openFileMenu\(doc\) \{[^}]*waitFor\(') 'tests/accessibility-smoke.html: File menu check should wait for visible commands, not a fixed sleep'
+  Assert-True ($accessibilitySmoke -notmatch 'await wait\(700\)') 'tests/accessibility-smoke.html: frames should wait for editor readiness, not a fixed 700 ms'
+}
 Assert-True ($landingHtml -notmatch 'status-badge[^>]*>\s*soon\s*<') 'index.html: editor cards must not show a stale "soon" status'
 
 # XLSX: невідомий результат формули не записується як 0, аркуш без ширин не має порожнього <cols>.

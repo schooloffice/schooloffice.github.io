@@ -103,6 +103,61 @@
       "automatedTest": "tests/slides-domain-behavior.html: pptx corpus: table, native chart and slide link are exported",
       "externalCheck": { "program": "Microsoft PowerPoint 16.0 build 17932", "result": "opened: 2 слайди, HasTable, HasChart, дія посилання 7 на тексті" },
       "result": "passed"
+    },
+    {
+      "id": "pptx-import-simple-title-shapes",
+      "format": "pptx",
+      "direction": "import",
+      "file": "powerpoint-simple-title-shapes.pptx",
+      "origin": "Microsoft PowerPoint 16.0 build 17932 через COM (generate-pptx-fixtures.ps1)",
+      "supportedProperties": ["титульний слайд із placeholder-ами макета", "явний фон слайда", "прямокутник і овал із текстом", "напис із жирним і звичайним run"],
+      "expectedLosses": ["Змішане форматування в текстовому блоці спрощено до переважного: 1"],
+      "automatedTest": "tests/slides-pptx-import-behavior.html: simple title/shapes",
+      "result": "passed: геометрія placeholder-ів із макета, кольори теми й стилю фігур, точний перелік втрат"
+    },
+    {
+      "id": "pptx-import-simple-images",
+      "format": "pptx",
+      "direction": "import",
+      "file": "powerpoint-simple-images.pptx",
+      "origin": "Microsoft PowerPoint 16.0 build 17932 через COM (generate-pptx-fixtures.ps1)",
+      "supportedProperties": ["вбудовані PNG і JPEG", "центрований підпис", "повернуте зображення"],
+      "expectedLosses": [],
+      "automatedTest": "tests/slides-pptx-import-behavior.html: simple images",
+      "result": "passed: зображення як data URL, геометрія й поворот"
+    },
+    {
+      "id": "pptx-import-simple-4x3-bullets",
+      "format": "pptx",
+      "direction": "import",
+      "file": "powerpoint-simple-4x3-bullets.pptx",
+      "origin": "Microsoft PowerPoint 16.0 build 17932 через COM (generate-pptx-fixtures.ps1)",
+      "supportedProperties": ["формат 4:3", "маркований список із зразка слайдів", "повернутий прямокутник"],
+      "expectedLosses": ["Слайди формату 4:3 вписано у формат 16:9 з полями", "Змішане форматування в текстовому блоці спрощено до переважного: 1"],
+      "automatedTest": "tests/slides-pptx-import-behavior.html: simple 4:3",
+      "result": "passed: вписування з полями, список, поворот"
+    },
+    {
+      "id": "pptx-import-complex-group-table-freeform",
+      "format": "pptx",
+      "direction": "import",
+      "file": "powerpoint-complex-group-table-freeform.pptx",
+      "origin": "Microsoft PowerPoint 16.0 build 17932 через COM (generate-pptx-fixtures.ps1)",
+      "supportedProperties": ["напис"],
+      "expectedLosses": ["Градієнтний фон замінено першим кольором: 1", "Групи об’єктів не перенесено: 1 (об’єктів у них: 2)", "Таблиці не перенесено: 1", "Фігури інших типів не перенесено: 2 (довільна фігура, зірка)", "Переходи між слайдами не перенесено: 1", "Анімації не перенесено: 1"],
+      "automatedTest": "tests/slides-pptx-import-behavior.html: complex group/table",
+      "result": "passed: імпортовано лише напис, усі втрати названо"
+    },
+    {
+      "id": "pptx-import-complex-links-notes-linked-image",
+      "format": "pptx",
+      "direction": "import",
+      "file": "powerpoint-complex-links-notes-linked-image.pptx",
+      "origin": "Microsoft PowerPoint 16.0 build 17932 через COM (generate-pptx-fixtures.ps1)",
+      "supportedProperties": ["напис", "вбудоване PNG"],
+      "expectedLosses": ["Гіперпосилання не перенесено: 1", "Змішане форматування в текстовому блоці спрощено до переважного: 1", "Лінії та сполучні лінії не перенесено: 1", "Віддзеркалення об’єктів не перенесено: 1", "Зовнішні (пов’язані) зображення не завантажуються: 1", "Нотатки доповідача не перенесено: 1"],
+      "automatedTest": "tests/slides-pptx-import-behavior.html: complex links",
+      "result": "passed: пов'язане зображення не завантажується, усі втрати названо"
     }
   ],
   "plusExportChecks": [

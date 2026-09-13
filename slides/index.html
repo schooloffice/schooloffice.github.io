@@ -20,6 +20,7 @@
   </noscript>
 
   <input id="projectFileInput" type="file" accept=".json,.artslides,.artslides.json,application/json" hidden>
+  <input id="pptxFileInput" type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden>
   <input id="imageFileInput" type="file" accept="image/*" hidden>
 
   <div id="modalOverlay" class="modal-overlay hidden" aria-hidden="true">
@@ -96,6 +97,8 @@
             Нова презентація</span><span class="shortcut">Ctrl+N</span></button>
         <button class="menu-item" data-action="open-project"><span><i class="fa-solid fa-folder-open fa-fw"></i>
             Відкрити…</span><span class="shortcut">Ctrl+O</span></button>
+        <button class="menu-item" data-action="import-pptx"><span><i class="fa-solid fa-file-import fa-fw"></i>
+            Імпорт PPTX (пілот)…</span></button>
         <button class="menu-item" data-action="save-project"><span><i class="fa-solid fa-floppy-disk fa-fw"></i>
             Зберегти файл…</span><span class="shortcut">Ctrl+S</span></button>
         <div class="menu-sep"></div>

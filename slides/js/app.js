@@ -163,6 +163,7 @@ function initDom() {
   dom.dirtyDot = $('#dirtyDot');
   dom.saveBadge = $('#saveBadge');
   dom.projectFileInput = $('#projectFileInput');
+  dom.pptxFileInput = $('#pptxFileInput');
   dom.imageFileInput = $('#imageFileInput');
   dom.stage = $('#stage');
   dom.stageSizer = $('#stageSizer');
@@ -248,6 +249,10 @@ function runOfficeCommand(command) {
 
 function openProjectPicker() {
   window.OfficeShell?.openFilePicker?.(dom.projectFileInput) || dom.projectFileInput.click();
+}
+
+function openPptxPicker() {
+  window.OfficeShell?.openFilePicker?.(dom.pptxFileInput) || dom.pptxFileInput.click();
 }
 
 function openImagePicker({ keepOperation = false } = {}) {
@@ -1110,6 +1115,7 @@ function bindInputs() {
     event.target.value = String(percent);
   });
   dom.projectFileInput.addEventListener('change', onProjectFileSelected);
+  dom.pptxFileInput.addEventListener('change', onPptxFileSelected);
   dom.imageFileInput.addEventListener('change', onImageFileSelected);
 
   // Нотатки доповідача — редагування поточного слайда; історія коаліс­ується в
@@ -1516,6 +1522,7 @@ function dispatchAction(action, trigger = null) {
   switch (action) {
     case 'new-project': runOfficeCommand('new') || confirmNewProject(); break;
     case 'open-project': runOfficeCommand('open') || openProjectPicker(); break;
+    case 'import-pptx': openPptxPicker(); break;
     case 'save-project': runOfficeCommand('save') || saveProjectFile(); break;
     case 'export-pdf': handleExportPdf(); break;
     case 'export-pptx': handleExportPptx(); break;
@@ -1671,9 +1678,21 @@ async function onProjectFileSelected() {
   }
   // Відкриття файла користувачем скасовує запізніле відновлення чернетки.
   cancelDraftHydration();
-  // Повний знімок стану редагування для відкату: якщо застосування чи рендер
-  // імпорту зірветься (попри валідацію), повертаємо відкритий проєкт РАЗОМ з
-  // історією та статусом збереження, без втрат.
+  let parsed = null;
+  try {
+    parsed = parsePresentationText(await readFileAsText(file));
+  } catch {
+    parsed = null;
+  }
+  if (!parsed || !replacePresentation(parsed, { statusText: 'Файл відкрито' })) {
+    showInfoModal('Не вдалося відкрити файл', 'Перевірте, чи це файл презентації ПЛЮС Слайди у форматі JSON.');
+  }
+}
+
+// Повна заміна відкритого документа. Якщо застосування чи рендер зірветься (попри
+// валідацію), повертаємо попередній проєкт РАЗОМ з історією та статусом збереження.
+function replacePresentation(presentation, { statusText, unsaved = false }) {
+  cancelDraftHydration();
   const previous = {
     presentation: serializePresentation(),
     undoStack: deepClone(state.undoStack),
@@ -1681,16 +1700,15 @@ async function onProjectFileSelected() {
     unsavedChanges: state.unsavedChanges
   };
   try {
-    const text = await readFileAsText(file);
-    const parsed = parsePresentationText(text);
-    if (!parsed) throw new Error('invalid');
     invalidateAutosave({ cancelPending: true });
-    applyPresentationData(parsed);
+    applyPresentationData(presentation);
     resetHistory();
     state.unsavedChanges = false;
     updateDirtyUi();
     renderAll();
-    setStatusRight('Файл відкрито');
+    if (unsaved) markDirty(statusText);
+    else setStatusRight(statusText);
+    return true;
   } catch {
     applyPresentationData(previous.presentation);
     state.undoStack = previous.undoStack;
@@ -1698,8 +1716,50 @@ async function onProjectFileSelected() {
     state.unsavedChanges = previous.unsavedChanges;
     updateDirtyUi();
     renderAll();
-    showInfoModal('Не вдалося відкрити файл', 'Перевірте, чи це файл презентації ПЛЮС Слайди у форматі JSON.');
+    return false;
   }
+}
+
+let pptxImportInProgress = false;
+
+// Пілот імпорту PPTX: адаптер (завантажується лише на вимогу) будує окрему модель;
+// поточний документ замінюється тільки після успіху й підтвердження зі списком втрат.
+async function onPptxFileSelected() {
+  const file = dom.pptxFileInput.files?.[0];
+  dom.pptxFileInput.value = '';
+  if (!file || pptxImportInProgress) return;
+  pptxImportInProgress = true;
+  setStatusRight('Імпорт PPTX…');
+  let imported;
+  try {
+    const { importPptxArrayBuffer } = await import('./pptx-import.js');
+    imported = await importPptxArrayBuffer(await file.arrayBuffer(), { fileName: file.name });
+  } catch (error) {
+    const reason = error?.name === 'PptxImportError' ? error.message : 'Файл не вдалося прочитати як презентацію PowerPoint.';
+    showInfoModal('PPTX не імпортовано', `${reason} Поточну презентацію не змінено.`);
+    setStatusRight('PPTX не імпортовано');
+    return;
+  } finally {
+    pptxImportInProgress = false;
+  }
+  const { presentation, report } = imported;
+  const summary = `«${file.name}»: слайдів — ${report.slideCount}, об’єктів — ${report.importedElements}. Поточну презентацію буде замінено, її незбережені зміни втратяться.`;
+  setStatusRight('PPTX чекає підтвердження');
+  showModal({
+    title: 'Імпорт PPTX (пілот)',
+    text: report.warnings.length ? `${summary} Не перенесено або спрощено:` : summary,
+    bodyNode: report.warnings.length
+      ? createNode('ul', { className: 'import-loss-list' }, ...report.warnings.map(text => createNode('li', { text })))
+      : createNode('p', { className: 'import-loss-none', text: 'Для підтримуваної підмножини втрат не виявлено.' }),
+    confirmText: 'Замінити презентацію',
+    cancelText: 'Скасувати',
+    icon: 'fa-solid fa-file-import',
+    onConfirm: () => {
+      if (replacePresentation(presentation, { statusText: 'PPTX імпортовано', unsaved: true })) return true;
+      showInfoModal('PPTX не імпортовано', 'Не вдалося застосувати імпортовану презентацію. Поточну презентацію не змінено.');
+      return false;
+    }
+  });
 }
 
 function addSlide() {
