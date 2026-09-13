@@ -540,6 +540,19 @@
       }
     };
 
+    // Кадр requestAnimationFrame не приходить у фоновій вкладці чи iframe (і ненадійний під
+    // навантаженням у headless-перевірках), тож дублюємо його таймером: спрацьовує той, хто перший.
+    const scheduleToolbarUpdate = callback => {
+      let done = false;
+      const run = () => {
+        if (done) return;
+        done = true;
+        callback();
+      };
+      requestAnimationFrame(run);
+      setTimeout(run, 100);
+    };
+
     toolbars.forEach(toolbar => {
       if (toolbar.dataset.officeScrollEnhanced === 'true') return;
       toolbar.dataset.officeScrollEnhanced = 'true';
@@ -560,14 +573,16 @@
         // requestAnimationFrame can be throttled for a background editor iframe,
         // leaving the newly active control outside the mobile toolbar viewport.
         if (activeTool) revealTool(toolbar, activeTool);
-        requestAnimationFrame(() => updateScrollState(toolbar));
+        scheduleToolbarUpdate(() => updateScrollState(toolbar));
       });
       observer.observe(toolbar, {
         subtree: true,
         attributes: true,
         attributeFilter: ['class', 'aria-pressed', 'aria-selected']
       });
-      requestAnimationFrame(() => {
+      // Стилі вже застосовано до запуску скрипта, тож стан градієнта можна порахувати одразу.
+      updateScrollState(toolbar);
+      scheduleToolbarUpdate(() => {
         updateScrollState(toolbar);
         revealTool(toolbar, toolbar.querySelector(activeSelector));
       });

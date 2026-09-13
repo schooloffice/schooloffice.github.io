@@ -40,6 +40,29 @@
       throw new Error(label);
     }
 
+    // Очікування спостережуваної умови замість фіксованої паузи. Повертає, чи умова справдилася;
+    // саме твердження лишається за check, тож перевірка не послаблюється.
+    async function waitUntil(predicate, timeout = 8000) {
+      const start = performance.now();
+      while (performance.now() - start < timeout) {
+        if (predicate()) return true;
+        await wait(50);
+      }
+      return !!predicate();
+    }
+
+    // DOM редактора не змінювався протягом quietMs — початковий рендер завершено.
+    async function waitForQuietDom(doc, quietMs = 250, timeout = 5000) {
+      let lastChange = performance.now();
+      const observer = new MutationObserver(() => { lastChange = performance.now(); });
+      observer.observe(doc.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+      try {
+        return await waitUntil(() => performance.now() - lastChange >= quietMs, timeout);
+      } finally {
+        observer.disconnect();
+      }
+    }
+
     async function loadEditor(service, viewport) {
       const frame = document.createElement('iframe');
       frame.width = viewport.width;
@@ -57,7 +80,9 @@
       frame.src = `../${service}/index.html?responsive=${viewport.width}x${viewport.height}`;
       await loaded;
       await waitFor(() => frame.contentDocument?.body?.classList.contains('office-app'), `${service}: app shell unavailable`);
-      await wait(180);
+      // Замість фіксованих 180 мс: шрифти завантажено, а початковий рендер редактора завершено.
+      await frame.contentDocument.fonts?.ready;
+      await waitForQuietDom(frame.contentDocument);
       return frame;
     }
 
@@ -71,21 +96,48 @@
       const toolbar = doc.querySelector('.office-toolbar.toolbar');
       check(`${service} ${viewport.width}: toolbar enhanced`, toolbar?.dataset.officeScrollEnhanced === 'true');
       if (viewport.width !== 390) return;
-      check(`${service} mobile: toolbar overflows horizontally`, toolbar.scrollWidth > toolbar.clientWidth + 2);
-      check(`${service} mobile: overflow gradient is visible`, toolbar.classList.contains('can-scroll-right'));
+      // Стан тулбара в назві перевірки: при падінні видно, чи клас застарів, чи тулбар уже прокручено.
+      const toolbarState = () => ` (scroll ${Math.round(toolbar.scrollLeft)}/${Math.round(toolbar.scrollWidth - toolbar.clientWidth)}; ${[...toolbar.classList].filter(name => /scroll/.test(name)).join(' ') || 'no scroll classes'})`;
+      const overflows = toolbar.scrollWidth > toolbar.clientWidth + 2;
+      check(`${service} mobile: toolbar overflows horizontally${overflows ? '' : toolbarState()}`, overflows);
+      // Класи прокрутки оболонка виставляє в requestAnimationFrame після запуску; під навантаженням
+      // кадр приходить пізніше (відтворено: «scroll 0/1069; no scroll classes»). Чекаємо, доки класи
+      // відповідатимуть геометрії тулбара.
+      const classesMatch = await waitUntil(() => toolbar.classList.contains('office-toolbar-scrollable') === (toolbar.scrollWidth - toolbar.clientWidth > 2));
+      const gradientVisible = toolbar.classList.contains('can-scroll-right');
+      // Якщо класи так і не з'явилися, у назву перевірки йде стан кадрів і реакція на подію scroll:
+      // так видно, чи не виконувався кадр оболонки, чи класи застаріли після зміни розкладки.
+      let staleDetails = '';
+      if (!classesMatch || !gradientVisible) {
+        const win = doc.defaultView;
+        const frameRuns = await new Promise(resolve => {
+          let fired = false;
+          win.requestAnimationFrame(() => { fired = true; resolve(true); });
+          setTimeout(() => resolve(fired), 1000);
+        });
+        toolbar.dispatchEvent(new Event('scroll'));
+        staleDetails = ` [classes match geometry: ${classesMatch}; animation frame runs: ${frameRuns}; after scroll event: ${[...toolbar.classList].filter(name => /scroll/.test(name)).join(' ') || 'none'}]`;
+      }
+      check(`${service} mobile: overflow gradient is visible${gradientVisible ? '' : toolbarState() + staleDetails}`, gradientVisible);
       toolbar.scrollLeft = 0;
       toolbar.dispatchEvent(new WheelEvent('wheel', { deltaY: 150, bubbles: true, cancelable: true }));
-      await wait(250);
+      await waitUntil(() => toolbar.scrollLeft > 0, 2000);
       check(`${service} mobile: wheel scrolls toolbar`, toolbar.scrollLeft > 0);
 
+      // Скидання прокрутки завершене, коли подія scroll оновила класи тулбара.
       toolbar.scrollLeft = 0;
-      await wait(350);
+      await waitUntil(() => toolbar.scrollLeft === 0 && !toolbar.classList.contains('can-scroll-left'), 2000);
       const lastTool = [...toolbar.querySelectorAll('button:not([hidden]), select:not([hidden]), input:not([hidden])')]
         .filter(tool => tool.getClientRects().length > 0)
         .at(-1);
+      const isRevealed = () => {
+        const toolbarBox = toolbar.getBoundingClientRect();
+        const toolBox = lastTool.getBoundingClientRect();
+        return toolBox.width > 0 && toolBox.left >= toolbarBox.left - 2 && toolBox.right <= toolbarBox.right + 2;
+      };
       lastTool.classList.remove('active');
       lastTool.classList.add('active');
-      await wait(450);
+      await waitUntil(isRevealed, 2000);
       const toolbarRect = toolbar.getBoundingClientRect();
       const toolRect = lastTool.getBoundingClientRect();
       const toolRevealed = toolRect.width > 0 && toolRect.left >= toolbarRect.left - 2 && toolRect.right <= toolbarRect.right + 2;

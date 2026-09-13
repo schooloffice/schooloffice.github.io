@@ -1543,6 +1543,24 @@ if ((Test-Path $serveOfficePath) -and (Test-Path $smokeRunnerPath) -and (Test-Pa
   Assert-True ($accessibilitySmoke -match 'async function openFileMenu\(doc\) \{[^}]*waitFor\(') 'tests/accessibility-smoke.html: File menu check should wait for visible commands, not a fixed sleep'
   Assert-True ($accessibilitySmoke -notmatch 'await wait\(700\)') 'tests/accessibility-smoke.html: frames should wait for editor readiness, not a fixed 700 ms'
 }
+
+# Responsive and text model smoke wait for observable conditions instead of fixed sleeps or timer-only
+# polling, which under load either fires before the work is done or burns the virtual time budget.
+$responsiveSmokePath = Join-Path $Root 'tests/responsive-smoke.html'
+$textModelSmokePath = Join-Path $Root 'tests/text-model-behavior.html'
+if ((Test-Path $responsiveSmokePath) -and (Test-Path $textModelSmokePath)) {
+  $responsiveSmoke = Get-Content -Raw -Encoding UTF8 $responsiveSmokePath
+  $textModelSmoke = Get-Content -Raw -Encoding UTF8 $textModelSmokePath
+  Assert-True ($responsiveSmoke -notmatch 'await wait\((?:180|250|350|450)\)') 'tests/responsive-smoke.html: frame and toolbar checks should wait for observable conditions, not fixed sleeps'
+  Assert-True ($responsiveSmoke -match "classList\.contains\('office-toolbar-scrollable'\)") 'tests/responsive-smoke.html: overflow gradient check should wait until toolbar scroll classes match its geometry'
+  Assert-True ($textModelSmoke -match "addEventListener\('art:paginated'") 'tests/text-model-behavior.html: settle should finish on the art:paginated event, not on timer polling alone'
+}
+
+$officeUiPath = Join-Path $Root 'office-ui.js'
+if (Test-Path $officeUiPath) {
+  $officeUi = Get-Content -Raw -Encoding UTF8 $officeUiPath
+  Assert-True ($officeUi -match 'const scheduleToolbarUpdate = callback' -and $officeUi -match 'setTimeout\(run, \d+\)') 'office-ui.js: responsive toolbar scroll state should not depend on requestAnimationFrame alone'
+}
 Assert-True ($landingHtml -notmatch 'status-badge[^>]*>\s*soon\s*<') 'index.html: editor cards must not show a stale "soon" status'
 
 # XLSX: невідомий результат формули не записується як 0, аркуш без ширин не має порожнього <cols>.

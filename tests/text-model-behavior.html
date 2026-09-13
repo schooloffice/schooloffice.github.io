@@ -65,6 +65,12 @@
       return { label, ok: !!ok };
     }
 
+    // Редактор надсилає art:paginated, коли пагінацію завершено. Слухач реєструється синхронно,
+    // до першого await у settle(), тож не пропускає пагінацію, щойно поставлену в чергу зміною.
+    function paginationFinished(editor) {
+      return new Promise(resolve => editor.addEventListener('art:paginated', resolve, { once: true }));
+    }
+
     function pageContents(doc) {
       return Array.from(doc.querySelectorAll('#editor .page-content'));
     }
@@ -81,10 +87,15 @@
       const exportHTML = () => win.art.editor.getExportHTML();
       const breakCount = html => (String(html).match(/<hr style="break-after: page;?">/g) || []).length;
       const paragraphCount = html => (String(html).match(/<p>/g) || []).length;
+      // Кінець пагінації — подія art:paginated; стабільна кількість аркушів лишається запасним
+      // варіантом. Лише таймерне опитування під навантаженням вичерпувало бюджет віртуального часу.
       async function settle() {
+        let paginated = false;
+        const pagination = paginationFinished(editor).then(() => { paginated = true; });
         let previous = -1;
-        for (let i = 0; i < 40; i += 1) {
-          await wait(120);
+        for (let i = 0; i < 40 && !paginated; i += 1) {
+          await Promise.race([wait(120), pagination]);
+          if (paginated) break;
           const now = pageContents(doc).length;
           if (now === previous) break;
           previous = now;
@@ -234,10 +245,15 @@
       const diagnostics = {};
       const exportHTML = () => win.art.editor.getExportHTML();
       const countTags = (html, tag) => (String(html).match(new RegExp(`<${tag}[ >]`, 'g')) || []).length;
+      // Кінець пагінації — подія art:paginated; стабільна кількість аркушів лишається запасним
+      // варіантом. Пауза після нього покриває 180-мілісекундну затримку запису історії.
       async function settle() {
+        let paginated = false;
+        const pagination = paginationFinished(editor).then(() => { paginated = true; });
         let previous = -1;
-        for (let i = 0; i < 60; i += 1) {
-          await wait(150);
+        for (let i = 0; i < 60 && !paginated; i += 1) {
+          await Promise.race([wait(150), pagination]);
+          if (paginated) break;
           const now = pageContents(doc).length;
           if (now === previous) break;
           previous = now;
