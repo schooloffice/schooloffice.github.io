@@ -118,7 +118,8 @@ function validateWorkbookSheet(value, usedNames, index) {
 function validateWorkbookPayload(payload) {
   workbookObject(payload, 'Файл');
   if (payload.type && payload.type !== 'art-tables-workbook') throw new Error('Це не файл ПЛЮС Таблиць');
-  if (payload.version != null && ![1, 2].includes(Number(payload.version))) throw new Error('Непідтримувана версія файлу');
+  // Версія 3 додала іменовані діапазони; файли версій 1–2 відкриваються без імен.
+  if (payload.version != null && ![1, 2, 3].includes(Number(payload.version))) throw new Error('Непідтримувана версія файлу');
 
   const usedNames = new Set();
   let validatedSheets;
@@ -143,7 +144,8 @@ function validateWorkbookPayload(payload) {
   return {
     name: String(payload.name || DEFAULT_WORKBOOK_NAME).slice(0, WORKBOOK_MAX_NAME_LEN),
     activeSheet: Number.isInteger(active) ? Math.max(0, Math.min(validatedSheets.length - 1, active)) : 0,
-    sheets: validatedSheets
+    sheets: validatedSheets,
+    names: normalizeNamedRanges(payload.names, validatedSheets, { strict: true })
   };
 }
 
@@ -151,10 +153,11 @@ function exportWorkbook() {
   syncActiveSheetFromGlobals();
   const payload = {
     type: 'art-tables-workbook',
-    version: 2,
+    version: 3,
     name: workbookName,
     activeSheet,
-    sheets
+    sheets,
+    names: workbookNames
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
@@ -192,6 +195,7 @@ function applyWorkbookPayload(rawPayload) {
   workbookName = normalizeFileName(payload.name || DEFAULT_WORKBOOK_NAME);
   updateFileNameUi();
   sheets = payload.sheets;
+  workbookNames = payload.names;
   activeSheet = payload.activeSheet;
   rowFilter = null;
   loadGlobalsFromSheet(activeSheet);

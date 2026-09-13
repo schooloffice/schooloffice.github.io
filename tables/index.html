@@ -109,6 +109,8 @@
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="filter"><span><i class="fa-solid fa-filter fa-fw"></i> Фільтр за стовпцем…</span></button>
         <button class="menu-item" data-action="clear-filter"><span><i class="fa-solid fa-filter-circle-xmark fa-fw"></i> Зняти фільтр</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="named-ranges"><span><i class="fa-solid fa-tag fa-fw"></i> Іменовані діапазони…</span></button>
       </div>
     </div>
 
@@ -336,6 +338,24 @@
     </div>
   </div>
 
+  <div id="namedRangesModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="namedRangesTitle">
+    <div class="modal-content cond-modal">
+      <h3 id="namedRangesTitle" class="modal-title">Іменовані діапазони</h3>
+      <p class="modal-text">Виділений діапазон: <strong id="namedRangeTarget">Аркуш1!$A$1</strong></p>
+      <div class="cond-form">
+        <label class="cond-label" for="namedRangeName">Ім'я</label>
+        <input id="namedRangeName" type="text" class="cond-select named-range-input" maxlength="60" placeholder="наприклад, Витрати" autocomplete="off">
+      </div>
+      <p class="named-range-hint">У формулі: =SUM(Витрати). Ім'я починається з літери або _, без пробілів, не схоже на адресу клітинки й не збігається з функцією.</p>
+      <p id="namedRangeError" class="cond-error" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button data-close-modal="namedRangesModal" class="modal-secondary-btn">Закрити</button>
+        <button id="namedRangeAddBtn" class="modal-primary-btn">Додати для виділення</button>
+      </div>
+      <ul class="cond-rule-list" id="namedRangeList"></ul>
+    </div>
+  </div>
+
   <div id="filterModal" class="modal-overlay">
     <div class="modal-content cond-modal">
       <h3 class="modal-title">Фільтр за стовпцем</h3>
@@ -388,6 +408,7 @@
   <script src="js/formula-references.js"></script>
   <script src="js/formula-functions.js"></script>
   <script src="js/formula-engine.js"></script>
+  <script src="js/named-ranges.js"></script>
   <script src="js/core.js"></script>
   <script src="js/state.js"></script>
   <script src="js/column-sizing.js"></script>

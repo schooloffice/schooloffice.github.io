@@ -53,6 +53,7 @@ function renameSheet(i, newName) {
       if (String(v || '').startsWith('=')) data[k] = renameSheetRefs(v, oldName, name);
     }
   }
+  renameNamedRangeSheet(oldName, name);
   loadGlobalsFromSheet(activeSheet);
 
   rebuildGrid();
@@ -76,6 +77,7 @@ function deleteSheet(i) {
         if (String(value || '').startsWith('=')) data[key] = deleteSheetRefs(value, deletedName);
       }
     }
+    deleteNamedRangeSheet(deletedName);
     sheets.splice(i, 1);
     if (activeSheet > i) activeSheet--;
     else if (activeSheet === i) activeSheet = Math.min(i, sheets.length - 1);

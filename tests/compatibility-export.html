@@ -55,14 +55,18 @@
       const tables = await loadFrame('../tables/index.html');
       await waitFor(() => !!tables.contentWindow.TablesXlsxFile?.exportArrayBuffer && !!tables.contentWindow.TablesFormulaEngine?.evaluateFormulaForExport, 'tables ready');
       exportsOut['plus-tables-formulas.xlsx'] = await toBase64(tables.contentWindow.TablesXlsxFile.exportArrayBuffer({
-        type: 'art-tables-workbook', version: 2, name: 'Формули ПЛЮС', activeSheet: 0,
+        type: 'art-tables-workbook', version: 3, name: 'Формули ПЛЮС', activeSheet: 0,
         sheets: [
           { name: 'Дані', rows: 60, cols: 30, colWidths: { 0: 160 }, condRules: [], cellStyles: { A1: 'style-text-bold' }, cellData: {
             A1: 'Показник', A2: '10', A3: '4', A4: 'Текст',
             B1: 'Формула', B2: '=A2/A3', B3: '=A2>A3', B4: '=IF(A2>A3,"більше","менше")', B5: '=A2/0',
-            B6: '=ROUND(A2/3,2)', B7: '=SUM(Підсумок!A1:A2)', B8: '=AVERAGE(A2:A3)'
+            B6: '=ROUND(A2/3,2)', B7: '=SUM(Підсумок!A1:A2)', B8: '=AVERAGE(A2:A3)', B9: '=SUM(Показники)', B10: '=Разом*2'
           } },
           { name: 'Підсумок', rows: 60, cols: 30, colWidths: {}, condRules: [], cellStyles: {}, cellData: { A1: '1', A2: '2' } }
+        ],
+        names: [
+          { name: 'Показники', sheet: 'Дані', range: [0, 2, 0, 3] },
+          { name: 'Разом', sheet: 'Підсумок', range: [0, 2, 0, 2] }
         ]
       }));
 

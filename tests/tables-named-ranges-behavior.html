@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Tables Named Ranges Behavior</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 1rem; }
+    iframe { width: 1050px; height: 700px; border: 1px solid #cbd5e1; }
+    pre { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <pre id="result">Running...</pre>
+  <iframe id="frame" src="about:blank"></iframe>
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('frame');
+    const checks = [];
+    const check = (label, ok, detail = '') => checks.push({ label, ok: !!ok, detail });
+
+    function waitFor(predicate, label, timeout = 10000) {
+      const started = performance.now();
+      return new Promise((resolve, reject) => {
+        function tick() {
+          let ok = false;
+          try { ok = !!predicate(); } catch { ok = false; }
+          if (ok) return resolve();
+          if (performance.now() - started > timeout) return reject(new Error(`Timed out waiting for ${label}`));
+          setTimeout(tick, 50);
+        }
+        tick();
+      });
+    }
+
+    const sheet = (name, cellData) => ({ name, rows: 60, cols: 30, cellData, cellStyles: {}, colWidths: {}, condRules: [] });
+
+    async function run() {
+      // Фікстуру Excel читаємо до iframe: Таблиці реєструють service worker, і пізніші fetch ішли б через нього.
+      const excelFixture = await (await fetch('fixtures/compatibility/excel-named-ranges.xlsx', { cache: 'no-store' })).arrayBuffer();
+      localStorage.clear();
+      frame.src = '../tables/index.html';
+      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+      const win = frame.contentWindow;
+      const doc = frame.contentDocument;
+      await waitFor(() => win.TablesApp?.ready, 'Tables ready promise');
+      await win.TablesApp.ready;
+
+      const api = win.TablesNamedRanges;
+      check('named ranges API is exposed', typeof api?.list === 'function' && typeof api?.define === 'function');
+      // Таблиці працюють під CSP без eval: стан читаємо й змінюємо через інтерфейс, а не глобали застосунку.
+      const rawFormula = id => {
+        const nameBox = doc.getElementById('activeCellRef');
+        nameBox.value = id;
+        nameBox.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        const formula = doc.getElementById('formulaBar').value;
+        // Поле адреси фокусує клітинку, а клітинка у фокусі показує сиру формулу замість результату.
+        doc.activeElement?.blur?.();
+        return formula;
+      };
+      const sheetCount = () => doc.querySelectorAll('#sheetTabs .sheet-tab').length;
+      const selectRange = (from, to) => {
+        const cell = id => doc.getElementById(`inp_${id}`).closest('td');
+        cell(from).dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+        cell(to).dispatchEvent(new win.MouseEvent('mouseenter'));
+        doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+      };
+      const value = id => doc.getElementById(`inp_${id}`)?.value;
+      const names = () => api.list();
+
+      win.TablesWorkbookFile.applyWorkbookPayload({
+        type: 'art-tables-workbook', version: 2, name: 'Бюджет класу', activeSheet: 0,
+        sheets: [
+          sheet('Дані', { A1: 'Місяць', B1: 'Витрати', A2: 'Вересень', B2: '120', A3: 'Жовтень', B3: '80', A4: 'Листопад', B4: '100', D1: '=SUM(Витрати)', D2: '=Витрати' }),
+          sheet('Підсумок', { A1: '=MAX(Витрати)', A2: '=SUM(Невідоме)' })
+        ]
+      });
+      check('old workbook without names opens with an empty name list', names().length === 0);
+      check('formula with an unknown name shows #NAME?', value('D1') === '#NAME?', value('D1'));
+
+      // Діалог: ім'я для виділення B2:B4.
+      selectRange('B2', 'B4');
+      doc.querySelector('.menu-dropdown[data-menu="data"] [data-action="named-ranges"]').click();
+      await waitFor(() => doc.getElementById('namedRangesModal')?.classList.contains('active'), 'named ranges dialog opens');
+      check('dialog shows the selected range', doc.getElementById('namedRangeTarget')?.textContent === 'Дані!$B$2:$B$4', doc.getElementById('namedRangeTarget')?.textContent);
+      const nameInput = doc.getElementById('namedRangeName');
+      const addButton = doc.getElementById('namedRangeAddBtn');
+      const errorText = () => doc.getElementById('namedRangeError')?.textContent || '';
+      nameInput.value = 'A1';
+      addButton.click();
+      check('name that looks like a cell address is rejected in the dialog', names().length === 0 && /адрес/.test(errorText()), errorText());
+      nameInput.value = 'SUM';
+      addButton.click();
+      check('function name is rejected in the dialog', names().length === 0 && /функці/.test(errorText()), errorText());
+      nameInput.value = 'Витрати';
+      addButton.click();
+      check('valid name is added for the selection', names().length === 1 && names()[0].sheet === 'Дані' && names()[0].range.join() === '1,2,1,4', JSON.stringify(names()));
+      check('dialog lists the name with its address', /Витрати/.test(doc.getElementById('namedRangeList').textContent) && doc.getElementById('namedRangeList').textContent.includes('Дані!$B$2:$B$4'));
+      check('SUM(Витрати) is calculated', value('D1') === '300', value('D1'));
+      check('multi-cell name used as a single value shows #VALUE!', value('D2') === '#VALUE!', value('D2'));
+      nameInput.value = 'витрати';
+      addButton.click();
+      check('case-insensitive duplicate is rejected', names().length === 1 && /уже є/.test(errorText()), errorText());
+
+      win.undo();
+      check('undo removes the added name', names().length === 0 && value('D1') === '#NAME?');
+      win.redo();
+      check('redo restores the name', names().length === 1 && value('D1') === '300');
+
+      win.TablesStructure.insertRow(2, 1);
+      check('inserting a row above moves the name', names()[0].range.join() === '1,3,1,5' && value('D1') === '300', `${names()[0].range} ${value('D1')}`);
+      win.TablesStructure.deleteRow(4, 1);
+      check('deleting a row inside the name shrinks it', names()[0].range.join() === '1,3,1,4' && value('D1') === '220', `${names()[0].range} ${value('D1')}`);
+      win.undo();
+      check('undo restores the range after deleting a row', names()[0].range.join() === '1,3,1,5' && value('D1') === '300');
+
+      // Перейменування в діалозі переписує формули на всіх аркушах.
+      win.TablesNamedRanges.openDialog();
+      doc.querySelector('#namedRangeList [data-named-range-action="rename"]').click();
+      doc.querySelector('#namedRangeList input').value = 'Видатки';
+      doc.querySelector('#namedRangeList [data-named-range-action="save"]').click();
+      const renamedD1 = rawFormula('D1');
+      check('renaming the name rewrites formulas on this sheet', names()[0].name === 'Видатки' && renamedD1 === '=SUM(Видатки)' && value('D1') === '300', `${renamedD1} ${value('D1')}`);
+
+      win.TablesSheets.renameSheet(0, 'Кошторис');
+      check('renaming the sheet updates the name', names()[0].sheet === 'Кошторис' && api.address(names()[0]) === 'Кошторис!$B$3:$B$5' && value('D1') === '300',
+        `${api.address(names()[0])} sheet=${names()[0].sheet} D1=${value('D1')} focus=${doc.activeElement?.id}`);
+      win.TablesSheets.switchToSheet(1);
+      const otherSheetA1 = rawFormula('A1');
+      check('renaming the name rewrote the formula on the other sheet', otherSheetA1 === '=MAX(Видатки)', otherSheetA1);
+      check('name works from another sheet', value('A1') === '120' && value('A2') === '#NAME?', `${value('A1')} ${value('A2')}`);
+      win.TablesSheets.switchToSheet(0);
+
+      // .arttab зберігає імена й перевіряє їх під час відкриття.
+      const blobs = new Map();
+      const downloads = [];
+      const originalCreateObjectURL = win.URL.createObjectURL;
+      const originalAnchorClick = win.HTMLAnchorElement.prototype.click;
+      win.URL.createObjectURL = function captureObjectUrl(blob) {
+        const url = originalCreateObjectURL.call(win.URL, blob);
+        blobs.set(url, blob);
+        return url;
+      };
+      win.HTMLAnchorElement.prototype.click = function captureDownload() {
+        if (this.download) { downloads.push(blobs.get(this.href)); return undefined; }
+        return originalAnchorClick.call(this);
+      };
+      let saved = null;
+      try {
+        win.TablesWorkbookFile.exportWorkbook();
+        saved = downloads[0] ? JSON.parse(await downloads[0].text()) : null;
+      } finally {
+        win.URL.createObjectURL = originalCreateObjectURL;
+        win.HTMLAnchorElement.prototype.click = originalAnchorClick;
+      }
+      check('.arttab saves names as file version 3', saved?.version === 3 && saved.names?.length === 1 && saved.names[0].name === 'Видатки' && saved.names[0].sheet === 'Кошторис', JSON.stringify(saved?.names));
+      win.TablesNamedRanges.openDialog();
+      doc.querySelector('#namedRangeList [data-named-range-action="delete"]').click();
+      const deleteConfirmText = doc.getElementById('namedRangeList').textContent;
+      // D1, D3 (колишня D2 після вставки рядка) і A1 на аркуші «Підсумок».
+      check('deleting a used name asks for confirmation with the formula count', names().length === 1 && deleteConfirmText.includes('Формул із «Видатки»: 3'), deleteConfirmText);
+      doc.querySelector('#namedRangeList [data-named-range-action="confirm-delete"]').click();
+      check('deleting the name turns its formulas into #NAME?', names().length === 0 && value('D1') === '#NAME?');
+      win.TablesWorkbookFile.applyWorkbookPayload(saved);
+      check('opening the .arttab restores the name', names().length === 1 && value('D1') === '300');
+      const rejection = payload => { try { win.TablesWorkbookFile.validateWorkbookPayload(payload); return ''; } catch (error) { return error.message; } };
+      check('file with a name that looks like an address is rejected', /A1/.test(rejection({ ...saved, names: [{ name: 'A1', sheet: 'Кошторис', range: [0, 1, 0, 1] }] })));
+      check('file with a name outside its sheet is rejected', rejection({ ...saved, names: [{ name: 'Поза', sheet: 'Кошторис', range: [0, 1, 0, 900] }] }) !== '');
+      check('file with an unknown future version is still rejected', /версія/.test(rejection({ ...saved, version: 4 })));
+
+      await win.TablesStorage.flushStateToStorage();
+      const draft = await win.OfficeStorage.createDraftStore({ app: 'tables', key: 'tables' }).load();
+      check('draft storage keeps the names', draft?.names?.[0]?.name === 'Видатки', JSON.stringify(draft?.names));
+
+      // Видалення аркуша, на який вказує ім'я: #REF! у формулах і повернення через Undo.
+      win.TablesSheets.deleteSheet(0);
+      doc.getElementById('confirmBtnYes').click();
+      await waitFor(() => sheetCount() === 1, 'sheet deleted');
+      check('deleting the sheet breaks the name to #REF!', names()[0].sheet === null && names()[0].range === null && value('A1') === '#REF!' && api.address(names()[0]) === '#REF!', `${JSON.stringify(names())} ${value('A1')}`);
+      win.undo();
+      check('undo brings back the sheet and the name', sheetCount() === 2 && names()[0].sheet === 'Кошторис');
+
+      // XLSX: definedNames у книзі, кеш формул через імена, round-trip і чесні втрати.
+      const xlsxApi = win.TablesXlsxFile;
+      const xlsxPayload = {
+        type: 'art-tables-workbook', version: 3, name: 'Імена', activeSheet: 0,
+        sheets: [
+          sheet('Дані', { B2: '120', B3: '80', B4: '100', D1: '=SUM(Витрати)' }),
+          sheet('Мій аркуш', { A1: '5' })
+        ],
+        names: [
+          { name: 'Витрати', sheet: 'Дані', range: [1, 2, 1, 4] },
+          { name: 'Кут', sheet: 'Мій аркуш', range: [0, 1, 0, 1] }
+        ]
+      };
+      const xlsxBuffer = xlsxApi.exportArrayBuffer(xlsxPayload);
+      const workbookXml = new TextDecoder().decode(new Uint8Array(xlsxBuffer));
+      check('XLSX export writes workbook definedNames', workbookXml.includes('<definedName name="Витрати">Дані!$B$2:$B$4</definedName>')
+        && workbookXml.includes('<definedName name="Кут">\'Мій аркуш\'!$A$1</definedName>'));
+      check('XLSX export caches formulas that use names', /<f>SUM\(Витрати\)<\/f><v>300<\/v>/.test(workbookXml));
+      const roundTrip = await xlsxApi.importArrayBuffer(xlsxBuffer, 'Імена.xlsx');
+      check('XLSX round-trip keeps names without warnings', JSON.stringify(roundTrip.payload.names) === JSON.stringify(xlsxPayload.names) && roundTrip.warnings.length === 0,
+        `${JSON.stringify(roundTrip.payload.names)} ${roundTrip.warnings.join('; ')}`);
+      const losses = xlsxApi.describeExportLosses({ ...xlsxPayload, names: [...xlsxPayload.names, { name: 'Зламане', sheet: null, range: null }] });
+      check('broken names are listed as XLSX export losses', losses.some(line => line.includes('Зламане')), losses.join(' | '));
+
+      const excel = await xlsxApi.importArrayBuffer(excelFixture, 'excel-named-ranges.xlsx');
+      const excelNames = [...(excel.payload.names || [])].sort((a, b) => a.name.localeCompare(b.name));
+      check('Excel fixture: workbook names import', JSON.stringify(excelNames) === JSON.stringify([
+        { name: 'Витрати', sheet: 'Дані', range: [1, 2, 1, 4] },
+        { name: 'Ставка', sheet: 'Дані', range: [1, 2, 1, 2] }
+      ]), JSON.stringify(excelNames));
+      check('Excel fixture: formulas keep the names', excel.payload.sheets[1].cellData.B1 === '=SUM(Витрати)' && excel.payload.sheets[1].cellData.B3 === '=B1*Ставка/100',
+        JSON.stringify(excel.payload.sheets[1].cellData));
+      check('Excel fixture: unsupported names are reported exactly', excel.warnings.includes('імена рівня аркуша (Місцеве)')
+        && excel.warnings.includes('імена, несумісні з ПЛЮС (Ставка.Місяць)'), excel.warnings.join('; '));
+      win.TablesWorkbookFile.applyWorkbookPayload(excel.payload);
+      win.TablesSheets.switchToSheet(1);
+      check('Excel fixture: PLUS computes the named formulas like Excel', value('B1') === '300' && value('B2') === '120' && value('B3') === '360', `${value('B1')} ${value('B2')} ${value('B3')}`);
+    }
+
+    run().then(() => {
+      const failed = checks.filter(item => !item.ok);
+      result.textContent = checks.map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}${item.ok || !item.detail ? '' : `: ${item.detail}`}`).join('\n')
+        + (failed.length ? `\n\nFAILED: ${failed.map(item => item.label).join('; ')}` : '\n\nPASSED');
+      document.body.dataset.tablesNamedRanges = failed.length ? 'failed' : 'passed';
+    }).catch(error => {
+      result.textContent = `${checks.map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}`).join('\n')}\n\n${error?.stack || error}`;
+      document.body.dataset.tablesNamedRanges = 'failed';
+    });
+  </script>
+</body>
+</html>

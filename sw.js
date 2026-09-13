@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v72';
+const CACHE_VERSION = 'office-plus-v73';
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_STATUS_CACHE = `${CACHE_VERSION}-offline-status`;
 const OFFLINE_STATUS_URL = new URL('./__offline_status__', self.registration.scope).href;
@@ -117,6 +117,7 @@ const ALL_LOCAL_ASSETS = [
   './tables/js/grid-viewport.js',
   './tables/js/grid.js',
   './tables/js/model.js',
+  './tables/js/named-ranges.js',
   './tables/js/runtime.js',
   './tables/js/selection-actions.js',
   './tables/js/sorting.js',

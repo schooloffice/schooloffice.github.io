@@ -12,6 +12,7 @@
 //   { type:'unary', op:'-'|'+'|'%post', operand }
 //   { type:'binary', op, left, right }
 //   { type:'call', name, args:[node] }
+//   { type:'name', name }                      // іменований діапазон (named-ranges.js)
 
 function tokenizeFormula(src) {
   const s = String(src || '');
@@ -95,10 +96,15 @@ function tokenizeFormula(src) {
         continue;
       }
 
-      // Назва (функція або ідентифікатор)
+      // Назва (функція або іменований діапазон). text — написання автора, call — далі «(».
       let j = i;
       while (j < n && (isLetter(s[j]) || isCyr(s[j]) || s[j] === '_' || isDigit(s[j]))) j++;
-      tokens.push({ type: 'name', value: s.slice(i, j).toUpperCase() });
+      // «$» без адреси: без цієї перевірки порожня назва зациклювала токенізатор.
+      if (j === i) throw new Error('Unexpected character: ' + ch);
+      let k = j;
+      while (k < n && (s[k] === ' ' || s[k] === '\t' || s[k] === '\n' || s[k] === '\r')) k++;
+      const text = s.slice(i, j);
+      tokens.push({ type: 'name', value: text.toUpperCase(), text, call: s[k] === '(' });
       i = j;
       continue;
     }
@@ -213,8 +219,8 @@ function parseFormula(src) {
         expectOp(')');
         return { type: 'call', name: t.value, args };
       }
-      // Гола назва без "(" — невідомий ідентифікатор
-      throw formulaError(FORMULA_ERRORS.NAME);
+      // Гола назва без "(" — іменований діапазон; невідоме ім'я дає #NAME? під час обчислення
+      return { type: 'name', name: t.value };
     }
 
     throw new Error('Unexpected token');

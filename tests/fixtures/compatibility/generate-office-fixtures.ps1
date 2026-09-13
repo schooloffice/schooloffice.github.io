@@ -8,8 +8,12 @@
 param(
   [string]$OutDir = $PSScriptRoot,
   # Необов'язковий журнал кроків: допомагає знайти COM-виклик, який чекає прихований діалог.
-  [string]$ProgressLog = ''
+  [string]$ProgressLog = '',
+  # Лише вибрані випадки (formulas-types, two-sheets, formatting-chart, named-ranges); порожньо — усі.
+  [string[]]$Only = @()
 )
+
+function Wants([string]$case) { return -not $Only -or $Only -contains $case }
 
 $ErrorActionPreference = 'Stop'
 $OutDir = (Resolve-Path -LiteralPath $OutDir).Path
@@ -33,6 +37,7 @@ try {
   $program = "Microsoft Excel $($excel.Version) build $($excel.Build)"
 
   # 1. Числові, логічні й текстові формули на одному аркуші.
+  if (Wants 'formulas-types') {
   $wb = $excel.Workbooks.Add()
   $ws = $wb.Worksheets.Item(1)
   $ws.Name = 'Формули'
@@ -48,8 +53,10 @@ try {
   $wb.Close($false)
   Release-Com $ws; Release-Com $wb
   Step 'excel: formulas saved'
+  }
 
   # 2. Два аркуші з міжаркушевими формулами.
+  if (Wants 'two-sheets') {
   $wb = $excel.Workbooks.Add()
   while ($wb.Worksheets.Count -lt 2) { [void]$wb.Worksheets.Add($missing, $wb.Worksheets.Item($wb.Worksheets.Count)) }
   $data = $wb.Worksheets.Item(1)
@@ -70,8 +77,10 @@ try {
   $wb.Close($false)
   Release-Com $data; Release-Com $totals; Release-Com $wb
   Step 'excel: two sheets saved'
+  }
 
   # 3. Оформлення, числовий формат, дата, ширина колонки й діаграма.
+  if (Wants 'formatting-chart') {
   $wb = $excel.Workbooks.Add()
   $ws = $wb.Worksheets.Item(1)
   $ws.Name = 'Оформлення'
@@ -100,6 +109,40 @@ try {
   $wb.Close($false)
   Release-Com $chartObject; Release-Com $ws; Release-Com $wb
   Step 'excel: formatting and chart saved'
+  }
+
+  # 4. Іменовані діапазони: імена книги у формулах, ім'я рівня аркуша й ім'я з крапкою,
+  #    яке Excel приймає, а синтаксис ПЛЮС — ні.
+  if (Wants 'named-ranges') {
+  $wb = $excel.Workbooks.Add()
+  while ($wb.Worksheets.Count -lt 2) { [void]$wb.Worksheets.Add($missing, $wb.Worksheets.Item($wb.Worksheets.Count)) }
+  $data = $wb.Worksheets.Item(1)
+  $totals = $wb.Worksheets.Item(2)
+  $data.Name = 'Дані'
+  $totals.Name = 'Підсумок'
+  $data.Range('A1').Value2 = 'Місяць'
+  $data.Range('B1').Value2 = 'Витрати'
+  $data.Range('A2').Value2 = 'Вересень'
+  $data.Range('B2').Value2 = 120
+  $data.Range('A3').Value2 = 'Жовтень'
+  $data.Range('B3').Value2 = 80
+  $data.Range('A4').Value2 = 'Листопад'
+  $data.Range('B4').Value2 = 100
+  [void]$wb.Names.Add('Витрати', '=Дані!$B$2:$B$4')
+  [void]$wb.Names.Add('Ставка', '=Дані!$B$2')
+  [void]$wb.Names.Add('Ставка.Місяць', '=Дані!$B$3')
+  [void]$data.Names.Add('Місцеве', '=Дані!$A$2:$A$4')
+  $totals.Range('A1').Value2 = 'Разом'
+  $totals.Range('B1').Formula = '=SUM(Витрати)'
+  $totals.Range('A2').Value2 = 'Максимум'
+  $totals.Range('B2').Formula = '=MAX(Витрати)'
+  $totals.Range('A3').Value2 = 'Відсоток'
+  $totals.Range('B3').Formula = '=B1*Ставка/100'
+  $wb.SaveAs((Join-Path $OutDir 'excel-named-ranges.xlsx'), $xlOpenXMLWorkbook)
+  $wb.Close($false)
+  Release-Com $data; Release-Com $totals; Release-Com $wb
+  Step 'excel: named ranges saved'
+  }
 } finally {
   $excel.Quit()
   Release-Com $excel

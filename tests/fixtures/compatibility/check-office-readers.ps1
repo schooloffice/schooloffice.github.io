@@ -42,8 +42,11 @@ function Test-Excel {
     $result.program = "Microsoft Excel $($excel.Version) build $($excel.Build)"
     $book = $excel.Workbooks.Open((Copy-ToTemp 'plus-tables-formulas.xlsx'), 0, $true)
     $result.sheets = @($book.Worksheets | ForEach-Object { $_.Name })
+    # Іменовані діапазони книги, як їх прочитав Excel: ім'я → RefersTo.
+    $result.names = [ordered]@{}
+    foreach ($definedName in $book.Names) { $result.names[$definedName.Name] = $definedName.RefersTo }
     $sheet = $book.Worksheets.Item('Дані')
-    foreach ($ref in @('B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8')) {
+    foreach ($ref in @('B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B9', 'B10')) {
       $cell = $sheet.Range($ref)
       $value = $cell.Value2
       $isError = $value -is [int] -and $ExcelErrorCodes.ContainsKey($value)

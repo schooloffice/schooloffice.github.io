@@ -32,7 +32,8 @@ function shiftConditionalRules(opts) {
   });
 }
 
-// Оновлює міжаркушеві посилання на змінений (активний) аркуш в УСІХ інших аркушах.
+// Оновлює міжаркушеві посилання на змінений (активний) аркуш в УСІХ інших аркушах
+// та діапазони імен книги на цьому аркуші.
 function applyStructureToOtherSheets(opts) {
   const modName = sheets[activeSheet]?.name;
   if (!modName) return;
@@ -46,6 +47,7 @@ function applyStructureToOtherSheets(opts) {
       }
     }
   }
+  shiftNamedRanges(modName, opts);
 }
 
 function activeShiftOpts(opts) {

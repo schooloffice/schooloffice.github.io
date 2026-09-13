@@ -82,6 +82,7 @@ const tablesDraftStore = window.OfficeStorage.createDraftStore({
 function normalizeStoragePayload(payload) {
   if (!payload || !Array.isArray(payload.sheets) || !payload.sheets.length) return false;
   sheets = payload.sheets.map(normalizeSheet);
+  workbookNames = normalizeNamedRanges(payload.names, sheets);
   const requested = Number(payload.activeSheet) || 0;
   activeSheet = Math.max(0, Math.min(sheets.length - 1, requested));
   loadGlobalsFromSheet(activeSheet);
@@ -95,6 +96,7 @@ async function loadStateFromStorage() {
   if (normalizeStoragePayload(payload)) return true;
 
   sheets = [normalizeSheet({ name: 'Аркуш1' })];
+  workbookNames = [];
   activeSheet = 0;
   loadGlobalsFromSheet(activeSheet);
   return false;
@@ -102,7 +104,7 @@ async function loadStateFromStorage() {
 
 function createStorageSnapshot() {
   syncActiveSheetFromGlobals();
-  return JSON.parse(JSON.stringify({ sheets, activeSheet }));
+  return JSON.parse(JSON.stringify({ sheets, activeSheet, names: workbookNames }));
 }
 
 function estimateStorageSize(obj) {

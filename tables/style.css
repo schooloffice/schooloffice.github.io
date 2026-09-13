@@ -719,6 +719,15 @@ th.col-header {
 .cond-del { border: none; background: none; color: #dc2626; cursor: pointer; padding: 4px; border-radius: 6px; }
 .cond-del:hover { background: #fee2e2; }
 
+/* Named ranges modal */
+.named-range-input { flex: 1; min-width: 160px; }
+.named-range-hint { font-size: 12px; color: #64748b; margin: 0 0 4px; }
+.named-range-address { color: #475569; }
+.named-range-broken { color: #dc2626; }
+.named-range-edit { color: #334155; }
+.named-range-edit:hover { background: #eef2f7; }
+.named-range-btn { padding: 4px 10px; font-size: 13px; }
+
 /* Sheet tabs (аркуші) */
 .sheet-tabs {
   display: flex;

@@ -68,7 +68,8 @@ function stringifyFormulaTokens(tokens, transformRef) {
       case 'num': out += (t.text != null ? t.text : String(t.value)); break;
       case 'str': out += '"' + t.value + '"'; break;
       case 'err': out += t.value; break;
-      case 'name': out += t.value; break;
+      // Функції друкуємо у верхньому регістрі, імена діапазонів — як їх написав автор.
+      case 'name': out += t.call ? t.value : (t.text ?? t.value); break;
       case 'op': out += t.value; break;
       case 'ref': out += transformRef(t); break;
       default: break;

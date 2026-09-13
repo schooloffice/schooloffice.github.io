@@ -16,6 +16,11 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
   }
 
+  // Текст елемента: апостроф у лапках назви аркуша ('Мій аркуш'!$A$1) лишаємо як є.
+  function xmlText(value) {
+    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
   function normalizePath(path) {
     const parts = [];
     String(path || '').replace(/\\/g, '/').split('/').forEach(part => {
@@ -240,6 +245,47 @@
     return { name, cellData: data, cellStyles, colWidths, condRules: [], rows: Math.max(60, maxRow), cols: Math.max(30, maxCol + 1) };
   }
 
+  // Ім'я книги Excel на абсолютний прямокутний діапазон одного аркуша: Дані!$B$2:$B$4.
+  const DEFINED_NAME_REF_RE = /^(?:'((?:[^']|'')+)'|([^'!\s]+))!\$([A-Z]{1,3})\$(\d+)(?::\$([A-Z]{1,3})\$(\d+))?$/i;
+
+  // Переносимо лише імена рівня книги на такий діапазон; решту називаємо в попередженні.
+  function parseDefinedNames(workbook, sheets, sourceSheetNames, warnings) {
+    const namedRanges = window.TablesNamedRanges;
+    const names = [];
+    const skipped = { sheetScoped: [], builtIn: [], incompatible: [], complex: [], outside: [] };
+    Array.from(workbook.getElementsByTagNameNS('*', 'definedName')).forEach(node => {
+      const name = String(node.getAttribute('name') || '');
+      if (/^_xlnm\./i.test(name)) { skipped.builtIn.push(name.replace(/^_xlnm\./i, '')); return; }
+      if (node.hasAttribute('localSheetId')) { skipped.sheetScoped.push(name); return; }
+      if (typeof namedRanges?.nameError !== 'function' || namedRanges.nameError(name, names) || names.length >= namedRanges.MAX_COUNT) {
+        skipped.incompatible.push(name);
+        return;
+      }
+      const match = DEFINED_NAME_REF_RE.exec(String(node.textContent || '').trim());
+      const sheetName = match ? (match[1] != null ? match[1].replace(/''/g, "'") : match[2]) : '';
+      const sheetIndex = match ? sourceSheetNames.findIndex(source => source.toLowerCase() === sheetName.toLowerCase()) : -1;
+      const start = match ? cellCoords(match[3] + match[4]) : null;
+      const end = match?.[5] ? cellCoords(match[5] + match[6]) : start;
+      if (sheetIndex < 0 || !start || !end || start.row < 1 || end.row < 1) { skipped.complex.push(name); return; }
+      const cMin = Math.min(start.col, end.col);
+      const cMax = Math.max(start.col, end.col);
+      const rMin = Math.min(start.row, end.row);
+      const rMax = Math.max(start.row, end.row);
+      if (rMax > 500 || cMax >= 200) { skipped.outside.push(name); return; }
+      const sheet = sheets[sheetIndex];
+      sheet.rows = Math.max(sheet.rows, rMax);
+      sheet.cols = Math.max(sheet.cols, cMax + 1);
+      names.push({ name, sheet: sheet.name, range: [cMin, rMin, cMax, rMax] });
+    });
+    const report = (list, label) => { if (list.length) warnings.add(`${label} (${list.join(', ')})`); };
+    report(skipped.sheetScoped, 'імена рівня аркуша');
+    report(skipped.incompatible, 'імена, несумісні з ПЛЮС');
+    report(skipped.complex, 'імена з формулами, кількома діапазонами чи відносними посиланнями');
+    report(skipped.outside, 'імена поза межами 500×200');
+    report(skipped.builtIn, 'службові імена Excel');
+    return names;
+  }
+
   async function importArrayBuffer(buffer, filename = 'Таблиця.xlsx') {
     if (!buffer || buffer.byteLength > MAX_BYTES) throw new Error('XLSX завеликий (максимум 12 МБ)');
     const files = await unzip(buffer);
@@ -265,8 +311,9 @@
     for (const path of files.keys()) {
       if (/^(xl\/(drawings|charts|media|pivotTables)|xl\/vbaProject)/i.test(path)) warnings.add('зображення, діаграми, зведені таблиці або макроси');
     }
+    const names = parseDefinedNames(workbook, sheets, sheetNodes.map((sheet, index) => String(sheet.getAttribute('name') || `Аркуш${index + 1}`)), warnings);
     return {
-      payload: { type: 'art-tables-workbook', version: 2, name: filename.replace(/\.xlsx$/i, ''), activeSheet: Math.max(0, Math.min(sheets.length - 1, activeTab)), sheets },
+      payload: { type: 'art-tables-workbook', version: 3, name: filename.replace(/\.xlsx$/i, ''), activeSheet: Math.max(0, Math.min(sheets.length - 1, activeTab)), sheets, names },
       warnings: [...warnings]
     };
   }
@@ -424,15 +471,22 @@
     const styles = buildStyles(sheets);
     // Кеш рахуємо з експортованої книги (усі аркуші), а не з живої сітки.
     const evaluateForExport = window.TablesFormulaEngine?.evaluateFormulaForExport;
+    const names = Array.isArray(payload.names) ? payload.names : [];
     const sheetEntries = sheets.map((sheet, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sheet, styles,
-      formula => (typeof evaluateForExport === 'function' ? evaluateForExport(formula, sheets, i) : { kind: 'unknown' }))]);
+      formula => (typeof evaluateForExport === 'function' ? evaluateForExport(formula, sheets, i, names) : { kind: 'unknown' }))]);
     const workbookSheets = sheets.map((sheet, i) => `<sheet name="${xmlEscape(sheet.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
+    // Зламані імена (#REF!) не пишемо: describeExportLosses називає їх перед експортом.
+    const addressOf = window.TablesNamedRanges?.address;
+    const definedNames = typeof addressOf === 'function'
+      ? names.filter(entry => entry.sheet && Array.isArray(entry.range))
+        .map(entry => `<definedName name="${xmlEscape(entry.name)}">${xmlText(addressOf(entry))}</definedName>`).join('')
+      : '';
     const workbookRels = sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('') + `<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`;
     const overrides = sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('');
     const entries = [
       ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${overrides}</Types>`],
       ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
-      ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView activeTab="${payload.activeSheet || 0}"/></bookViews><sheets>${workbookSheets}</sheets><calcPr calcMode="auto" fullCalcOnLoad="1"/></workbook>`],
+      ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView activeTab="${payload.activeSheet || 0}"/></bookViews><sheets>${workbookSheets}</sheets>${definedNames ? `<definedNames>${definedNames}</definedNames>` : ''}<calcPr calcMode="auto" fullCalcOnLoad="1"/></workbook>`],
       ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${workbookRels}</Relationships>`],
       ['xl/styles.xml', styles.xml],
       ...sheetEntries
@@ -442,7 +496,7 @@
 
   function currentPayload() {
     if (typeof syncActiveSheetFromGlobals === 'function') syncActiveSheetFromGlobals();
-    return { type: 'art-tables-workbook', version: 2, name: workbookName, activeSheet, sheets };
+    return { type: 'art-tables-workbook', version: 3, name: workbookName, activeSheet, sheets, names: workbookNames };
   }
 
   // Дозволені класи оформлення, яких XLSX v1 не переносить (решту мапить styleDescriptor).
@@ -468,6 +522,10 @@
       });
       if (cells) losses.push(`${label} (клітинок: ${cells}; аркуші: ${names.join(', ')}) — значення лишаться звичайними числами`);
     });
+    const brokenNames = (payload.names || []).filter(entry => !entry.sheet || !Array.isArray(entry.range));
+    if (brokenNames.length) {
+      losses.push(`іменовані діапазони з помилкою #REF! (${brokenNames.map(entry => entry.name).join(', ')}) — формули з ними в Excel покажуть #NAME?`);
+    }
     return losses;
   }
 

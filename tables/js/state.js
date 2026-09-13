@@ -132,14 +132,16 @@ function snapshotState() {
   syncActiveSheetFromGlobals();
   return {
     activeSheet,
-    sheets: JSON.stringify(sheets)
+    sheets: JSON.stringify(sheets),
+    names: JSON.stringify(workbookNames)
   };
 }
 
 function statesEqual(a, b) {
   return !!a && !!b &&
     a.activeSheet === b.activeSheet &&
-    a.sheets === b.sheets;
+    a.sheets === b.sheets &&
+    a.names === b.names;
 }
 
 function saveToHistory() {
@@ -172,6 +174,7 @@ function restoreState(state) {
   if (Array.isArray(parsed) && parsed.length) {
     sheets = parsed.map(normalizeSheet);
   }
+  workbookNames = normalizeNamedRanges(safeParseJSON(state.names, []), sheets);
   activeSheet = Math.max(0, Math.min(sheets.length - 1, state.activeSheet || 0));
   rowFilter = null;
   loadGlobalsFromSheet(activeSheet);
@@ -183,6 +186,7 @@ function restoreState(state) {
   initMenusAndToolbar();
   restoreUiState();
   if (typeof renderSheetTabs === 'function') renderSheetTabs();
+  if (typeof renderNamedRangeList === 'function') renderNamedRangeList();
   setSaveBadge();
 }
 

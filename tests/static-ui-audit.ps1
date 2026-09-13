@@ -629,6 +629,7 @@ $runtimeFiles = @(
   'tables/js/formula-parser.js',
   'tables/js/formula-references.js',
   'tables/js/model.js',
+  'tables/js/named-ranges.js',
   'tables/js/storage.js',
   'tables/js/ui.js',
   'tables/js/grid.js',
@@ -1569,6 +1570,17 @@ Assert-True ($xlsxAdapter -notmatch '</f><v>0</v>') 'tables/js/xlsx-file.js: for
 Assert-True ($xlsxAdapter -match 'fullCalcOnLoad="1"') 'tables/js/xlsx-file.js: exported workbooks must ask for recalculation on load'
 Assert-True ($xlsxAdapter -notmatch '<cols>\$\{cols\}</cols><sheetData>') 'tables/js/xlsx-file.js: an empty <cols> element makes Excel refuse the file'
 Assert-True (Test-Path (Join-Path $Root 'tests/fixtures/compatibility/registry.json')) 'tests/fixtures/compatibility/registry.json: compatibility registry is required'
+
+# Іменовані діапазони: ім'я — вузол AST, який розв'язує рушій; модуль офлайн і під smoke-тестами.
+$namedRangesModule = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/js/named-ranges.js')
+Assert-True ($namedRangesModule -match 'window\.TablesNamedRanges\s*=') 'tables/js/named-ranges.js: should expose TablesNamedRanges'
+Assert-True ($namedRangesModule -match 'NAMED_RANGE_MAX_COUNT\s*=\s*100') 'tables/js/named-ranges.js: workbook names must stay limited'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/js/formula-parser.js')) -match "return \{ type: 'name', name: t\.value \}") 'tables/js/formula-parser.js: a bare name must become a name node for the engine, not a text substitution'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/index.html')) -match 'src="js/formula-engine\.js"[\s\S]*src="js/named-ranges\.js"[\s\S]*src="js/core\.js"') 'tables/index.html: named-ranges.js should load after formula-engine.js and before core.js'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'sw.js')) -match "'\./tables/js/named-ranges\.js'") 'sw.js: named-ranges.js must be cached for offline use'
+Assert-True ($xlsxAdapter -match '<definedNames>') 'tables/js/xlsx-file.js: workbook names must be exported as definedNames'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')) -match 'tables-named-ranges-behavior\.html') 'tests/run-browser-smoke.ps1: named ranges smoke page must run'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/tables-formula-behavior.html')) -match 'src="\.\./tables/js/named-ranges\.js"') 'tests/tables-formula-behavior.html: formula checks must load named-ranges.js'
 
 # Ctrl/Cmd+S у Схемах зберігає JSON-проєкт; PNG лишається окремим експортом у меню.
 $flowchartsShortcuts = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'flowcharts/js/keyboard-shortcuts.js')

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-09-11",
+  "updated": "2026-09-13",
   "machine": "Windows 11 Pro 10.0.26200, Microsoft Office 16.0 build 17932 (Excel, Word, PowerPoint)",
   "notes": [
     "Корпус починається з 9 синтетичних випадків і розширюється лише під реальні файли.",
@@ -37,6 +37,16 @@
       "expectedLosses": ["діаграма (попередження після імпорту)", "точна заливка й числовий формат 0,00 можуть спроститися"],
       "automatedTest": "tests/xlsx-behavior.html: Excel fixture: bold header, numbers and column width; chart is reported as not transferred",
       "result": "passed: оформлення й ширина імпортуються, діаграма названа у попередженні"
+    },
+    {
+      "id": "xlsx-named-ranges",
+      "format": "xlsx",
+      "file": "excel-named-ranges.xlsx",
+      "origin": "Microsoft Excel 16.0 build 17932 через COM (generate-office-fixtures.ps1 -Only named-ranges)",
+      "supportedProperties": ["імена книги Витрати (Дані!$B$2:$B$4) і Ставка (Дані!$B$2)", "формули =SUM(Витрати), =MAX(Витрати), =B1*Ставка/100 на іншому аркуші"],
+      "expectedLosses": ["ім'я рівня аркуша «Місцеве» (попередження після імпорту)", "ім'я «Ставка.Місяць» із крапкою, несумісне із синтаксисом ПЛЮС (попередження після імпорту)"],
+      "automatedTest": "tests/tables-named-ranges-behavior.html: Excel fixture: workbook names import, formulas keep the names, unsupported names are reported exactly, PLUS computes the named formulas like Excel",
+      "result": "passed: імена Витрати й Ставка імпортуються; ПЛЮС рахує 300, 120 і 360 — як Excel; «Місцеве» і «Ставка.Місяць» названо в попередженні"
     },
     {
       "id": "docx-formatted-text",
@@ -166,9 +176,9 @@
       "origin": "експорт ПЛЮС Таблиці через tests/compatibility-export.html",
       "externalCheck": {
         "program": "Microsoft Excel 16.0 build 17932",
-        "result": "opened after fix: до виправлення Excel не відкривав файл через порожній <cols></cols>. Excel прочитав 2.5 (Double), TRUE (Boolean), «більше» (String), #DIV/0! (Error), 3 і 7; ROUND без кешу перерахував у 3.33"
+        "result": "opened after fix: до виправлення Excel не відкривав файл через порожній <cols></cols>. Excel прочитав 2.5 (Double), TRUE (Boolean), «більше» (String), #DIV/0! (Error), 3 і 7; ROUND без кешу перерахував у 3.33. 2026-09-13: імена книги Показники (=Дані!$A$2:$A$3) і Разом (=Підсумок!$A$2) прочитано як Names, =SUM(Показники) = 14 і =Разом*2 = 4"
       },
-      "automatedTest": "tests/xlsx-behavior.html: cached value checks + sheet without column widths has no empty <cols>",
+      "automatedTest": "tests/xlsx-behavior.html: cached value checks + sheet without column widths has no empty <cols>; tests/tables-named-ranges-behavior.html: XLSX export writes workbook definedNames",
       "result": "passed"
     },
     {

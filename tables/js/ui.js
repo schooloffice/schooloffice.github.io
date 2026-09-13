@@ -295,6 +295,7 @@ function dispatchUiAction(action) {
     case 'cond-format': TablesConditionalFormatting.openCondFormatModal(); break;
     case 'filter': TablesFilter.openFilterModal(); break;
     case 'clear-filter': TablesFilter.clearRowFilter(); break;
+    case 'named-ranges': TablesNamedRanges.openDialog(); break;
     case 'func-sum': applyFunc('SUM'); break;
     case 'func-avg': applyFunc('AVERAGE'); break;
     case 'func-max': applyFunc('MAX'); break;
@@ -322,6 +323,7 @@ F4 — тип посилання у формулі: A1 → $A$1 → A$1 → $A1`
 У цій версії додано:
 • кілька аркушів і міжаркушеві посилання (Аркуш2!A1)
 • абсолютні посилання ($A$1) і клавішу F4
+• іменовані діапазони: =SUM(Витрати)
 • копіювання формул та автозаповнення (маркер)
 • умовні функції COUNTIF, SUMIF, AVERAGEIF
 • фінансові функції PV, FV, PMT: сплачене — від'ємне, ставка — за період

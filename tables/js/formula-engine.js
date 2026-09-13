@@ -56,6 +56,15 @@ function compareValues(left, right, op) {
 
 // Книга, яку зараз експортують у XLSX: міжаркушеві посилання беремо з неї, а не з живої сітки.
 let exportWorkbookSheets = null;
+let exportWorkbookNames = null;
+
+function namedRangesForEvaluation() {
+  return exportWorkbookSheets ? (exportWorkbookNames || []) : workbookNames;
+}
+
+function resolveNameNode(node) {
+  return resolveNamedRangeNode(node.name, namedRangesForEvaluation());
+}
 
 // Контекст аркуша для міжаркушевого посилання (активний → живі глобали + його межі).
 function resolveSheetContext(name) {
@@ -87,6 +96,7 @@ function evalScalar(node) {
     case 'err': throw formulaError(node.value);
     case 'ref': return getCellValueForRef(node);
     case 'range': throw formulaError(FORMULA_ERRORS.VALUE); // діапазон не можна як скаляр
+    case 'name': return evalScalar(resolveNameNode(node));
     case 'unary': {
       if (node.op === '%post') return toFormulaNumber(evalScalar(node.operand)) / 100;
       const v = toFormulaNumber(evalScalar(node.operand));
@@ -114,7 +124,8 @@ function evalBinary(node) {
 
 function collectValues(argNodes) {
   const out = [];
-  for (const node of argNodes) {
+  for (const argNode of argNodes) {
+    const node = argNode.type === 'name' ? resolveNameNode(argNode) : argNode;
     if (node.type === 'range') {
       const sheetName = node.start.sheet;
       let pushed = false;
@@ -239,6 +250,13 @@ function isExcelExactNode(node, depth = 0) {
       }
       return true;
     }
+    case 'name': {
+      // Невідоме ім'я Excel теж показує як #NAME?. Зламане (#REF!) у XLSX не потрапляє,
+      // тож Excel покаже #NAME? — такий результат не кешуємо.
+      let resolved;
+      try { resolved = resolveNameNode(node); } catch (error) { return error?.message === FORMULA_ERRORS.NAME; }
+      return isExcelExactNode(resolved, depth + 1);
+    }
     case 'unary':
       return isExcelExactNode(node.operand, depth + 1);
     case 'binary': {
@@ -271,11 +289,13 @@ function isExcelExactNode(node, depth = 0) {
 
 // Результат формули для кешу XLSX: { kind: number|boolean|string|error|unknown, value }.
 // «unknown» означає, що кеш не пишемо взагалі, а не підставляємо 0.
-function evaluateFormulaForExport(expr, workbookSheets, sheetIndex) {
+function evaluateFormulaForExport(expr, workbookSheets, sheetIndex, workbookNamedRanges = []) {
   const sheet = workbookSheets?.[sheetIndex];
   if (!sheet) return { kind: 'unknown' };
   const previousSheets = exportWorkbookSheets;
+  const previousNames = exportWorkbookNames;
   exportWorkbookSheets = workbookSheets;
+  exportWorkbookNames = Array.isArray(workbookNamedRanges) ? workbookNamedRanges : [];
   pushEvalContext({ data: sheet.cellData || {}, rows: sheet.rows, cols: sheet.cols });
   try {
     const src = String(expr || '').trim();
@@ -298,6 +318,7 @@ function evaluateFormulaForExport(expr, workbookSheets, sheetIndex) {
   } finally {
     popEvalContext();
     exportWorkbookSheets = previousSheets;
+    exportWorkbookNames = previousNames;
     calcDepth = 0;
   }
 }

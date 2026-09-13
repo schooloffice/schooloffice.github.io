@@ -23,6 +23,7 @@
   <script src="../tables/js/formula-references.js"></script>
   <script src="../tables/js/formula-functions.js"></script>
   <script src="../tables/js/formula-engine.js"></script>
+  <script src="../tables/js/named-ranges.js"></script>
   <script src="../tables/js/core.js"></script>
   <script src="../tables/js/state.js"></script>
   <script src="../tables/js/formula-bar.js"></script>
@@ -316,6 +317,71 @@
       TablesClipboard.applyTsvToGridData(TablesClipboard.serializeSelectionToTsv(), 3, 2);
       checks.push(assertEqual('copied PMT shifts relative references', cellData.D2, '=PMT(A2/12,B2,C2)'));
       checks.push(assertClose('copied PMT evaluates the next row', evaluateFormula('D2'), -277.77777777777777));
+
+      // B5: іменовані діапазони книги. Ім'я розв'язується рушієм через AST, а не підстановкою тексту.
+      cellData = { A1: '10', A2: '20', A3: '30', B1: '0.2' };
+      sheets = [
+        { name: 'Аркуш1', cellData, cellStyles: {}, colWidths: {}, condRules: [], rows: ROWS, cols: COL_COUNT },
+        { name: 'Оцінки', cellData: { A1: '12', A2: '9' }, cellStyles: {}, colWidths: {}, condRules: [], rows: 60, cols: 30 }
+      ];
+      activeSheet = 0;
+      workbookNames = [
+        { name: 'Бюджет', sheet: 'Аркуш1', range: [0, 1, 0, 3] },
+        { name: 'Ставка', sheet: 'Аркуш1', range: [1, 1, 1, 1] },
+        { name: 'Оцінки_класу', sheet: 'Оцінки', range: [0, 1, 0, 2] }
+      ];
+      checks.push(assertEqual('SUM over a workbook name', evaluateFormula('SUM(Бюджет)'), 60));
+      checks.push(assertEqual('names are case-insensitive', evaluateFormula('SUM(бюджет)'), 60));
+      checks.push(assertEqual('single-cell name works as a value', evaluateFormula('Ставка*100'), 20));
+      checks.push(assertEqual('name on another sheet', evaluateFormula('MAX(Оцінки_класу)'), 12));
+      checks.push(assertEqual('COUNTIF over a name', evaluateFormula('COUNTIF(Бюджет,">15")'), 2));
+      checks.push(assertThrows('unknown name → #NAME?', () => evaluateFormula('SUM(Невідоме)'), '#NAME?'));
+      checks.push(assertThrows('bare $ without an address is a formula error, not a tokenizer hang', () => evaluateFormula('$+1'), '#VALUE!'));
+      checks.push(assertThrows('multi-cell name as a scalar → #VALUE!', () => evaluateFormula('Бюджет+1'), '#VALUE!'));
+      workbookNames.push({ name: 'Зламане', sheet: null, range: null });
+      checks.push(assertThrows('broken name → #REF!', () => evaluateFormula('SUM(Зламане)'), '#REF!'));
+      workbookNames.pop();
+
+      const nameError = name => namedRangeNameError(name, workbookNames);
+      checks.push(assertEqual('valid Cyrillic name', nameError('Витрати'), ''));
+      checks.push(assertEqual('valid name with underscore and digits', nameError('_Бонус_2026'), ''));
+      const conflictingNames = ['A1', 'b12', 'Tax2024', 'R', 'c', 'SUM', 'true', '1рік', 'два слова', 'бюджет', "Ім'я", 'x'.repeat(61), ''];
+      checks.push(assertEqual('addresses, functions, duplicates and bad syntax are rejected', conflictingNames.filter(name => nameError(name) === '').join(','), ''));
+
+      checks.push(assertEqual('rename rewrites only name tokens', renameNameInFormula('=IF(A1="Бюджет",SUM(Бюджет),бюджет)', 'Бюджет', 'Витрати'), '=IF(A1="Бюджет",SUM(Витрати),Витрати)'));
+      checks.push(assertEqual('rename leaves formulas without the name untouched', renameNameInFormula('=sum(a1:a3)', 'Бюджет', 'Витрати'), '=sum(a1:a3)'));
+      checks.push(assertEqual('structural shift keeps the name spelling', shiftFormulaRefs('=SUM(Бюджет)+A1', { rowAt: 1, rowDelta: 1, local: true }), '=SUM(Бюджет)+A2'));
+
+      shiftNamedRanges('Аркуш1', { rowAt: 1, rowDelta: 1 });
+      checks.push(assertEqual('inserting a row moves names on that sheet', workbookNames[0].range.join(), '0,2,0,4'));
+      checks.push(assertEqual('names on other sheets stay', workbookNames[2].range.join(), '0,1,0,2'));
+      shiftNamedRanges('Аркуш1', { rowAt: 3, rowDelta: -1 });
+      checks.push(assertEqual('deleting a row inside a name shrinks it', workbookNames[0].range.join(), '0,2,0,3'));
+      shiftNamedRanges('аркуш1', { rowAt: 2, rowDelta: -2 });
+      checks.push(assertEqual('deleting every row of a name breaks it', workbookNames[0].range, null));
+      renameNamedRangeSheet('Оцінки', 'Журнал');
+      checks.push(assertEqual('sheet rename updates names', workbookNames[2].sheet, 'Журнал'));
+      deleteNamedRangeSheet('журнал');
+      checks.push(assertEqual('sheet delete breaks names', workbookNames[2].sheet === null && workbookNames[2].range === null, true));
+
+      const fileSheets = [{ name: 'Дані', rows: 10, cols: 5 }];
+      checks.push(assertEqual('old file without names', JSON.stringify(normalizeNamedRanges(undefined, fileSheets, { strict: true })), '[]'));
+      checks.push(assertEqual('valid file names are normalized', JSON.stringify(normalizeNamedRanges([{ name: 'Бал', sheet: 'дані', range: [1, 2, 1, 4] }], fileSheets, { strict: true })), '[{"name":"Бал","sheet":"Дані","range":[1,2,1,4]}]'));
+      const strictRejects = value => { try { normalizeNamedRanges(value, fileSheets, { strict: true }); return false; } catch { return true; } };
+      const badFileNames = [
+        [{ name: 'A1', sheet: 'Дані', range: [0, 1, 0, 1] }],
+        [{ name: 'Бал', sheet: 'Немає', range: [0, 1, 0, 1] }],
+        [{ name: 'Бал', sheet: 'Дані', range: [0, 1, 7, 1] }],
+        [{ name: 'Бал', sheet: 'Дані', range: [2, 1, 1, 1] }],
+        [{ name: 'Бал', sheet: 'Дані', range: [0, 1, 0, 1] }, { name: 'бал', sheet: 'Дані', range: [0, 2, 0, 2] }],
+        Array.from({ length: 101 }, (_, index) => ({ name: `Ім_${index}`, sheet: 'Дані', range: [0, 1, 0, 1] }))
+      ];
+      checks.push(assertEqual('strict validation rejects bad names, sheets, ranges and too many names', badFileNames.filter(value => !strictRejects(value)).length, 0));
+      checks.push(assertEqual('lenient normalization drops invalid entries', normalizeNamedRanges([{ name: 'A1', sheet: 'Дані', range: [0, 1, 0, 1] }, { name: 'Бал', sheet: 'Дані', range: [0, 1, 0, 1] }], fileSheets).length, 1));
+
+      const exportSheets = [{ name: 'Дані', rows: 10, cols: 5, cellData: { A1: '4', A2: '6' } }];
+      checks.push(assertEqual('XLSX cache resolves names from the exported workbook', evaluateFormulaForExport('SUM(Разом)', exportSheets, 0, [{ name: 'Разом', sheet: 'Дані', range: [0, 1, 0, 2] }]).value, 10));
+      workbookNames = [];
 
       result.className = 'pass';
       result.textContent = checks.join('\n') + '\n\nPASSED';

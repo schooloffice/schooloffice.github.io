@@ -210,6 +210,7 @@ function loadExample() {
 
 function clearAll() {
   sheets = [makeSheet('Аркуш1')];
+  workbookNames = [];
   activeSheet = 0;
   rowFilter = null;
   loadGlobalsFromSheet(0);

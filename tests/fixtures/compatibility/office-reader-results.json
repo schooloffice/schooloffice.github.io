@@ -39,12 +39,27 @@
                                            "formula":  "=AVERAGE(A2:A3)",
                                            "value":  7,
                                            "type":  "Double"
-                                       }
+                                       },
+                                "B9":  {
+                                           "formula":  "=SUM(Показники)",
+                                           "value":  14,
+                                           "type":  "Double"
+                                       },
+                                "B10":  {
+                                            "formula":  "=Разом*2",
+                                            "value":  4,
+                                            "type":  "Double"
+                                        }
                             },
                   "sheets":  [
                                  "Дані",
                                  "Підсумок"
-                             ]
+                             ],
+                  "names":  {
+                                "Показники":  "=Дані!$A$2:$A$3",
+                                "Разом":  "=Підсумок!$A$2"
+                            },
+                  "checkedAt":  "2026-09-13T11:23:52"
               },
     "word":  {
                  "program":  "Microsoft Word 16.0",
