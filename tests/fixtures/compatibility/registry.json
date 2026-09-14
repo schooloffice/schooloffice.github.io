@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-09-13",
+  "updated": "2026-09-14",
   "machine": "Windows 11 Pro 10.0.26200, Microsoft Office 16.0 build 17932 (Excel, Word, PowerPoint)",
   "notes": [
     "Корпус починається з 9 синтетичних випадків і розширюється лише під реальні файли.",
@@ -67,6 +67,39 @@
       "expectedLosses": [],
       "automatedTest": "tests/tables-merge-behavior.html: Excel fixture: header and vertical merges import; PLUS draws the merged header and day cell",
       "result": "passed: об'єднання A1:D1 і A3:A4 імпортуються без попереджень, ПЛЮС малює шапку на 4 колонки й клітинку дня на 2 рядки"
+    },
+    {
+      "id": "svg-import-excel-columns",
+      "format": "svg",
+      "direction": "import",
+      "file": "excel-chart-columns.svg",
+      "origin": "Microsoft Excel 16.0 build 17932, Chart.Export у SVG через COM (generate-office-fixtures.ps1 -Only svg-charts)",
+      "supportedProperties": ["translate на групі", "білий фон діаграми", "прямокутники легенди й рамки", "контури з кількома прямими частинами (сітка, стовпці)", "текст із transform matrix і кирилицею"],
+      "expectedLosses": ["Обрізання (clip-path), маски й фільтри не застосовано: 1", "Шрифт і накреслення тексту замінено типовими: 14"],
+      "automatedTest": "tests/vector-svg-import-behavior.html: Excel column chart SVG; confirmation, undo/redo and re-export of the imported drawing",
+      "result": "passed: 31 об'єкт (8 ліній, 6 багатокутників стовпців, 14 написів, 3 прямокутники); білий фон не став об'єктом, координати зсунуто на translate(-417 -17)"
+    },
+    {
+      "id": "svg-import-excel-line",
+      "format": "svg",
+      "direction": "import",
+      "file": "excel-chart-line.svg",
+      "origin": "Microsoft Excel 16.0 build 17932, Chart.Export у SVG через COM (generate-office-fixtures.ps1 -Only svg-charts)",
+      "supportedProperties": ["ламані рядів як контури з трьох вузлів", "ключі легенди як відрізки", "сітка, осі й написи"],
+      "expectedLosses": ["Обрізання (clip-path), маски й фільтри не застосовано: 1", "Шрифт і накреслення тексту замінено типовими: 14"],
+      "automatedTest": "tests/vector-svg-import-behavior.html: Excel line chart SVG",
+      "result": "passed: 27 об'єктів; ряди стали лініями олівця з вузлами 130,143 → 310,110 → 491,176, ключі легенди — лініями"
+    },
+    {
+      "id": "svg-import-excel-pie",
+      "format": "svg",
+      "direction": "import",
+      "file": "excel-chart-pie.svg",
+      "origin": "Microsoft Excel 16.0 build 17932, Chart.Export у SVG через COM (generate-office-fixtures.ps1 -Only svg-charts)",
+      "supportedProperties": ["назва", "легенда з контуром і заливкою"],
+      "expectedLosses": ["Обрізання (clip-path), маски й фільтри не застосовано: 1", "Контури з кривими або дугами пропущено: 3", "Шрифт і накреслення тексту замінено типовими: 4"],
+      "automatedTest": "tests/vector-svg-import-behavior.html: Excel pie chart SVG",
+      "result": "passed: сектори з дугами пропущено з попередженням; назва, три ключі легенди, три підписи й рамка імпортуються"
     },
     {
       "id": "docx-formatted-text",

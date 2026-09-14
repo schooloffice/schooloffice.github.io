@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vector SVG Import Behavior</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    iframe { width: 1366px; height: 768px; border: 1px solid #d6dce5; border-radius: 8px; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Vector SVG Import Behavior</h1>
+  <pre id="result">Running...</pre>
+  <iframe id="vectorFrame" title="ПЛЮС Вектор"></iframe>
+
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('vectorFrame');
+    const NS = 'xmlns="http://www.w3.org/2000/svg"';
+    const checks = [];
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function waitFor(predicate, label, timeout = 7000) {
+      const start = performance.now();
+      while (performance.now() - start < timeout) {
+        if (predicate()) return;
+        await wait(50);
+      }
+      throw new Error(label);
+    }
+
+    function check(name, ok, detail = '') {
+      if (!ok) throw new Error(detail ? `${name}\n${detail}` : name);
+      checks.push(`PASS ${name}`);
+    }
+
+    const describe = value => JSON.stringify(value)?.slice(0, 1200);
+    const near = (actual, expected, tolerance = 0.02) => typeof actual === 'number' && Math.abs(actual - expected) <= tolerance;
+    const samePoints = (actual, expected, tolerance = 0.02) => Array.isArray(actual) && actual.length === expected.length
+      && expected.every((point, index) => near(actual[index].x, point.x, tolerance) && near(actual[index].y, point.y, tolerance));
+    const parsePoints = text => text.trim().split(/\s+/).map(pair => {
+      const [x, y] = pair.split(',').map(Number);
+      return { x, y };
+    });
+    const svg = (body, attrs = 'width="400" height="300"') => `<svg ${NS} ${attrs}>${body}</svg>`;
+    const countTypes = objects => objects.reduce((counts, obj) => {
+      counts[obj.type] = (counts[obj.type] || 0) + 1;
+      return counts;
+    }, {});
+    const sameList = (actual, expected) => JSON.stringify(actual) === JSON.stringify(expected);
+
+    async function run() {
+      // Фікстури читаємо до iframe: Вектор реєструє service worker, і пізніші fetch ішли б через нього.
+      const fixtures = {};
+      for (const name of ['excel-chart-columns.svg', 'excel-chart-line.svg', 'excel-chart-pie.svg']) {
+        const response = await fetch(`fixtures/compatibility/${name}`, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`fixture ${name}: HTTP ${response.status}`);
+        fixtures[name] = await response.text();
+      }
+
+      frame.src = '../vector/index.html';
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('vector iframe load timed out')), 10000);
+        frame.addEventListener('load', () => {
+          clearTimeout(timer);
+          resolve();
+        }, { once: true });
+      });
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      await waitFor(() => !!win.ArtVector?.editor?.elements?.contentLayer, 'vector editor initialized');
+      await win.ArtVector.draftRestored;
+
+      const { state, editor, projectIo, svgImport, constants } = win.ArtVector;
+      const vectorUi = win.ArtVector.ui;
+      const parse = (text, options) => svgImport.parseSvgText(text, options);
+
+      // --- Меню й спільний picker ---
+      const svgInput = doc.getElementById('svgFileInput');
+      const menuItem = doc.querySelector('.menu-dropdown[data-menu="file"] [data-action="import-svg"]');
+      let pickerOpened = 0;
+      svgInput.click = () => { pickerOpened += 1; };
+      menuItem?.click();
+      check('File menu offers SVG import through the shared file picker',
+        !!menuItem && pickerOpened === 1 && svgInput.accept.includes('.svg') && typeof svgImport?.parseSvgText === 'function');
+
+      // --- Власний простий SVG: експорт ПЛЮС Вектор -> імпорт ---
+      state.canvasWidth = 800;
+      state.canvasHeight = 500;
+      editor.resizeArtboard(800, 500);
+      const ownSource = projectIo.normalizeProject({ objects: [
+        { id: 'o1', type: 'rect', x: 20, y: 30, w: 120, h: 80, stroke: '#ef4444', fill: '#fde047', strokeWidth: 4, opacity: 80 },
+        { id: 'o2', type: 'ellipse', x: 180, y: 30, w: 140, h: 90, stroke: '#1f2937', fill: '#22c55e', strokeWidth: 3, opacity: 100 },
+        { id: 'o3', type: 'triangle', x: 360, y: 30, w: 100, h: 90, stroke: '#1f2937', fill: '#3b82f6', strokeWidth: 2, opacity: 100 },
+        { id: 'o4', type: 'diamond', x: 500, y: 30, w: 90, h: 120, stroke: '#8b5cf6', fill: 'none', strokeWidth: 5, opacity: 100 },
+        { id: 'o5', type: 'star', x: 620, y: 30, w: 140, h: 100, stroke: '#f97316', fill: '#fda4af', strokeWidth: 2, opacity: 60 },
+        { id: 'o6', type: 'line', x1: 20, y1: 200, x2: 300, y2: 260, stroke: '#111827', strokeWidth: 6, opacity: 100 },
+        { id: 'o7', type: 'arrow', x1: 340, y1: 200, x2: 560, y2: 240, stroke: '#ef4444', strokeWidth: 3, opacity: 100 },
+        { id: 'o8', type: 'pen', points: [{ x: 20, y: 320 }, { x: 60, y: 300 }, { x: 110, y: 350 }, { x: 150.5, y: 310.25 }], stroke: '#06b6d4', strokeWidth: 4, opacity: 100 },
+        { id: 'o9', type: 'text', x: 400, y: 340, text: 'Привіт\n\nсвіт <b>', fontSize: 28, stroke: '#111827', fill: 'none', opacity: 90 },
+        { id: 'o10', type: 'polygon', points: [{ x: 600, y: 300 }, { x: 700, y: 320 }, { x: 650, y: 420 }, { x: 590, y: 380 }], stroke: '#14b8a6', fill: '#ccfbf1', strokeWidth: 2, opacity: 100 },
+        { id: 'o11', type: 'rect', x: 10, y: 10, w: 50, h: 50, stroke: '#000000', fill: '#000000', strokeWidth: 1, opacity: 100, hidden: true }
+      ] }).objects;
+      state.objects = ownSource;
+      editor.renderAll();
+      const own = parse(editor.exportSvgMarkup(), { fileName: 'власний' });
+      const ownObjects = own.payload?.objects || [];
+      const visibleSource = ownSource.filter(obj => !obj.hidden);
+      check('own SVG export imports without warnings', own.ok && own.report.warnings.length === 0, describe(own.ok ? own.report : own));
+      check('own SVG keeps canvas size, order and object types (triangle, diamond and star included)',
+        own.payload.canvasWidth === 800 && own.payload.canvasHeight === 500
+          && ownObjects.map(obj => obj.type).join(',') === visibleSource.map(obj => obj.type).join(','),
+        describe(ownObjects.map(obj => obj.type)));
+      const geometryMatches = visibleSource.every((source, index) => {
+        const imported = ownObjects[index];
+        if (!imported) return false;
+        if (source.type === 'star') return samePoints(parsePoints(editor.starPoints(imported)), parsePoints(editor.starPoints(source)), 0.05);
+        if (['rect', 'ellipse', 'triangle', 'diamond'].includes(source.type)) return ['x', 'y', 'w', 'h'].every(key => near(imported[key], source[key]));
+        if (['line', 'arrow'].includes(source.type)) return ['x1', 'y1', 'x2', 'y2'].every(key => near(imported[key], source[key]));
+        if (['pen', 'polygon'].includes(source.type)) return samePoints(imported.points, source.points);
+        return near(imported.x, source.x) && near(imported.y, source.y) && near(imported.fontSize, source.fontSize) && imported.text === source.text;
+      });
+      check('own SVG keeps the geometry and text of every shape', geometryMatches, describe(ownObjects));
+      const styleMatches = visibleSource.every((source, index) => {
+        const imported = ownObjects[index];
+        // Текст експорт малює заливкою кольору контуру.
+        if (source.type === 'text') return imported.fill === source.stroke && imported.opacity === source.opacity;
+        const fillMatches = ['line', 'arrow', 'pen'].includes(source.type) || imported.fill === source.fill;
+        return fillMatches && imported.stroke === source.stroke && near(imported.strokeWidth, source.strokeWidth) && imported.opacity === source.opacity;
+      });
+      check('own SVG keeps colors, stroke width and opacity', styleMatches, describe(ownObjects));
+
+      // --- Незалежний SVG: діаграми, експортовані Microsoft Excel ---
+      const columns = parse(fixtures['excel-chart-columns.svg'], { fileName: 'excel-chart-columns' });
+      const columnObjects = columns.payload?.objects || [];
+      const columnTypes = countTypes(columnObjects);
+      check('Excel column chart SVG imports gridlines, bars, labels and legend',
+        columns.ok && columns.payload.canvasWidth === 601 && columns.payload.canvasHeight === 367 && columnObjects.length === 31
+          && columnTypes.line === 8 && columnTypes.polygon === 6 && columnTypes.text === 14 && columnTypes.rect === 3,
+        describe({ reason: columns.reason, types: columnTypes, canvas: [columns.payload?.canvasWidth, columns.payload?.canvasHeight] }));
+      const gridline = columnObjects[0];
+      const bars = columnObjects.filter(obj => obj.type === 'polygon');
+      const categoryLabel = columnObjects.find(obj => obj.text === 'Математика');
+      const chartTitle = columnObjects.find(obj => obj.text === 'Успішність');
+      check('Excel chart: the group translate places gridlines, bars and labels inside the canvas',
+        gridline.type === 'line' && near(gridline.x1, 39.5) && near(gridline.y1, 257.5) && near(gridline.x2, 581.5)
+          && gridline.stroke === '#d9d9d9' && near(gridline.strokeWidth, 1.25)
+          && samePoints(bars[0].points, [{ x: 84, y: 143 }, { x: 124, y: 143 }, { x: 124, y: 290 }, { x: 84, y: 290 }])
+          && bars[0].fill === '#156082' && bars[3].fill === '#e97132'
+          && !!categoryLabel && near(categoryLabel.x, 92.33) && near(categoryLabel.y, 313) && categoryLabel.fontSize === 15 && categoryLabel.fill === '#595959'
+          && !!chartTitle && near(chartTitle.x, 247.55) && near(chartTitle.y, 34) && chartTitle.fontSize === 23,
+        describe({ gridline, bar: bars[0], categoryLabel, chartTitle }));
+      const chartBorder = columnObjects.at(-1);
+      check('Excel chart: the white chart background is not an object, the border stays',
+        !columnObjects.some(obj => obj.type === 'rect' && obj.fill === '#ffffff')
+          && chartBorder.type === 'rect' && chartBorder.fill === 'none' && chartBorder.stroke === '#d9d9d9'
+          && near(chartBorder.x, 0.5) && near(chartBorder.w, 600) && near(chartBorder.h, 366),
+        describe(chartBorder));
+      check('Excel chart: losses are reported exactly',
+        sameList(columns.report.warnings, ['Обрізання (clip-path), маски й фільтри не застосовано: 1', 'Шрифт і накреслення тексту замінено типовими: 14']),
+        describe(columns.report.warnings));
+
+      const lineChart = parse(fixtures['excel-chart-line.svg']);
+      const lineObjects = lineChart.payload?.objects || [];
+      const lineTypes = countTypes(lineObjects);
+      const series = lineObjects.filter(obj => obj.type === 'pen');
+      check('Excel line chart SVG: series become pencil paths, legend keys become lines',
+        lineChart.ok && lineObjects.length === 27 && lineTypes.line === 10 && lineTypes.pen === 2 && lineTypes.text === 14 && lineTypes.rect === 1
+          && samePoints(series[0].points, [{ x: 130, y: 143 }, { x: 310, y: 110 }, { x: 491, y: 176 }])
+          && series[0].stroke === '#156082' && near(series[0].strokeWidth, 3.75) && series[1].stroke === '#e97132'
+          && sameList(lineChart.report.warnings, ['Обрізання (clip-path), маски й фільтри не застосовано: 1', 'Шрифт і накреслення тексту замінено типовими: 14']),
+        describe({ reason: lineChart.reason, types: lineTypes, series, warnings: lineChart.report?.warnings }));
+
+      const pie = parse(fixtures['excel-chart-pie.svg']);
+      const pieObjects = pie.payload?.objects || [];
+      const legendKeys = pieObjects.filter(obj => obj.type === 'rect' && obj.fill !== 'none');
+      check('Excel pie chart SVG: arc sectors are skipped with a warning, legend and title stay',
+        pie.ok && pieObjects.length === 8 && legendKeys.map(obj => obj.fill).join(',') === '#156082,#e97132,#196b24'
+          && legendKeys.every(obj => obj.stroke === '#ffffff' && near(obj.strokeWidth, 2.5))
+          && sameList(pie.report.warnings, [
+            'Обрізання (clip-path), маски й фільтри не застосовано: 1',
+            'Контури з кривими або дугами пропущено: 3',
+            'Шрифт і накреслення тексту замінено типовими: 4'
+          ]),
+        describe({ reason: pie.reason, objects: pieObjects.map(obj => obj.type), warnings: pie.report?.warnings }));
+
+      // --- Вкладені перетворення ---
+      const nested = parse(`<svg ${NS} width="600" height="400" viewBox="0 0 300 200">
+        <style>.accent { fill: #ef4444; stroke: none }</style>
+        <g transform="translate(10 20)" fill="#3b82f6" stroke="#1f2937" stroke-width="2">
+          <g transform="scale(2)"><rect id="nested-rect" x="5" y="5" width="20" height="10"/></g>
+          <g transform="rotate(90 50 50)"><rect x="40" y="40" width="30" height="10" style="fill: rgb(34, 197, 94)"/></g>
+          <rect x="100" y="0" width="20" height="20" transform="rotate(45 110 10)" class="accent"/>
+          <circle cx="150" cy="30" r="10" transform="rotate(30 150 30) scale(1)"/>
+          <ellipse cx="200" cy="30" rx="15" ry="5" transform="skewX(20)"/>
+          <line x1="0" y1="80" x2="40" y2="80" transform="matrix(1 0 0 1 5 5)"/>
+          <polyline points="0,100 10,110 20,100" fill="none" transform="translate(5)"/>
+          <g opacity="0.5"><path d="m 60 100 h 20 v 20 h -20 z" opacity="0.5"/></g>
+          <text x="100" y="70" font-size="10" transform="translate(5 5) scale(2)">Вкладений</text>
+          <text x="10" y="150" transform="rotate(15)">Повернутий</text>
+        </g>
+      </svg>`);
+      const nestedObjects = nested.payload?.objects || [];
+      const [scaledRect, quarterTurnRect, turnedRect, turnedCircle, skewedEllipse, movedLine, movedPolyline, fadedPath, scaledText] = nestedObjects;
+      check('nested transforms: types and order', nested.ok
+        && nestedObjects.map(obj => obj.type).join(',') === 'rect,rect,polygon,ellipse,polygon,line,pen,polygon,text',
+        describe(nested.ok ? nestedObjects.map(obj => obj.type) : nested));
+      check('nested translate, scale and viewBox multiply into position, size and stroke width',
+        [scaledRect.x, scaledRect.y, scaledRect.w, scaledRect.h].join(',') === '40,60,80,40' && scaledRect.strokeWidth === 8
+          && scaledRect.fill === '#3b82f6' && scaledRect.stroke === '#1f2937',
+        describe(scaledRect));
+      check('rotation by 90° keeps a rectangle and a rotated circle keeps an ellipse',
+        [quarterTurnRect.x, quarterTurnRect.y, quarterTurnRect.w, quarterTurnRect.h].join(',') === '120,120,20,60'
+          && quarterTurnRect.fill === '#22c55e' && quarterTurnRect.strokeWidth === 4
+          && [turnedCircle.x, turnedCircle.y, turnedCircle.w, turnedCircle.h].every((value, index) => near(value, [300, 80, 40, 40][index])),
+        describe({ quarterTurnRect, turnedCircle }));
+      check('a rotated rectangle becomes an exact polygon; class rule overrides inherited paint',
+        samePoints(turnedRect.points, [{ x: 240, y: 31.716 }, { x: 268.284, y: 60 }, { x: 240, y: 88.284 }, { x: 211.716, y: 60 }])
+          && turnedRect.fill === '#ef4444' && turnedRect.stroke === 'none',
+        describe(turnedRect));
+      check('skewed ellipse becomes a polygon, matrix moves a line, polyline becomes a pencil path',
+        skewedEllipse.points.length === svgImport.LIMITS.ELLIPSE_SEGMENTS
+          && [movedLine.x1, movedLine.y1, movedLine.x2, movedLine.y2].join(',') === '30,210,110,210' && movedLine.strokeWidth === 4
+          && samePoints(movedPolyline.points, [{ x: 30, y: 240 }, { x: 50, y: 260 }, { x: 70, y: 240 }]),
+        describe({ skewed: skewedEllipse.points.length, movedLine, movedPolyline }));
+      check('relative path in a transparent group keeps shape and multiplies opacity',
+        samePoints(fadedPath.points, [{ x: 140, y: 240 }, { x: 180, y: 240 }, { x: 180, y: 280 }, { x: 140, y: 280 }]) && fadedPath.opacity === 25,
+        describe(fadedPath));
+      check('scaled text keeps its position and font size; rotated text is reported',
+        near(scaledText.x, 430) && near(scaledText.y, 330) && scaledText.fontSize === 40 && scaledText.text === 'Вкладений'
+          && sameList(nested.report.warnings, [
+            'Повернуті або скошені еліпси перетворено на багатокутники: 1',
+            'Повернутий, скошений або віддзеркалений текст пропущено: 1'
+          ]),
+        describe({ scaledText, warnings: nested.report.warnings }));
+
+      // --- Стилі, кольори, видимість і viewBox із полями ---
+      const styled = parse(`<svg ${NS} xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="100" viewBox="0 0 100 100">
+        <defs>
+          <linearGradient id="base"><stop offset="0" style="stop-color:#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient>
+          <linearGradient id="derived" xlink:href="#base"/>
+        </defs>
+        <rect x="0" y="0" width="10" height="10" fill="url(#derived)"/>
+        <rect x="20" y="0" width="10" height="10" style="fill:red;stroke:currentColor" color="teal" stroke-width="1"/>
+        <rect x="40" y="0" width="10" height="10" fill="#0f08"/>
+        <g style="display:none"><circle cx="70" cy="10" r="5"/></g>
+        <rect x="0" y="40" width="10" height="10" visibility="hidden" fill="#123456"/>
+        <rect x="20" y="40" width="10" height="10" fill="none"/>
+        <polygon points="0,60 10,60 5,70 0,60x" fill="black"/>
+        <image href="data:image/png;base64,iVBORw0KGgo=" x="0" y="0" width="5" height="5"/>
+        <use href="#base"/>
+      </svg>`);
+      const styledObjects = styled.payload?.objects || [];
+      const [gradientRect, currentColorRect, alphaRect, hiddenCircle, invisibleRect] = styledObjects;
+      check('viewBox with preserveAspectRatio centers the drawing; styles resolve like a browser',
+        styled.ok && styled.payload.canvasWidth === 200 && styled.payload.canvasHeight === 100 && styledObjects.length === 5
+          && gradientRect.x === 50 && gradientRect.fill === '#ff0000'
+          && currentColorRect.x === 70 && currentColorRect.fill === '#ff0000' && currentColorRect.stroke === '#008080'
+          && alphaRect.fill === '#00ff00' && alphaRect.opacity === 53
+          && hiddenCircle.type === 'ellipse' && hiddenCircle.hidden === true && near(hiddenCircle.x, 115)
+          && invisibleRect.hidden === true && invisibleRect.fill === '#123456',
+        describe(styled.ok ? styledObjects : styled));
+      check('gradients, invisible, invalid, image and use elements are reported exactly',
+        sameList(styled.report.warnings, [
+          'Градієнти замінено першим кольором: 1',
+          'Невидимі елементи без заливки й контуру пропущено: 1',
+          'Елементи з некоректними атрибутами пропущено: 1',
+          'Растрові зображення (<image>) не перенесено: 1',
+          'Клони (<use>) не перенесено: 1'
+        ]),
+        describe(styled.report?.warnings));
+
+      // --- Контури з прямих відрізків ---
+      const paths = parse(svg(`
+        <path d="M10-5L20,15 30 25" stroke="#000" fill="none"/>
+        <path d="M1e1 5e1 h10 v10 H5 V50 z M100 100 l10 0 l0 10 z" fill="#ff0000"/>
+        <path d="M0 0 L 10 10 Z L 20 0" stroke="#000" fill="none"/>
+        <path d="M0 0 C 10 10 20 20 30 30" stroke="#000"/>
+        <path d="L 10 10" stroke="#000"/>
+        <path d="M 10" stroke="#000"/>`, 'width="300" height="200"'));
+      const pathObjects = paths.payload?.objects || [];
+      check('path data: implicit lineto, relative, H/V, Z, several subpaths, exponent numbers',
+        paths.ok && pathObjects.map(obj => obj.type).join(',') === 'pen,polygon,polygon,line,line'
+          && samePoints(pathObjects[0].points, [{ x: 10, y: -5 }, { x: 20, y: 15 }, { x: 30, y: 25 }])
+          && samePoints(pathObjects[1].points, [{ x: 10, y: 50 }, { x: 20, y: 50 }, { x: 20, y: 60 }, { x: 5, y: 60 }, { x: 5, y: 50 }])
+          && samePoints(pathObjects[2].points, [{ x: 100, y: 100 }, { x: 110, y: 100 }, { x: 110, y: 110 }])
+          && [pathObjects[3].x2, pathObjects[3].y2, pathObjects[4].x1, pathObjects[4].y1, pathObjects[4].x2].join(',') === '10,10,0,0,20'
+          && sameList(paths.report.warnings, ['Контури з кривими або дугами пропущено: 1', 'Елементи з некоректними атрибутами пропущено: 2']),
+        describe(paths.ok ? { pathObjects, warnings: paths.report.warnings } : paths));
+
+      // --- Пошкоджені файли й чужий XML ---
+      const malformedReasons = [
+        parse(`<svg ${NS}><rect></svg>`).reason,
+        parse('').reason,
+        parse('це не xml').reason,
+        parse('<html xmlns="http://www.w3.org/1999/xhtml"><body/></html>').reason,
+        parse('<svg width="10" height="10"><rect width="10" height="10"/></svg>').reason
+      ];
+      check('malformed XML and non-SVG roots are rejected with a reason',
+        sameList(malformedReasons, ['malformed', 'malformed', 'malformed', 'not-svg', 'not-svg']), describe(malformedReasons));
+      check('a byte order mark does not break import', parse(`\uFEFF${svg('<rect width="10" height="10"/>')}`).ok);
+
+      // --- Небезпечний вміст ---
+      const hostile = {
+        // <\/script> екранований: інакше HTML-парсер закрив би сам тестовий скрипт.
+        script: svg('<script>window.parent.__svgXss = 1<\/script><rect width="10" height="10"/>'),
+        xhtmlScript: `<svg ${NS} xmlns:h="http://www.w3.org/1999/xhtml" width="10" height="10"><h:script>window.parent.__svgXss = 2</h:script><rect width="10" height="10"/></svg>`,
+        onload: `<svg ${NS} width="10" height="10" onload="window.parent.__svgXss = 3"><rect width="10" height="10"/></svg>`,
+        onclick: svg('<rect width="10" height="10" onclick="window.parent.__svgXss = 4"/>'),
+        foreignObject: svg('<foreignObject width="10" height="10"><div xmlns="http://www.w3.org/1999/xhtml">x</div></foreignObject><rect width="10" height="10"/>'),
+        handler: svg('<handler type="application/ecmascript">window.parent.__svgXss = 5</handler><rect width="10" height="10"/>'),
+        externalImage: svg('<image href="https://example.com/x.png" width="10" height="10"/><rect width="10" height="10"/>'),
+        javascriptLink: `<svg ${NS} xmlns:xlink="http://www.w3.org/1999/xlink" width="10" height="10"><a xlink:href=" java&#x09;script:alert(1)"><rect width="10" height="10"/></a></svg>`,
+        externalFill: svg('<rect width="10" height="10" fill="url(https://example.com/p.svg#g)"/>'),
+        externalStyleUrl: svg(`<rect width="10" height="10" style="fill:url( '//example.com/p.svg#g' )"/>`),
+        cssImport: svg('<style>@import url(https://example.com/x.css);</style><rect width="10" height="10"/>'),
+        stylesheetInstruction: `<?xml-stylesheet href="https://example.com/x.css" type="text/css"?>${svg('<rect width="10" height="10"/>')}`
+      };
+      const hostileResults = Object.fromEntries(Object.entries(hostile).map(([name, text]) => [name, parse(text)]));
+      check('scripts, event handlers, foreignObject, handler and external references are rejected',
+        Object.values(hostileResults).every(item => !item.ok && item.reason === 'unsafe' && !item.payload)
+          && hostileResults.script.detail.includes('<script>') && hostileResults.onload.detail.includes('onload')
+          && hostileResults.foreignObject.detail.includes('foreignObject') && hostileResults.externalImage.detail.includes('https://example.com'),
+        describe(Object.fromEntries(Object.entries(hostileResults).map(([name, item]) => [name, [item.reason, item.detail]]))));
+      const billionLaughs = `<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]><svg ${NS} width="10" height="10"><text y="10">&b;</text></svg>`;
+      const externalDtd = `<!DOCTYPE svg SYSTEM "file:///C:/Windows/win.ini"><svg ${NS} width="10" height="10"><rect width="10" height="10"/></svg>`;
+      const standardDoctype = `<?xml version="1.0" standalone="no"?>\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n<svg ${NS} width="100" height="100"><rect width="10" height="10"/></svg>`;
+      check('DTD with entities or an external subset is rejected; the plain SVG 1.1 doctype is accepted',
+        parse(billionLaughs).reason === 'dtd' && parse(externalDtd).reason === 'dtd' && parse(standardDoctype).ok);
+      const animated = parse(svg('<rect width="10" height="10"><set attributeName="onmouseover" to="window.parent.__svgXss = 6"/></rect>'));
+      check('animation that targets an event handler is dropped, never executed',
+        animated.ok && sameList(animated.report.warnings, ['Анімацію не перенесено: 1']) && !JSON.stringify(animated.payload).includes('onmouseover'),
+        describe(animated));
+
+      // --- Ліміти ---
+      const limits = svgImport.LIMITS;
+      const projectLimits = projectIo.LIMITS;
+      const polyline = count => `<polyline fill="none" stroke="#000" points="${Array.from({ length: count }, (_, index) => `${index},${index % 7}`).join(' ')}"/>`;
+      const limitResults = {
+        size: parse(svg(' '.repeat(limits.MAX_FILE_BYTES))),
+        elements: parse(svg('<g/>'.repeat(limits.MAX_ELEMENTS))),
+        depth: parse(svg(`${'<g>'.repeat(limits.MAX_DEPTH)}<rect width="1" height="1"/>${'</g>'.repeat(limits.MAX_DEPTH)}`)),
+        objects: parse(svg('<rect width="1" height="1"/>'.repeat(projectLimits.MAX_OBJECTS + 1))),
+        points: parse(svg(polyline(projectLimits.MAX_PEN_POINTS + 1))),
+        totalPoints: parse(svg(polyline(3800).repeat(Math.ceil((projectLimits.MAX_TOTAL_PEN_POINTS + 1) / 3800)))),
+        transforms: parse(svg(`<rect width="1" height="1" transform="${'translate(1) '.repeat(limits.MAX_TRANSFORM_STEPS + 1)}"/>`))
+      };
+      check('size, element count, depth, objects, points and transform limits reject the file',
+        limitResults.size.reason === 'too-large'
+          && ['elements', 'depth', 'objects', 'points', 'totalPoints', 'transforms'].every(name => limitResults[name].reason === 'too-complex')
+          && limitResults.depth.detail.includes(String(limits.MAX_DEPTH)) && limitResults.objects.detail.includes(String(projectLimits.MAX_OBJECTS)),
+        describe(Object.fromEntries(Object.entries(limitResults).map(([name, item]) => [name, [item.reason, item.detail]]))));
+      const huge = parse(svg('<rect x="10000" y="5000" width="1000" height="500" fill="#000"/>', 'width="20000" height="10000"'));
+      const icon = parse(`<svg ${NS} viewBox="0 0 24 24"><rect width="12" height="12" fill="#000"/></svg>`);
+      check('oversized and tiny drawings are scaled into the allowed canvas with a note',
+        huge.ok && huge.payload.canvasWidth * huge.payload.canvasHeight <= projectLimits.MAX_CANVAS_PIXELS
+          && huge.payload.canvasWidth / huge.payload.canvasHeight === 2 && near(huge.payload.objects[0].x / huge.payload.canvasWidth, 0.5, 0.001)
+          && huge.report.warnings[0].startsWith('Малюнок 20000 × 10000 масштабовано до полотна')
+          && icon.ok && icon.payload.canvasWidth === 100 && icon.payload.canvasHeight === 100 && icon.payload.objects[0].w === 50,
+        describe({ huge: huge.ok ? [huge.payload.canvasWidth, huge.payload.canvasHeight, huge.report.warnings] : huge, icon: icon.ok ? icon.payload.objects : icon }));
+
+      // --- Відкриття через UI: помилка не змінює поточний документ ---
+      const overlay = doc.getElementById('modalOverlay');
+      const modalOpen = () => overlay.classList.contains('active');
+      const modalTitle = () => doc.getElementById('modalTitle').textContent;
+      const modalText = () => doc.getElementById('modalText').textContent;
+      async function chooseSvgFile(name, text) {
+        const transfer = new win.DataTransfer();
+        transfer.items.add(new win.File([text], name, { type: 'image/svg+xml' }));
+        svgInput.files = transfer.files;
+        svgInput.dispatchEvent(new win.Event('change', { bubbles: true }));
+        await waitFor(modalOpen, `dialog after choosing ${name}`);
+      }
+      async function closeModal(buttonId) {
+        doc.getElementById(buttonId).click();
+        await waitFor(() => !modalOpen(), 'dialog closed');
+        await wait(30);
+      }
+      function prepareDocument() {
+        state.fileName = 'мій малюнок';
+        state.canvasWidth = 800;
+        state.canvasHeight = 500;
+        state.objects = projectIo.normalizeProject({ objects: [
+          { id: 'keep-rect', type: 'rect', x: 40, y: 40, w: 200, h: 120, stroke: '#1f2937', fill: '#fde047', strokeWidth: 3 },
+          { id: 'keep-text', type: 'text', x: 60, y: 240, text: 'Моя робота', fontSize: 32, stroke: '#1f2937', fill: 'none' }
+        ] }).objects;
+        state.selectedObjectId = null;
+        state.undoStack = [];
+        state.redoStack = [];
+        editor.resizeArtboard(800, 500);
+        editor.renderAll();
+        state.unsavedChanges = false;
+        vectorUi.updateAll();
+        return JSON.stringify(editor.buildProjectPayload());
+      }
+      const unchanged = snapshot => JSON.stringify(editor.buildProjectPayload()) === snapshot
+        && state.undoStack.length === 0 && state.unsavedChanges === false && editor.elements.contentLayer.children.length === 2;
+
+      const failures = [
+        ['evil.svg', hostile.script, 'небезпечний вміст'],
+        ['broken.svg', `<svg ${NS}><rect></svg>`, 'коректним XML'],
+        ['huge.svg', svg('<rect width="1" height="1"/>'.repeat(projectLimits.MAX_OBJECTS + 1)), 'надто складний'],
+        ['curves.svg', svg('<path d="M0 0 C 10 10 20 20 30 30" stroke="#000"/>'), 'Контури з кривими або дугами пропущено: 1']
+      ];
+      for (const [name, text, expected] of failures) {
+        const snapshot = prepareDocument();
+        await chooseSvgFile(name, text);
+        const title = modalTitle();
+        const message = modalText();
+        await closeModal('modalConfirm');
+        check(`${name}: exact error, drawing unchanged`,
+          title === 'Помилка імпорту SVG' && message.includes(expected) && message.includes('Поточний малюнок не змінено') && unchanged(snapshot),
+          describe({ title, message, objects: state.objects.length, undo: state.undoStack.length, dirty: state.unsavedChanges }));
+      }
+
+      const beforeImport = prepareDocument();
+      await chooseSvgFile('excel-chart-columns.svg', fixtures['excel-chart-columns.svg']);
+      const confirmTitle = modalTitle();
+      const confirmText = modalText();
+      await closeModal('modalCancel');
+      check('confirmation lists objects, canvas and losses; cancel keeps the drawing',
+        confirmTitle === 'Імпорт SVG' && confirmText.includes('Об’єктів: 31. Полотно: 601 × 367.')
+          && confirmText.includes('Шрифт і накреслення тексту замінено типовими: 14')
+          && doc.getElementById('modalConfirm').textContent === 'Замінити малюнок' && unchanged(beforeImport),
+        describe({ confirmTitle, confirmText }));
+
+      await chooseSvgFile('excel-chart-columns.svg', fixtures['excel-chart-columns.svg']);
+      await closeModal('modalConfirm');
+      await waitFor(() => state.objects.length === 31, 'imported objects applied');
+      check('confirming replaces the drawing, canvas and file name as one undo step',
+        state.canvasWidth === 601 && state.canvasHeight === 367 && editor.elements.drawingSvg.getAttribute('viewBox') === '0 0 601 367'
+          && state.fileName === 'excel-chart-columns' && state.unsavedChanges === true && state.undoStack.length === 1
+          && editor.elements.contentLayer.children.length === 31 && doc.getElementById('statusCanvas').textContent.includes('601 × 367')
+          && doc.getElementById('fileName').textContent === 'excel-chart-columns',
+        describe({ canvas: [state.canvasWidth, state.canvasHeight], name: state.fileName, undo: state.undoStack.length, nodes: editor.elements.contentLayer.children.length }));
+      const importedPayload = JSON.stringify(editor.buildProjectPayload());
+      doc.querySelector('.header-btn[data-action="undo"]').click();
+      await waitFor(() => state.objects.length === 2, 'undo restores the previous drawing');
+      const undoRestores = JSON.stringify(editor.buildProjectPayload()) === beforeImport
+        && editor.elements.drawingSvg.getAttribute('viewBox') === '0 0 800 500';
+      doc.querySelector('.header-btn[data-action="redo"]').click();
+      await waitFor(() => state.objects.length === 31, 'redo applies the import again');
+      check('undo returns the previous drawing and redo the imported one',
+        undoRestores && JSON.stringify(editor.buildProjectPayload()) === importedPayload);
+
+      const savedImport = projectIo.parseProjectText(importedPayload);
+      const reexported = parse(editor.exportSvgMarkup());
+      check('imported drawing saves as a project and re-exports to SVG without new losses',
+        savedImport.ok && savedImport.payload.version === 2 && savedImport.payload.objects.length === 31
+          && savedImport.payload.objects.filter(obj => obj.type === 'polygon').length === 6
+          && reexported.ok && reexported.payload.objects.length === 31 && reexported.report.warnings.length === 0
+          && reexported.payload.objects.map(obj => obj.type).join(',') === state.objects.map(obj => obj.type).join(','),
+        describe({ saved: savedImport.reason, reexported: reexported.ok ? reexported.report.warnings : reexported }));
+
+      // --- Багатокутник у моделі ---
+      const polygonPayload = projectIo.normalizeProject({ objects: [
+        { id: 'poly-ok', type: 'polygon', points: [{ x: 1, y: 1 }, { x: 20, y: 1 }, { x: 10, y: 20 }], fill: 'url(#x)', stroke: '#000" onload="x' },
+        { id: 'poly-short', type: 'polygon', points: [{ x: 1, y: 1 }, { x: 20, y: 1 }] }
+      ] });
+      check('project model keeps polygons with three or more points and sanitizes their colors',
+        polygonPayload.objects.length === 1 && polygonPayload.objects[0].fill === 'none' && polygonPayload.objects[0].stroke === '#1f2937'
+          && projectIo.PROJECT_VERSION === 2 && !!projectIo.normalizeProject({ version: 1, objects: [] })
+          && projectIo.normalizeProject({ version: 3, objects: [] }) === null
+          && projectIo.normalizeProject({ objects: new Array(16).fill({ type: 'polygon', points: new Array(projectLimits.MAX_PEN_POINTS).fill({ x: 1, y: 1 }) }) }) === null,
+        describe(polygonPayload.objects));
+
+      state.canvasWidth = 800;
+      state.canvasHeight = 500;
+      state.snapToGrid = false;
+      editor.resizeArtboard(800, 500);
+      vectorUi.updateCanvasInfo();
+      state.objects = projectIo.normalizeProject({ objects: [
+        { id: 'poly', type: 'polygon', points: [{ x: 100, y: 100 }, { x: 200, y: 100 }, { x: 150, y: 180 }], stroke: '#1f2937', fill: '#22c55e', strokeWidth: 3 }
+      ] }).objects;
+      state.selectedObjectId = null;
+      state.undoStack = [];
+      state.redoStack = [];
+      doc.querySelector('.rail-tool[data-tool="select"]').click();
+      editor.renderAll();
+      const polygonNode = editor.findObjectNode('poly');
+      const rendersPolygon = polygonNode?.querySelector('polygon')?.getAttribute('points') === '100,100 200,100 150,180';
+
+      const svgNode = editor.elements.drawingSvg;
+      const box = svgNode.getBoundingClientRect();
+      const atCanvas = point => ({
+        clientX: box.left + point.x * (box.width / state.canvasWidth),
+        clientY: box.top + point.y * (box.height / state.canvasHeight)
+      });
+      polygonNode.querySelector('polygon').dispatchEvent(new win.PointerEvent('pointerdown', { ...atCanvas({ x: 150, y: 125 }), button: 0, pointerId: 5, bubbles: true }));
+      svgNode.dispatchEvent(new win.PointerEvent('pointermove', { ...atCanvas({ x: 180, y: 145 }), pointerId: 5, bubbles: true }));
+      doc.dispatchEvent(new win.PointerEvent('pointerup', { ...atCanvas({ x: 180, y: 145 }), pointerId: 5, bubbles: true }));
+      const moved = state.objects[0];
+      const movesPolygon = samePoints(moved.points, [{ x: 130, y: 120 }, { x: 230, y: 120 }, { x: 180, y: 200 }], 0.5)
+        && doc.getElementById('statusSelection').textContent === 'Вибрано: Багатокутник';
+
+      const handle = doc.querySelector('#selectionLayer [data-handle="se"]');
+      const handleBox = handle?.getBoundingClientRect();
+      handle?.dispatchEvent(new win.PointerEvent('pointerdown', { clientX: handleBox.left + 5, clientY: handleBox.top + 5, button: 0, pointerId: 6, bubbles: true }));
+      svgNode.dispatchEvent(new win.PointerEvent('pointermove', { ...atCanvas({ x: 330, y: 300 }), pointerId: 6, bubbles: true }));
+      doc.dispatchEvent(new win.PointerEvent('pointerup', { ...atCanvas({ x: 330, y: 300 }), pointerId: 6, bubbles: true }));
+      const resizedXs = state.objects[0].points.map(point => point.x);
+      const resizedYs = state.objects[0].points.map(point => point.y);
+      const resizesPolygon = !!handle && near(Math.min(...resizedXs), 130, 0.5) && near(Math.max(...resizedXs), 330, 0.5)
+        && near(Math.min(...resizedYs), 120, 0.5) && near(Math.max(...resizedYs), 300, 0.5);
+
+      doc.querySelector('.panel-action[data-action="duplicate"]').click();
+      const copy = state.objects[1];
+      doc.getElementById('fillTargetBtn').click();
+      doc.querySelector('.color-swatch[data-hex="#ef4444"]').click();
+      const duplicatesAndFills = state.objects.length === 2 && copy.type === 'polygon'
+        && samePoints(copy.points, state.objects[0].points.map(point => ({ x: point.x + 20, y: point.y + 20 })))
+        && copy.fill === '#ef4444' && state.objects[0].fill === '#22c55e';
+
+      doc.getElementById('objectsToggleBtn').click();
+      await wait(50);
+      const rows = Array.from(doc.querySelectorAll('#objectsList .object-row'));
+      const listsPolygons = rows.length === 2 && rows[1].querySelector('.object-name span').textContent === 'Багатокутник 1'
+        && rows[0].querySelector('.object-name span').textContent === 'Багатокутник 2'
+        && !!rows[0].querySelector('.object-name i.fa-draw-polygon');
+      doc.getElementById('objectsToggleBtn').click();
+      check('polygon renders, moves, resizes, duplicates, takes a fill and is listed by name',
+        rendersPolygon && movesPolygon && resizesPolygon && duplicatesAndFills && listsPolygons,
+        describe({ rendersPolygon, movesPolygon, resizesPolygon, duplicatesAndFills, listsPolygons, points: state.objects.map(obj => obj.points) }));
+
+      // Жоден вузол з імпортованих файлів не потрапив у живий документ і нічого не виконалося.
+      check('imported markup never reaches the live document',
+        !doc.getElementById('nested-rect') && !doc.querySelector('foreignObject, handler, image')
+          && win.__svgXss === undefined && window.__svgXss === undefined);
+
+      result.className = 'pass';
+      result.textContent = `${checks.join('\n')}\n\nPASSED`;
+      document.body.dataset.vectorSvgImport = 'passed';
+    }
+
+    run().catch(error => {
+      result.className = 'fail';
+      result.textContent = `${checks.join('\n')}\n\nFAILED: ${String(error && error.stack || error)}`;
+      document.body.dataset.vectorSvgImport = 'failed';
+    });
+  </script>
+</body>
+</html>

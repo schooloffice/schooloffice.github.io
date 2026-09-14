@@ -12,7 +12,9 @@ window.ArtVector = window.ArtVector || {};
   const { utils, constants } = window.ArtVector;
 
   const PROJECT_FORMAT = 'art-vector-project';
-  const PROJECT_VERSION = 1;
+  // Версія 2 додала тип polygon (багатокутник з імпорту SVG): старіший редактор відхилить
+  // такий файл із поясненням замість того, щоб мовчки загубити фігури.
+  const PROJECT_VERSION = 2;
 
   const LIMITS = {
     MAX_FILE_BYTES: 8 * 1024 * 1024,
@@ -37,7 +39,7 @@ window.ArtVector = window.ArtVector || {};
     MAX_FONT_SIZE: 400
   };
 
-  const OBJECT_TYPES = ['rect', 'ellipse', 'triangle', 'diamond', 'star', 'line', 'arrow', 'pen', 'text'];
+  const OBJECT_TYPES = ['rect', 'ellipse', 'triangle', 'diamond', 'star', 'line', 'arrow', 'pen', 'polygon', 'text'];
   const GUIDE_MODES = ['none', 'grid', 'lines'];
   const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
   const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -172,10 +174,10 @@ window.ArtVector = window.ArtVector || {};
       return object;
     }
 
-    if (type === 'pen') {
+    if (constants.POINT_TYPES.includes(type)) {
       object.points = normalizePoints(raw.points);
-      // Один вузол не малює нічого — такий об'єкт лише засмічує сцену.
-      return object.points.length >= 2 ? object : null;
+      // Олівцю потрібні щонайменше два вузли, багатокутнику — три: менше нічого не малює.
+      return object.points.length >= (type === 'polygon' ? 3 : 2) ? object : null;
     }
 
     object.x = clampCoord(raw.x);
@@ -203,7 +205,7 @@ window.ArtVector = window.ArtVector || {};
     for (const item of rawObjects) {
       const normalized = normalizeObject(item, seenIds);
       if (!normalized) continue;
-      if (normalized.type === 'pen') {
+      if (normalized.points) {
         totalPenPoints += normalized.points.length;
         if (totalPenPoints > LIMITS.MAX_TOTAL_PEN_POINTS) return null;
       }

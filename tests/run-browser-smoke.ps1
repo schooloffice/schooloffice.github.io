@@ -382,6 +382,7 @@ try {
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-charts-behavior.html" 'data-tables-charts="passed"' 'Tables charts smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-merge-behavior.html" 'data-tables-merge="passed"' 'Tables merged cells smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/vector-behavior.html" 'data-vector-behavior="passed"' 'Vector behavior smoke'
+  Invoke-SmokePage "http://127.0.0.1:$Port/tests/vector-svg-import-behavior.html" 'data-vector-svg-import="passed"' 'Vector SVG import smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/responsive-smoke.html" 'data-responsive="passed"' 'Responsive layout smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/accessibility-smoke.html" 'data-accessibility="passed"' 'Contrast and zoom 200% smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/pilot-readiness-behavior.html" 'data-pilot-readiness="passed"' 'Low-end pilot readiness smoke' @('--enable-low-end-device-mode')

@@ -125,7 +125,7 @@ window.ArtVector = window.ArtVector || {};
       } else if (constants.LINE_TYPES.includes(copy.type)) {
         copy.x1 += 20; copy.x2 += 20;
         copy.y1 += 20; copy.y2 += 20;
-      } else if (copy.type === 'pen') {
+      } else if (constants.POINT_TYPES.includes(copy.type)) {
         copy.points = copy.points.map((point) => ({ x: point.x + 20, y: point.y + 20 }));
       }
       state.objects.push(copy);
@@ -324,6 +324,8 @@ window.ArtVector = window.ArtVector || {};
           return this.lineNode(obj, true);
         case 'pen':
           return this.penNode(obj);
+        case 'polygon':
+          return this.polygonNode(obj, (obj.points || []).map((point) => `${point.x},${point.y}`).join(' '));
         case 'text':
           return this.textNode(obj);
         default:

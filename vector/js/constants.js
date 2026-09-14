@@ -48,6 +48,8 @@ window.ArtVector.constants = {
   },
   RECT_LIKE_TYPES: ['rect', 'ellipse', 'triangle', 'diamond', 'star'],
   LINE_TYPES: ['line', 'arrow'],
+  // Об'єкти з довільними вузлами: олівець (незамкнений контур) і багатокутник з імпорту SVG.
+  POINT_TYPES: ['pen', 'polygon'],
   // Типові назви в панелі «Об'єкти».
   OBJECT_LABELS: {
     rect: 'Прямокутник',
@@ -58,6 +60,11 @@ window.ArtVector.constants = {
     line: 'Лінія',
     arrow: 'Стрілка',
     pen: 'Малюнок олівцем',
+    polygon: 'Багатокутник',
     text: 'Текст'
+  },
+  // Іконки панелі «Об'єкти» для типів, яких немає серед інструментів.
+  OBJECT_ICONS: {
+    polygon: 'fa-solid fa-draw-polygon'
   }
 };

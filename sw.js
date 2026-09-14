@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v74';
+const CACHE_VERSION = 'office-plus-v75';
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_STATUS_CACHE = `${CACHE_VERSION}-offline-status`;
 const OFFLINE_STATUS_URL = new URL('./__offline_status__', self.registration.scope).href;
@@ -164,6 +164,7 @@ const ALL_LOCAL_ASSETS = [
   './vector/js/runtime.js',
   './vector/js/state.js',
   './vector/js/storage.js',
+  './vector/js/svg-import.js',
   './vector/js/ui.js',
   './vector/js/utils.js',
   './vector/style.css',

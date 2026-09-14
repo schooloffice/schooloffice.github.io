@@ -4,7 +4,7 @@ window.ArtVector = window.ArtVector || {};
 window.VectorApp = window.VectorApp || {};
 
 (() => {
-  const { constants, state, utils, editor, ui, projectIo, vectorStorage } = window.ArtVector;
+  const { constants, state, utils, editor, ui, projectIo, svgImport, vectorStorage } = window.ArtVector;
 
   const persistDraft = debounce(() => {
     if (state.suppressAutosave) return;
@@ -154,7 +154,7 @@ window.VectorApp = window.VectorApp || {};
   }
 
   function canHaveFill(type) {
-    return constants.RECT_LIKE_TYPES.includes(type) || type === 'text';
+    return constants.RECT_LIKE_TYPES.includes(type) || type === 'polygon' || type === 'text';
   }
 
   function applyStyleToSelection() {
@@ -348,6 +348,79 @@ window.VectorApp = window.VectorApp || {};
     markSaved();
   }
 
+  function importSvg() {
+    window.OfficeShell?.openFilePicker?.(ui.elements.svgFileInput) || ui.elements.svgFileInput.click();
+  }
+
+  const SVG_IMPORT_ERRORS = {
+    'too-large': () => `Файл SVG завеликий. Максимальний розмір — ${Math.round(svgImport.LIMITS.MAX_FILE_BYTES / 1024 / 1024)} МБ.`,
+    malformed: () => 'Файл не є коректним XML: SVG пошкоджено або обрізано.',
+    'not-svg': () => 'Це не SVG-зображення: кореневий елемент має бути <svg> з простором імен SVG.',
+    dtd: () => 'Файл містить оголошення DTD або сутностей (<!DOCTYPE>, <!ENTITY>). З міркувань безпеки такі SVG не імпортуються.',
+    unsafe: (detail) => `Файл містить небезпечний вміст: ${detail}. Скрипти, обробники подій, foreignObject і зовнішні посилання не імпортуються.`,
+    'too-complex': (detail) => `Малюнок надто складний для імпорту: ${detail}.`,
+    empty: () => 'У файлі немає фігур, які підтримує імпорт: прямокутників, кіл, еліпсів, ліній, ламаних, багатокутників, контурів із прямих відрізків чи тексту.',
+    internal: () => 'Не вдалося імпортувати SVG через внутрішню помилку редактора.',
+    read: () => 'Не вдалося прочитати файл. Спробуйте ще раз.'
+  };
+
+  function showSvgImportError({ reason, detail = '', warnings = [] }) {
+    const message = (SVG_IMPORT_ERRORS[reason] || SVG_IMPORT_ERRORS.read)(detail);
+    const lines = [message, 'Поточний малюнок не змінено.'];
+    if (warnings.length) lines.push('', ...warnings.map((text) => `• ${text}`));
+    ui.showInfoModal('Помилка імпорту SVG', lines.join('\n'), '⚠️');
+  }
+
+  let svgImportInProgress = false;
+
+  // SVG — недовірений файл: адаптер будує окрему модель (vector/js/svg-import.js), а поточний
+  // малюнок замінюється лише після успіху й підтвердження зі списком втрат; Ctrl+Z повертає його.
+  async function handleSvgFile(file) {
+    if (!file || svgImportInProgress) return;
+    svgImportInProgress = true;
+    try {
+      if (file.size > svgImport.LIMITS.MAX_FILE_BYTES) {
+        showSvgImportError({ reason: 'too-large' });
+        return;
+      }
+      let text;
+      try {
+        text = await utils.fileToText(file);
+      } catch (error) {
+        console.error(error);
+        showSvgImportError({ reason: 'read' });
+        return;
+      }
+      let parsed;
+      try {
+        parsed = svgImport.parseSvgText(text, {
+          fileName: file.name.replace(/\.svg$/i, ''),
+          basePayload: editor.buildProjectPayload()
+        });
+      } catch (error) {
+        console.error(error);
+        parsed = { ok: false, reason: 'internal' };
+      }
+      if (!parsed.ok) {
+        showSvgImportError(parsed);
+        return;
+      }
+      const { report } = parsed;
+      const lines = [
+        `Об’єктів: ${report.objects}. Полотно: ${report.canvasWidth} × ${report.canvasHeight}.`,
+        'Поточний малюнок буде замінено; Ctrl+Z поверне його.'
+      ];
+      if (report.warnings.length) lines.push('', 'Не перенесено або спрощено:', ...report.warnings.map((text) => `• ${text}`));
+      const okay = await ui.showConfirmModal('Імпорт SVG', lines.join('\n'), '🧩', 'Замінити малюнок');
+      if (!okay) return;
+      pushUndo();
+      restorePayload(parsed.payload);
+      markDirty();
+    } finally {
+      svgImportInProgress = false;
+    }
+  }
+
   function exportSvg() {
     const markup = editor.exportSvgMarkup();
     utils.downloadText(markup, `${state.fileName || constants.DEFAULT_FILE_NAME}.svg`, 'image/svg+xml;charset=utf-8');
@@ -496,7 +569,7 @@ window.VectorApp = window.VectorApp || {};
       copy.x += 20; copy.y += 20;
     } else if (constants.LINE_TYPES.includes(copy.type)) {
       copy.x1 += 20; copy.x2 += 20; copy.y1 += 20; copy.y2 += 20;
-    } else if (copy.type === 'pen') {
+    } else if (constants.POINT_TYPES.includes(copy.type)) {
       copy.points = copy.points.map((point) => ({ x: point.x + 20, y: point.y + 20 }));
     }
     editor.addObject(copy);
@@ -672,7 +745,7 @@ window.VectorApp = window.VectorApp || {};
       obj.y1 = utils.clamp(interaction.original.y1 + snapDy, 0, state.canvasHeight);
       obj.x2 = utils.clamp(interaction.original.x2 + snapDx, 0, state.canvasWidth);
       obj.y2 = utils.clamp(interaction.original.y2 + snapDy, 0, state.canvasHeight);
-    } else if (obj.type === 'pen') {
+    } else if (constants.POINT_TYPES.includes(obj.type)) {
       obj.points = interaction.original.points.map((item) => ({
         x: utils.clamp(item.x + snapDx, 0, state.canvasWidth),
         y: utils.clamp(item.y + snapDy, 0, state.canvasHeight)
@@ -762,7 +835,7 @@ window.VectorApp = window.VectorApp || {};
       if (!obj) return;
       if (constants.RECT_LIKE_TYPES.includes(obj.type)) resizeRectLike(state.interaction, point);
       else if (constants.LINE_TYPES.includes(obj.type)) resizeLine(state.interaction, point);
-      else if (obj.type === 'pen') resizePen(state.interaction, point);
+      else if (constants.POINT_TYPES.includes(obj.type)) resizePen(state.interaction, point);
     }
   }
 
@@ -808,6 +881,7 @@ window.VectorApp = window.VectorApp || {};
     switch (action) {
       case 'new-project': runOfficeCommand('new') || newProject(); break;
       case 'open-project': runOfficeCommand('open') || openProject(); break;
+      case 'import-svg': importSvg(); break;
       case 'save-project': runOfficeCommand('save') || saveProject(); break;
       case 'export-svg': exportSvg(); break;
       case 'export-png': exportPng(); break;
@@ -843,6 +917,7 @@ window.VectorApp = window.VectorApp || {};
 • Текстові підписи для схем, діаграм і плакатів
 • Прив'язка до сітки для акуратної побудови
 • Експорт у SVG, PNG та друк
+• Імпорт простих SVG: фігури, лінії, ламані, контури з прямих відрізків і текст (Файл → Імпортувати SVG…)
 • Збереження проєкту у JSON без реєстрації
 
 Поради для уроків
@@ -930,6 +1005,11 @@ window.VectorApp = window.VectorApp || {};
 
     ui.elements.projectFileInput.addEventListener('change', (event) => {
       handleProjectFile(event.target.files?.[0]);
+      event.target.value = '';
+    });
+
+    ui.elements.svgFileInput.addEventListener('change', (event) => {
+      handleSvgFile(event.target.files?.[0]);
       event.target.value = '';
     });
   }

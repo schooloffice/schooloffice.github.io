@@ -1,4 +1,5 @@
-﻿# Створює незалежні XLSX-файли корпусу сумісності справжнім Microsoft Excel через COM.
+﻿# Створює незалежні XLSX-файли (і SVG діаграм для імпорту у Вектор) корпусу сумісності
+# справжнім Microsoft Excel через COM.
 # Потрібен встановлений Microsoft Office (Windows). У CI не запускається: результат комітиться
 # як фікстури, а версія програми записується в registry.json.
 #
@@ -211,6 +212,49 @@ try {
   $wb.Close($false)
   Release-Com $ws; Release-Com $wb
   Step 'excel: merges saved'
+  }
+
+  # 7. SVG діаграм для імпорту у Вектор: Chart.Export у SVG. Стовпчаста й лінійна складаються
+  #    з прямих відрізків, кругова — з дуг, які імпорт пропускає з попередженням.
+  if (Wants 'svg-charts') {
+  $xlColumnClusteredChart = 51
+  $xlLine = 4
+  $xlPie = 5
+  $xlColumns = 2
+  $wb = $excel.Workbooks.Add()
+  $ws = $wb.Worksheets.Item(1)
+  $ws.Name = 'Оцінки'
+  $ws.Range('A1').Value2 = 'Предмет'
+  $ws.Range('B1').Value2 = 'І семестр'
+  $ws.Range('C1').Value2 = 'ІІ семестр'
+  $ws.Range('A2').Value2 = 'Математика'
+  $ws.Range('B2').Value2 = 9
+  $ws.Range('C2').Value2 = 10
+  $ws.Range('A3').Value2 = 'Історія'
+  $ws.Range('B3').Value2 = 11
+  $ws.Range('C3').Value2 = 8
+  $ws.Range('A4').Value2 = 'Біологія'
+  $ws.Range('B4').Value2 = 7
+  $ws.Range('C4').Value2 = 12
+  $svgCharts = @(
+    @{ Type = $xlColumnClusteredChart; Range = 'A1:C4'; File = 'excel-chart-columns.svg'; Title = 'Успішність' },
+    @{ Type = $xlLine; Range = 'A1:C4'; File = 'excel-chart-line.svg'; Title = 'Динаміка' },
+    @{ Type = $xlPie; Range = 'A1:B4'; File = 'excel-chart-pie.svg'; Title = 'І семестр' }
+  )
+  foreach ($svgChart in $svgCharts) {
+    $shape = $ws.Shapes.AddChart2(-1, $svgChart.Type, 250, 10, 360, 220)
+    $shape.Chart.SetSourceData($ws.Range($svgChart.Range), $xlColumns)
+    $shape.Chart.HasTitle = $true
+    $shape.Chart.ChartTitle.Text = $svgChart.Title
+    $target = Join-Path $OutDir $svgChart.File
+    if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force }
+    if (-not $shape.Chart.Export($target, 'SVG')) { throw "Excel не експортував $($svgChart.File)" }
+    $shape.Delete()
+    Release-Com $shape
+    Step "excel: $($svgChart.File) exported"
+  }
+  $wb.Close($false)
+  Release-Com $ws; Release-Com $wb
   }
 } finally {
   $excel.Quit()

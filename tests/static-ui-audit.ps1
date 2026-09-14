@@ -904,6 +904,28 @@ if (Test-Path $vectorAppPath) {
   Assert-True ($vectorApp -match 'window\.VectorApp\s*=') "vector/js/app.js: should expose VectorApp facade"
 }
 
+# Імпорт SVG (D3): окремий XML-документ замість живого DOM, відмова від DTD і небезпечного вмісту,
+# явні ліміти, нормалізація моделі й заміна малюнка лише після підтвердження одним кроком undo.
+$vectorSvgImportPath = Join-Path $Root 'vector/js/svg-import.js'
+Assert-True (Test-Path $vectorSvgImportPath) 'vector/js/svg-import.js: SVG import adapter is required'
+if (Test-Path $vectorSvgImportPath) {
+  $vectorSvgImport = Get-Content -Raw -Encoding UTF8 $vectorSvgImportPath
+  Assert-True ($vectorSvgImport -match "new DOMParser\(\)\.parseFromString\([^)]*'application/xml'\)") 'vector/js/svg-import.js: SVG must be parsed as a detached XML document'
+  Assert-True ($vectorSvgImport -match '<!DOCTYPE\|<!ENTITY') 'vector/js/svg-import.js: DTD and entity declarations must be rejected'
+  Assert-True ($vectorSvgImport -match "UNSAFE_ELEMENTS = new Set\(\['script', 'foreignobject'") 'vector/js/svg-import.js: scripts and foreignObject must be rejected'
+  Assert-True ($vectorSvgImport -match "name\.startsWith\('on'\)") 'vector/js/svg-import.js: event handler attributes must be rejected'
+  Assert-True ($vectorSvgImport -match 'function hasExternalUrl\(') 'vector/js/svg-import.js: external url() references must be rejected'
+  Assert-True ($vectorSvgImport -match 'const SVG_LIMITS = \{') 'vector/js/svg-import.js: explicit size, element, depth and transform limits are required'
+  Assert-True ($vectorSvgImport -match 'projectIo\.normalizeProject\(') 'vector/js/svg-import.js: imported objects must pass project normalization'
+  Assert-True ($vectorSvgImport -notmatch '\binnerHTML\b|insertAdjacentHTML|importNode|adoptNode|appendChild|\bfetch\(|XMLHttpRequest|new Image\(') 'vector/js/svg-import.js: import must not insert nodes into the live DOM or load resources'
+}
+Assert-True ($vectorHtml -match 'src="js/editor\.js"></script>\s*<script src="js/svg-import\.js"></script>[\s\S]*src="js/app\.js"') 'vector/index.html: svg-import.js must load after editor.js and before app.js'
+Assert-True (($vectorHtml -match 'data-action="import-svg"') -and ($vectorHtml -match 'id="svgFileInput"[^>]*accept="\.svg')) 'vector/index.html: File menu should offer SVG import with an .svg picker'
+Assert-True ($vectorApp -match 'openFilePicker\?\.\(ui\.elements\.svgFileInput\)') 'vector/js/app.js: SVG import must open through the shared file picker'
+Assert-True ($vectorApp -match 'pushUndo\(\);\s*restorePayload\(parsed\.payload\);') 'vector/js/app.js: imported SVG must replace the drawing as one undoable step after confirmation'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'sw.js')) -match "'\./vector/js/svg-import\.js'") 'sw.js: svg-import.js must be cached for offline use'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')) -match 'vector-svg-import-behavior\.html') 'tests/run-browser-smoke.ps1: Vector SVG import smoke page must run'
+
 $flowchartsIndexPath = Join-Path $Root 'flowcharts/index.html'
 if (Test-Path $flowchartsIndexPath) {
   $flowchartsHtml = Get-Content -Raw -Encoding UTF8 $flowchartsIndexPath

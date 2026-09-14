@@ -34,6 +34,7 @@
   </div>
 
   <input id="projectFileInput" type="file" accept=".json,application/json" hidden>
+  <input id="svgFileInput" type="file" accept=".svg,image/svg+xml" hidden>
 
   <header class="app-header office-header">
     <div class="header-left">
@@ -64,6 +65,8 @@
             Новий проєкт</span><span class="shortcut">Ctrl+N</span></button>
         <button class="menu-item" data-action="open-project"><span><i class="fa-solid fa-folder-open fa-fw"></i>
             Відкрити проєкт</span><span class="shortcut">Ctrl+O</span></button>
+        <button class="menu-item" data-action="import-svg"><span><i class="fa-solid fa-file-import fa-fw"></i>
+            Імпортувати SVG…</span></button>
         <button class="menu-item" data-action="save-project"><span><i class="fa-solid fa-floppy-disk fa-fw"></i>
             Зберегти проєкт</span><span class="shortcut">Ctrl+S</span></button>
         <div class="menu-sep"></div>
@@ -334,6 +337,7 @@
   <script src="../office-storage.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/editor.js"></script>
+  <script src="js/svg-import.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/app.js"></script>
   <script src="js/runtime.js"></script>

@@ -10,10 +10,11 @@
 - `tests/tables-named-ranges-behavior.html` — іменовані діапазони: `excel-named-ranges.xlsx` (імена книги переносяться, ім'я рівня аркуша й несумісне ім'я названо в попередженні) та `definedNames` в експорті.
 - `tests/slides-domain-behavior.html` — PPTX із проєктів `plus-slides-*.json` через справжній PptxGenJS: об'єкти, медіа, таблиця, діаграма, посилання.
 - `tests/slides-pptx-import-behavior.html` — пілот імпорту PPTX: `powerpoint-*.pptx`, створені Microsoft PowerPoint (три прості й два складні з точним переліком втрат), а також синтетичні пошкоджені й небезпечні пакети.
+- `tests/vector-svg-import-behavior.html` — імпорт SVG у Вектор: `excel-chart-columns.svg`, `excel-chart-line.svg` і `excel-chart-pie.svg`, експортовані Microsoft Excel (`Chart.Export` у SVG), а також власний експорт Вектора, вкладені перетворення, пошкоджені й небезпечні SVG і ліміти (синтетичні фікстури записано в самій сторінці).
 
 ## Що перевіряється вручну на Windows із Microsoft Office
 
-1. `generate-office-fixtures.ps1` — перестворює `excel-*.xlsx` у Microsoft Excel (`-Only named-ranges` — лише вибрані випадки, решта файлів не змінюється); `generate-pptx-fixtures.ps1` — `powerpoint-*.pptx` у Microsoft PowerPoint (перед збереженням прибирає персональні дані; `-RenderDir` зберігає PNG-рендери слайдів для оцінки точності).
+1. `generate-office-fixtures.ps1` — перестворює `excel-*.xlsx` у Microsoft Excel (`-Only named-ranges` — лише вибрані випадки, решта файлів не змінюється; `-Only svg-charts` — SVG діаграм для Вектора); `generate-pptx-fixtures.ps1` — `powerpoint-*.pptx` у Microsoft PowerPoint (перед збереженням прибирає персональні дані; `-RenderDir` зберігає PNG-рендери слайдів для оцінки точності).
 2. Відкрити `tests/compatibility-export.html` у headless Chrome через локальний сервер і зберегти base64-файли з `#exports` у `plus-exports/`.
 3. `check-office-readers.ps1` — відкриває `plus-exports/` у Excel, Word і PowerPoint та записує `office-reader-results.json`.
 
@@ -23,3 +24,4 @@
 
 - Незалежні DOCX, створені Microsoft Word, ще не додано: Word через COM не завершував `SaveAs2` (див. `registry.json`).
 - Кожен формат перевірено лише одним зовнішнім читачем. Другої програми (LibreOffice тощо) на машині перевірки не було.
+- Незалежні SVG походять з одного експортера — Microsoft Excel. PowerPoint 16.0 через COM у SVG не експортує (`Slide.Export` повідомляє, що конвертора не інстальовано), Inkscape на машині перевірки не було.

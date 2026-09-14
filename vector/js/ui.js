@@ -39,6 +39,7 @@ window.ArtVector = window.ArtVector || {};
         dirtyDot: utils.$('dirtyDot'),
         saveBadge: utils.$('saveBadge'),
         projectFileInput: utils.$('projectFileInput'),
+        svgFileInput: utils.$('svgFileInput'),
 
         drawingSvg: utils.$('drawingSvg'),
         guideLayer: utils.$('guideLayer'),
@@ -270,7 +271,7 @@ window.ArtVector = window.ArtVector || {};
       name.title = label;
       if (selected) name.setAttribute('aria-current', 'true');
       const icon = document.createElement('i');
-      icon.className = constants.TOOLS[obj.type]?.icon || 'fa-solid fa-shapes';
+      icon.className = constants.TOOLS[obj.type]?.icon || constants.OBJECT_ICONS[obj.type] || 'fa-solid fa-shapes';
       icon.setAttribute('aria-hidden', 'true');
       const text = document.createElement('span');
       text.textContent = label;
@@ -455,7 +456,8 @@ window.ArtVector = window.ArtVector || {};
         return;
       }
       const label = constants.TOOLS[selectedObject.type]?.label
-        || ({ rect: 'Прямокутник', ellipse: 'Еліпс', triangle: 'Трикутник', diamond: 'Ромб', star: 'Зірка', line: 'Лінія', arrow: 'Стрілка', pen: 'Олівець', text: 'Текст' }[selectedObject.type] || selectedObject.type);
+        || constants.OBJECT_LABELS[selectedObject.type]
+        || selectedObject.type;
       this.elements.statusSelection.textContent = `Вибрано: ${label}`;
       // Тип вибраного об'єкта живе в заголовку секції — окрема рамка з тим самим
       // текстом лише дублювала рядок стану й забирала висоту панелі.
