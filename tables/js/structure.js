@@ -82,6 +82,7 @@ function insertRow(atRow, count = 1) {
   applyStructureToOtherSheets({ rowAt, rowDelta: amount });
   shiftConditionalRules({ rowAt, rowDelta: amount });
   sheetCharts = shiftSheetCharts(sheetCharts, { rowAt, rowDelta: amount }, { rows: Math.min(500, ROWS + amount), cols: COL_COUNT });
+  sheetMerges = shiftSheetMerges(sheetMerges, { rowAt, rowDelta: amount }, { rows: Math.min(500, ROWS + amount), cols: COL_COUNT });
 
   if (active.r >= rowAt) active.r += amount;
   if (selStart.r >= rowAt) selStart.r += amount;
@@ -134,6 +135,7 @@ function deleteRow(atRow, count = 1) {
   applyStructureToOtherSheets({ rowAt: deleteFrom, rowDelta: -amount });
   shiftConditionalRules({ rowAt: deleteFrom, rowDelta: -amount });
   sheetCharts = shiftSheetCharts(sheetCharts, { rowAt: deleteFrom, rowDelta: -amount }, { rows: ROWS - amount, cols: COL_COUNT });
+  sheetMerges = shiftSheetMerges(sheetMerges, { rowAt: deleteFrom, rowDelta: -amount }, { rows: ROWS - amount, cols: COL_COUNT });
 
   active.r = clamp(active.r > deleteTo ? active.r - amount : active.r, 1, ROWS - amount);
   selStart.r = clamp(selStart.r > deleteTo ? selStart.r - amount : selStart.r, 1, ROWS - amount);
@@ -183,6 +185,7 @@ function insertColumn(atCol, count = 1) {
   applyStructureToOtherSheets({ colAt, colDelta: amount });
   shiftConditionalRules({ colAt, colDelta: amount });
   sheetCharts = shiftSheetCharts(sheetCharts, { colAt, colDelta: amount }, { rows: ROWS, cols: Math.min(200, COL_COUNT + amount) });
+  sheetMerges = shiftSheetMerges(sheetMerges, { colAt, colDelta: amount }, { rows: ROWS, cols: Math.min(200, COL_COUNT + amount) });
 
   if (active.c >= colAt) active.c += amount;
   if (selStart.c >= colAt) selStart.c += amount;
@@ -245,6 +248,7 @@ function deleteColumn(atCol, count = 1) {
   applyStructureToOtherSheets({ colAt: deleteFrom, colDelta: -amount });
   shiftConditionalRules({ colAt: deleteFrom, colDelta: -amount });
   sheetCharts = shiftSheetCharts(sheetCharts, { colAt: deleteFrom, colDelta: -amount }, { rows: ROWS, cols: COL_COUNT - amount });
+  sheetMerges = shiftSheetMerges(sheetMerges, { colAt: deleteFrom, colDelta: -amount }, { rows: ROWS, cols: COL_COUNT - amount });
 
   active.c = clamp(active.c > deleteTo ? active.c - amount : active.c, 0, COL_COUNT - amount - 1);
   selStart.c = clamp(selStart.c > deleteTo ? selStart.c - amount : selStart.c, 0, COL_COUNT - amount - 1);

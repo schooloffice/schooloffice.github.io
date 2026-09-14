@@ -287,6 +287,8 @@ function dispatchUiAction(action) {
     case 'align-center': applyAlignmentClass('style-align-center'); break;
     case 'align-right': applyAlignmentClass('style-align-right'); break;
     case 'toggle-border': toggleStyle('style-border-all'); break;
+    case 'merge-toggle': toggleMergeSelection(); break;
+    case 'unmerge-cells': unmergeSelection(); break;
     case 'clear-fill': clearFillStyles(); break;
     case 'clear-text-color': clearTextColorStyles(); break;
     case 'cond-format': TablesConditionalFormatting.openCondFormatModal(); break;

@@ -36,7 +36,8 @@ function chartColumnWidth(col) {
 }
 
 // Точка відліку за DOM: заголовки колонок дають реальні межі колонок (min-width заголовка
-// робить колонку ширшою за colWidths), перша видима намальована клітинка — рядок і крок рядків.
+// робить колонку ширшою за colWidths), перший видимий заголовок рядка — рядок і крок рядків
+// (клітинка не годиться: об'єднана може займати кілька рядків).
 function chartGridOrigin() {
   if (!gridWrap) return null;
   const wrapRect = gridWrap.getBoundingClientRect();
@@ -49,13 +50,14 @@ function chartGridOrigin() {
     minColumnWidth = minColumnWidth || parseFloat(getComputedStyle(th).minWidth) || 0;
   });
   const origin = { columns, minColumnWidth, row: 1, top: metrics.headerH || 32, rowHeight: metrics.rowH || 30 };
-  for (let r = 1; r < cellTd.length; r++) {
-    const td = (cellTd[r] || []).find(Boolean);
-    if (!td) continue;
-    const rect = td.getBoundingClientRect();
+  const rowHeaders = document.querySelectorAll('#bodyRows th.row-header');
+  for (let index = 0; index < rowHeaders.length; index++) {
+    const rect = rowHeaders[index].getBoundingClientRect();
     if (!rect.height) continue; // рядок сховано фільтром
-    const next = cellTd[r + 1]?.[Number(td.dataset.c)]?.getBoundingClientRect();
-    origin.row = r;
+    const row = Number(rowHeaders[index].dataset.row);
+    const nextHeader = rowHeaders[index + 1];
+    const next = Number(nextHeader?.dataset.row) === row + 1 ? nextHeader.getBoundingClientRect() : null;
+    origin.row = row;
     origin.top = rect.top - wrapRect.top + gridWrap.scrollTop;
     origin.rowHeight = (next?.height ? next.top - rect.top : rect.height) || origin.rowHeight;
     break;

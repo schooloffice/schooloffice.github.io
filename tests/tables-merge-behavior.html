@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Tables Merged Cells Behavior</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 1rem; }
+    iframe { width: 1100px; height: 720px; border: 1px solid #cbd5e1; }
+    pre { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <pre id="result">Running...</pre>
+  <iframe id="frame" src="about:blank"></iframe>
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('frame');
+    const checks = [];
+    const check = (label, ok, detail = '') => checks.push({ label, ok: !!ok, detail });
+    const json = value => JSON.stringify(value);
+
+    function waitFor(predicate, label, timeout = 10000) {
+      const started = performance.now();
+      return new Promise((resolve, reject) => {
+        function tick() {
+          let ok = false;
+          try { ok = !!predicate(); } catch { ok = false; }
+          if (ok) return resolve();
+          if (performance.now() - started > timeout) return reject(new Error(`Timed out waiting for ${label}`));
+          setTimeout(tick, 50);
+        }
+        tick();
+      });
+    }
+
+    const sheet = (name, cellData, extra = {}) => ({ name, rows: 60, cols: 30, cellData, cellStyles: {}, colWidths: {}, condRules: [], ...extra });
+
+    async function run() {
+      // Фікстуру читаємо до iframe: Таблиці реєструють service worker, і пізніші fetch ішли б через нього.
+      const excelMerges = await (await fetch('fixtures/compatibility/excel-merges.xlsx', { cache: 'no-store' })).arrayBuffer();
+      localStorage.clear();
+      frame.src = '../tables/index.html';
+      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+      const win = frame.contentWindow;
+      const doc = frame.contentDocument;
+      await waitFor(() => win.TablesApp?.ready, 'Tables ready promise');
+      await win.TablesApp.ready;
+
+      const actions = win.TablesSelectionActions;
+      check('merge API is exposed', typeof win.TablesMergeModel?.mergeRenderLayout === 'function' && typeof actions?.listMerges === 'function');
+      const merges = () => json(actions.listMerges());
+      const bounds = () => json(actions.selectionBounds());
+      const input = id => doc.getElementById(`inp_${id}`);
+      const value = id => input(id)?.value;
+      const cellOf = id => input(id)?.closest('td');
+      const modalOpen = id => doc.getElementById(id)?.classList.contains('active');
+      const selectRange = (from, to) => {
+        cellOf(from).dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+        cellOf(to).dispatchEvent(new win.MouseEvent('mouseenter'));
+        doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+      };
+      const goTo = id => {
+        const nameBox = doc.getElementById('activeCellRef');
+        nameBox.value = id;
+        nameBox.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        doc.activeElement?.blur?.();
+      };
+      const press = (id, key) => {
+        input(id).focus();
+        input(id).dispatchEvent(new win.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      };
+      const menuAction = (menu, action) => doc.querySelector(`.menu-dropdown[data-menu="${menu}"] [data-action="${action}"]`).click();
+      const toolbarMerge = () => doc.querySelector('.toolbar [data-action="merge-toggle"]');
+
+      win.TablesWorkbookFile.applyWorkbookPayload({
+        type: 'art-tables-workbook', version: 3, name: 'Розклад', activeSheet: 0,
+        sheets: [
+          sheet('Розклад', { A1: 'Розклад', B1: 'зайве', A2: 'Пн', B2: 'Математика', C2: 'Історія', B3: 'Фізика', A5: '3', A6: '1', A7: '2' }),
+          sheet('Інше', { A1: '1' })
+        ]
+      });
+      check('workbook version 3 opens without merged cells', merges() === '[]' && !!input('B1') && !doc.querySelector('td.merged-cell'));
+
+      // Об'єднання з меню: ліва верхня клітинка лишається, решта значень — лише після підтвердження.
+      selectRange('A1', 'C1');
+      menuAction('format', 'merge-toggle');
+      const confirmText = doc.getElementById('confirmText')?.textContent || '';
+      check('merging over other values asks for confirmation first', modalOpen('confirmModal') && merges() === '[]' && confirmText.includes('A1:C1') && confirmText.includes('(1)'), confirmText);
+      doc.getElementById('confirmBtnYes').click();
+      check('merge keeps the upper-left value in one spanning cell', merges() === '[[0,1,2,1]]' && cellOf('A1')?.colSpan === 3
+        && cellOf('A1').classList.contains('merged-cell') && !input('B1') && value('A1') === 'Розклад', `${merges()} span=${cellOf('A1')?.colSpan}`);
+      win.undo();
+      check('undo restores separate cells and the removed value', merges() === '[]' && value('B1') === 'зайве' && cellOf('A1')?.colSpan === 1);
+      win.redo();
+      check('redo merges again', merges() === '[[0,1,2,1]]' && !input('B1'));
+
+      // Виділення, адреса й клавіатура працюють з об'єднанням як з однією клітинкою.
+      selectRange('A1', 'A1');
+      check('clicking a merged cell selects the whole merge', bounds() === json({ cMin: 0, cMax: 2, rMin: 1, rMax: 1 })
+        && doc.getElementById('selectionInfo').textContent === 'Виділення: A1:C1' && toolbarMerge().getAttribute('aria-pressed') === 'true',
+        `${bounds()} ${doc.getElementById('selectionInfo').textContent} pressed=${toolbarMerge().getAttribute('aria-pressed')}`);
+      selectRange('C2', 'A1');
+      check('dragging into a merge extends the selection over it', bounds() === json({ cMin: 0, cMax: 2, rMin: 1, rMax: 2 }), bounds());
+      goTo('B1');
+      check('name box address of a hidden cell activates the merge anchor', doc.getElementById('activeCellRef').value === 'A1', doc.getElementById('activeCellRef').value);
+      press('A1', 'Tab');
+      check('Tab from a merged cell moves past the merge', doc.activeElement?.id === 'inp_D1', doc.activeElement?.id);
+      press('B2', 'ArrowUp');
+      check('ArrowUp into a hidden cell lands on the merge anchor', doc.activeElement?.id === 'inp_A1', doc.activeElement?.id);
+      doc.activeElement?.blur?.();
+
+      // Кнопка панелі й структурні зміни.
+      selectRange('B2', 'B3');
+      toolbarMerge().click();
+      doc.getElementById('confirmBtnYes').click();
+      check('toolbar button merges a vertical range', merges() === '[[0,1,2,1],[1,2,1,3]]' && cellOf('B2')?.rowSpan === 2, merges());
+      win.TablesStructure.insertRow(3, 1);
+      check('inserting a row inside a merge grows it', merges() === '[[0,1,2,1],[1,2,1,4]]', merges());
+      win.TablesStructure.insertColumn(1, 1);
+      check('inserting a column inside a merge grows it and shifts the others', merges() === '[[0,1,3,1],[2,2,2,4]]', merges());
+      win.TablesStructure.deleteRow(2, 1);
+      check('deleting the anchor row shrinks the merge', merges() === '[[0,1,3,1],[2,2,2,3]]', merges());
+      win.TablesStructure.deleteColumn(0, 4);
+      check('deleting all columns of merges removes them', merges() === '[]', merges());
+      win.undo();
+      check('undo restores merges after a structural change', merges() === '[[0,1,3,1],[2,2,2,3]]', merges());
+
+      // Вставлення: зовнішній текст не пише в приховані клітинки, внутрішнє копіювання переносить об'єднання.
+      win.TablesClipboard.pasteToGrid('x\ty\tz', 0, 1);
+      selectRange('A1', 'A1');
+      check('pasted text skips hidden cells of a merge', value('A1') === 'x' && win.TablesClipboard.serializeSelectionToTsv() === 'x\t\t\t', json(win.TablesClipboard.serializeSelectionToTsv()));
+      win.TablesClipboard.copySelectionToClipboard();
+      win.TablesClipboard.pasteToGrid(win.TablesClipboard.serializeSelectionToTsv(), 0, 8);
+      check('internal copy and paste carries the merge', merges().includes('[0,8,3,8]') && value('A8') === 'x' && !input('B8') && cellOf('A8')?.colSpan === 4, merges());
+
+      selectRange('A5', 'A8');
+      win.TablesSorting.sortSelection(false);
+      check('sorting a range with merged cells is refused', modalOpen('msgModal') && /об.єднан/.test(doc.getElementById('msgText').textContent)
+        && value('A5') === '3' && value('A6') === '1', doc.getElementById('msgText').textContent);
+      doc.querySelector('[data-close-modal="msgModal"]').click();
+
+      selectRange('A8', 'A8');
+      menuAction('format', 'unmerge-cells');
+      check('unmerge from the menu keeps the anchor value', !merges().includes('[0,8,3,8]') && value('A8') === 'x' && !!input('B8'), merges());
+
+      // .arttab версії 4 зберігає об'єднання й перевіряє їх.
+      const blobs = new Map();
+      const downloads = [];
+      const originalCreateObjectURL = win.URL.createObjectURL;
+      const originalAnchorClick = win.HTMLAnchorElement.prototype.click;
+      win.URL.createObjectURL = function captureObjectUrl(blob) {
+        const url = originalCreateObjectURL.call(win.URL, blob);
+        blobs.set(url, blob);
+        return url;
+      };
+      win.HTMLAnchorElement.prototype.click = function captureDownload() {
+        if (this.download) { downloads.push(blobs.get(this.href)); return undefined; }
+        return originalAnchorClick.call(this);
+      };
+      let saved = null;
+      try {
+        win.TablesWorkbookFile.exportWorkbook();
+        saved = downloads[0] ? JSON.parse(await downloads[0].text()) : null;
+      } finally {
+        win.URL.createObjectURL = originalCreateObjectURL;
+        win.HTMLAnchorElement.prototype.click = originalAnchorClick;
+      }
+      check('.arttab saves merged cells in file version 4', saved?.version === 4 && json(saved.sheets[0].merges) === '[[0,1,3,1],[2,2,2,3]]'
+        && !('B1' in saved.sheets[0].cellData), json(saved?.sheets?.[0]?.merges));
+      selectRange('A1', 'A1');
+      menuAction('format', 'unmerge-cells');
+      win.TablesWorkbookFile.applyWorkbookPayload(saved);
+      check('opening the .arttab restores merged cells', merges() === '[[0,1,3,1],[2,2,2,3]]' && cellOf('A1')?.colSpan === 4);
+      const rejection = patch => { try { win.TablesWorkbookFile.validateWorkbookPayload({ ...saved, sheets: [{ ...saved.sheets[0], merges: patch }, saved.sheets[1]] }); return ''; } catch (error) { return error.message; } };
+      check('file with overlapping merges is rejected', /перетина/.test(rejection([[0, 1, 3, 1], [1, 1, 2, 2]])), rejection([[0, 1, 3, 1], [1, 1, 2, 2]]));
+      check('file with a one-cell merge is rejected', /дві/.test(rejection([[0, 1, 0, 1]])), rejection([[0, 1, 0, 1]]));
+      check('file with a merge outside the sheet is rejected', /поза/.test(rejection([[0, 1, 0, 900]])), rejection([[0, 1, 0, 900]]));
+
+      await win.TablesStorage.flushStateToStorage();
+      const draft = await win.OfficeStorage.createDraftStore({ app: 'tables', key: 'tables' }).load();
+      check('draft storage keeps merged cells', json(draft?.sheets?.[0]?.merges) === '[[0,1,3,1],[2,2,2,3]]', json(draft?.sheets?.[0]?.merges));
+
+      win.TablesSheets.deleteSheet(0);
+      doc.getElementById('confirmBtnYes').click();
+      await waitFor(() => doc.querySelectorAll('#sheetTabs .sheet-tab').length === 1, 'sheet deleted');
+      check('deleting the sheet removes its merges', merges() === '[]' && !doc.querySelector('td.merged-cell'));
+      win.undo();
+      check('undo brings the sheet and its merges back', merges() === '[[0,1,3,1],[2,2,2,3]]' && !!doc.querySelector('td.merged-cell'));
+
+      // Край вікна віртуалізованої сітки: об'єднання, що починається вище вікна, малюється обрізаним,
+      // але показує й редагує свій якір.
+      const gridWrap = doc.getElementById('gridWrap');
+      gridWrap.scrollTop = 0;
+      win.TablesWorkbookFile.applyWorkbookPayload({
+        type: 'art-tables-workbook', version: 4, name: 'Журнал', activeSheet: 0,
+        sheets: [sheet('Журнал', { A455: 'Підсумок семестру', E490: 'кінець' }, { rows: 500, cols: 30, merges: [[0, 455, 3, 475]] })]
+      });
+      goTo('A490');
+      await waitFor(() => input('A490'), 'bottom rows rendered');
+      const firstRow = Number(doc.querySelector('#bodyRows th.row-header')?.dataset.row);
+      const clipped = cellOf('A455');
+      const clippedRow = clipped?.closest('tr')?.querySelector('th.row-header')?.dataset.row;
+      check('merge crossing the top of the rendered window is drawn clipped with its anchor value', firstRow > 455 && firstRow <= 475 && !!clipped
+        && clipped.rowSpan === 475 - firstRow + 1 && clipped.colSpan === 4 && clippedRow === String(firstRow) && value('A455') === 'Підсумок семестру'
+        && !doc.querySelector('#bodyRows th.row-header[data-row="455"]'),
+        `firstRow=${firstRow} rowSpan=${clipped?.rowSpan} row=${clippedRow} value=${value('A455')}`);
+      clipped.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+      doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+      check('clicking the clipped part selects the whole merge', bounds() === json({ cMin: 0, cMax: 3, rMin: 455, rMax: 475 }), bounds());
+
+      // XLSX: mergeCells у порядку схеми, round-trip і значення під прихованими клітинками.
+      const xlsxApi = win.TablesXlsxFile;
+      const xlsxPayload = {
+        type: 'art-tables-workbook', version: 4, name: 'Об’єднання', activeSheet: 0,
+        sheets: [sheet('Розклад', { A1: 'Шапка', B2: 'Урок' }, { merges: [[0, 1, 3, 1], [1, 2, 1, 4]] }), sheet('Два', { A1: '1' })]
+      };
+      const xlsxText = new TextDecoder().decode(new Uint8Array(xlsxApi.exportArrayBuffer(xlsxPayload)));
+      check('XLSX export writes mergeCells right after sheetData', xlsxText.includes('</sheetData><mergeCells count="2"><mergeCell ref="A1:D1"/><mergeCell ref="B2:B4"/></mergeCells>'));
+      const roundTrip = await xlsxApi.importArrayBuffer(xlsxApi.exportArrayBuffer(xlsxPayload), 'Об’єднання.xlsx');
+      check('XLSX round-trip keeps merged cells without warnings', json(roundTrip.payload.sheets[0].merges) === '[[0,1,3,1],[1,2,1,4]]'
+        && json(roundTrip.payload.sheets[1].merges) === '[]' && roundTrip.warnings.length === 0, `${json(roundTrip.payload.sheets[0].merges)} ${roundTrip.warnings.join('; ')}`);
+      const hidden = await xlsxApi.importArrayBuffer(xlsxApi.exportArrayBuffer({ ...xlsxPayload, sheets: [sheet('Розклад', { A1: 'Шапка', C1: 'приховане' }, { merges: [[0, 1, 3, 1]] })] }), 'hidden.xlsx');
+      check('XLSX value under a merge is dropped with a warning', !('C1' in hidden.payload.sheets[0].cellData) && hidden.payload.sheets[0].cellData.A1 === 'Шапка'
+        && hidden.warnings.some(warning => warning.includes('значення під об’єднаними клітинками на аркуші Розклад: 1')), hidden.warnings.join('; '));
+
+      const excel = await xlsxApi.importArrayBuffer(excelMerges, 'excel-merges.xlsx');
+      check('Excel fixture: header and vertical merges import', json(excel.payload.sheets[0].merges) === '[[0,1,3,1],[0,3,0,4]]'
+        && excel.payload.sheets[0].cellData.A1 === 'Розклад уроків' && excel.payload.sheets[0].cellData.A3 === 'Понеділок' && excel.warnings.length === 0,
+        `${json(excel.payload.sheets[0].merges)} ${excel.warnings.join('; ')}`);
+      win.TablesWorkbookFile.applyWorkbookPayload(excel.payload);
+      check('Excel fixture: PLUS draws the merged header and day cell', cellOf('A1')?.colSpan === 4 && cellOf('A3')?.rowSpan === 2
+        && value('A1') === 'Розклад уроків' && !input('A4'), `A1 span=${cellOf('A1')?.colSpan} A3 span=${cellOf('A3')?.rowSpan}`);
+    }
+
+    run().then(() => {
+      const failed = checks.filter(item => !item.ok);
+      result.textContent = checks.map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}${item.ok || !item.detail ? '' : `: ${item.detail}`}`).join('\n')
+        + (failed.length ? `\n\nFAILED: ${failed.map(item => item.label).join('; ')}` : '\n\nPASSED');
+      document.body.dataset.tablesMerge = failed.length ? 'failed' : 'passed';
+    }).catch(error => {
+      result.textContent = `${checks.map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}${item.ok || !item.detail ? '' : `: ${item.detail}`}`).join('\n')}\n\n${error?.stack || error}`;
+      document.body.dataset.tablesMerge = 'failed';
+    });
+  </script>
+</body>
+</html>

@@ -203,6 +203,42 @@
     return { col: col - 1, row: Number(match[2]), ref: match[1].toUpperCase() + Number(match[2]) };
   }
 
+  // Об'єднані клітинки: прямокутники в межах 500×200 без перетинів. Значення й стилі прихованих
+  // клітинок відкидаються — лишається ліва верхня, яку й показує Excel.
+  function parseMergeCells(doc, data, cellStyles, sheetName, warnings) {
+    const merges = [];
+    let rejected = 0;
+    let hiddenValues = 0;
+    Array.from(doc.getElementsByTagNameNS('*', 'mergeCell')).forEach(node => {
+      const [from, to = from] = String(node.getAttribute('ref') || '').split(':');
+      const start = cellCoords(from);
+      const end = cellCoords(to);
+      const range = start && end
+        ? [Math.min(start.col, end.col), Math.min(start.row, end.row), Math.max(start.col, end.col), Math.max(start.row, end.row)]
+        : null;
+      const overlaps = range && merges.some(merge => merge[0] <= range[2] && range[0] <= merge[2] && merge[1] <= range[3] && range[1] <= merge[3]);
+      if (!range || range[3] > 500 || range[2] >= 200 || (range[0] === range[2] && range[1] === range[3]) || overlaps || merges.length >= 1000) {
+        rejected++;
+        return;
+      }
+      for (let r = range[1]; r <= range[3]; r++) {
+        for (let c = range[0]; c <= range[2]; c++) {
+          if (c === range[0] && r === range[1]) continue;
+          const ref = colName(c) + r;
+          if (data[ref] !== undefined) {
+            delete data[ref];
+            hiddenValues++;
+          }
+          delete cellStyles[ref];
+        }
+      }
+      merges.push(range);
+    });
+    if (rejected) warnings.add(`некоректні, завеликі або перекриті об’єднання клітинок на аркуші ${sheetName}: ${rejected}`);
+    if (hiddenValues) warnings.add(`значення під об’єднаними клітинками на аркуші ${sheetName}: ${hiddenValues} (лишилося значення лівої верхньої клітинки)`);
+    return merges;
+  }
+
   function parseSheet(bytes, shared, styles, name, warnings) {
     const doc = parseXml(bytes, `${name}.xml`);
     const data = {};
@@ -240,9 +276,13 @@
       for (let i = min; i <= max; i++) colWidths[i - 1] = width;
       maxCol = Math.max(maxCol, max - 1);
     });
-    if (doc.getElementsByTagNameNS('*', 'mergeCell').length) warnings.add('об’єднані клітинки');
+    const merges = parseMergeCells(doc, data, cellStyles, name, warnings);
+    merges.forEach(merge => {
+      maxRow = Math.max(maxRow, merge[3]);
+      maxCol = Math.max(maxCol, merge[2]);
+    });
     if (doc.getElementsByTagNameNS('*', 'conditionalFormatting').length) warnings.add('умовне форматування');
-    return { name, cellData: data, cellStyles, colWidths, condRules: [], charts: [], rows: Math.max(60, maxRow), cols: Math.max(30, maxCol + 1) };
+    return { name, cellData: data, cellStyles, colWidths, condRules: [], charts: [], merges, rows: Math.max(60, maxRow), cols: Math.max(30, maxCol + 1) };
   }
 
   // Ім'я книги Excel на абсолютний прямокутний діапазон одного аркуша: Дані!$B$2:$B$4.
@@ -471,7 +511,12 @@
     const rowXml = [...rows.entries()].map(([r, cells]) => `<row r="${r}">${cells.join('')}</row>`).join('');
     // Порожній <cols></cols> недопустимий за схемою OOXML: Microsoft Excel через нього не відкривав файл.
     const relNs = hasDrawing ? ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"' : '';
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"${relNs}>${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${rowXml}</sheetData>${hasDrawing ? '<drawing r:id="rId1"/>' : ''}</worksheet>`;
+    // Порядок CT_Worksheet: sheetData → mergeCells → drawing.
+    const merges = sheet.merges || [];
+    const mergeXml = merges.length
+      ? `<mergeCells count="${merges.length}">${merges.map(([cMin, rMin, cMax, rMax]) => `<mergeCell ref="${colName(cMin)}${rMin}:${colName(cMax)}${rMax}"/>`).join('')}</mergeCells>`
+      : '';
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"${relNs}>${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${rowXml}</sheetData>${mergeXml}${hasDrawing ? '<drawing r:id="rId1"/>' : ''}</worksheet>`;
   }
 
   function exportArrayBuffer(rawPayload) {
@@ -657,7 +702,7 @@
       const result = await importArrayBuffer(await file.arrayBuffer(), file.name);
       window.TablesWorkbookFile?.applyWorkbookPayload?.(result.payload);
       const warning = result.warnings.length ? `\n\nНе перенесено у цьому файлі: ${result.warnings.join(', ')}.` : '';
-      showInfoModal(`XLSX імпортовано.${warning}\n\nПідтримано: аркуші, числа, текст, дати, базові формули, іменовані діапазони, стовпчасті, лінійні й кругові діаграми, ширини колонок і базове форматування. Не підтримуються: merge, зображення, інші типи діаграм, pivot, макроси та формули поза набором ПЛЮС.`);
+      showInfoModal(`XLSX імпортовано.${warning}\n\nПідтримано: аркуші, числа, текст, дати, базові формули, іменовані діапазони, стовпчасті, лінійні й кругові діаграми, об’єднані клітинки, ширини колонок і базове форматування. Не підтримуються: зображення, інші типи діаграм, pivot, макроси та формули поза набором ПЛЮС.`);
       return result;
     } catch (error) {
       showInfoModal(`Не вдалося відкрити XLSX: ${error?.message || 'помилка читання'}`);

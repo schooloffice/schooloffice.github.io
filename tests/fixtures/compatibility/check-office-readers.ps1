@@ -46,6 +46,10 @@ function Test-Excel {
     $result.names = [ordered]@{}
     foreach ($definedName in $book.Names) { $result.names[$definedName.Name] = $definedName.RefersTo }
     $sheet = $book.Worksheets.Item('Дані')
+    # Об'єднані клітинки: до якого об'єднання належить A12 і яке значення бачить Excel.
+    $mergeArea = $sheet.Range('A12').MergeArea
+    $result.merges = [ordered]@{ A12 = $mergeArea.Address(0, 0); value = $sheet.Range('A12').Value2; B12merged = [bool]$sheet.Range('B12').MergeCells }
+    Release-Com $mergeArea
     foreach ($ref in @('B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B9', 'B10')) {
       $cell = $sheet.Range($ref)
       $value = $cell.Value2

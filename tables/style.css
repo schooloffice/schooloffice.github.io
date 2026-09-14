@@ -720,6 +720,9 @@ th.col-header {
 .named-range-edit:hover { background: #eef2f7; }
 .named-range-btn { padding: 4px 10px; font-size: 13px; }
 
+/* Об'єднані клітинки: один td на весь діапазон, вміст по центру висоти */
+#grid td.merged-cell { vertical-align: middle; }
+
 /* Діаграми на аркуші */
 .sheet-chart-layer { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 6; }
 .sheet-chart {

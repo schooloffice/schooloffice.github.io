@@ -14,6 +14,11 @@ function sortSelection(desc = false) {
     showInfoModal('Для сортування виділи кілька рядків.');
     return;
   }
+  // Переставлені рядки розірвали б об'єднання, тож такий діапазон не сортуємо.
+  if (sheetMerges.some(merge => mergesIntersect(merge, [b.cMin, b.rMin, b.cMax, b.rMax]))) {
+    showInfoModal("Діапазон з об'єднаними клітинками не можна сортувати. Спершу роз'єднайте клітинки.");
+    return;
+  }
 
   const rows = [];
   for (let r = b.rMin; r <= b.rMax; r++) {

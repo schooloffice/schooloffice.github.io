@@ -59,6 +59,16 @@
       "result": "passed: три діаграми переносяться з діапазонами, ПЛЮС малює ряди 9/11/7 і 10/8/12 з назвами «І семестр» і «ІІ семестр»; точкова й діаграма з даними іншого аркуша названі в попередженні"
     },
     {
+      "id": "xlsx-merges",
+      "format": "xlsx",
+      "file": "excel-merges.xlsx",
+      "origin": "Microsoft Excel 16.0 build 17932 через COM (generate-office-fixtures.ps1 -Only merges)",
+      "supportedProperties": ["об'єднана шапка A1:D1", "вертикальне об'єднання A3:A4", "значення лише в лівих верхніх клітинках"],
+      "expectedLosses": [],
+      "automatedTest": "tests/tables-merge-behavior.html: Excel fixture: header and vertical merges import; PLUS draws the merged header and day cell",
+      "result": "passed: об'єднання A1:D1 і A3:A4 імпортуються без попереджень, ПЛЮС малює шапку на 4 колонки й клітинку дня на 2 рядки"
+    },
+    {
       "id": "docx-formatted-text",
       "format": "docx",
       "file": null,
@@ -186,9 +196,9 @@
       "origin": "експорт ПЛЮС Таблиці через tests/compatibility-export.html",
       "externalCheck": {
         "program": "Microsoft Excel 16.0 build 17932",
-        "result": "opened after fix: до виправлення Excel не відкривав файл через порожній <cols></cols>. Excel прочитав 2.5 (Double), TRUE (Boolean), «більше» (String), #DIV/0! (Error), 3 і 7; ROUND без кешу перерахував у 3.33. 2026-09-13: імена книги Показники (=Дані!$A$2:$A$3) і Разом (=Підсумок!$A$2) прочитано як Names, =SUM(Показники) = 14 і =Разом*2 = 4. 2026-09-14: діаграми прочитано як ChartObjects — стовпчаста «Успішність» у F1 480×300 px з рядом =SERIES(Дані!$D$1,Дані!$C$2:$C$4,Дані!$D$2:$D$4,1) і значеннями 10, 8, 12; кругова у F18; лінійна «Підсумок» у C1 (Excel показує її як лінію з маркерами) зі значеннями 1 і 2"
+        "result": "opened after fix: до виправлення Excel не відкривав файл через порожній <cols></cols>. Excel прочитав 2.5 (Double), TRUE (Boolean), «більше» (String), #DIV/0! (Error), 3 і 7; ROUND без кешу перерахував у 3.33. 2026-09-13: імена книги Показники (=Дані!$A$2:$A$3) і Разом (=Підсумок!$A$2) прочитано як Names, =SUM(Показники) = 14 і =Разом*2 = 4. 2026-09-14: діаграми прочитано як ChartObjects — стовпчаста «Успішність» у F1 480×300 px з рядом =SERIES(Дані!$D$1,Дані!$C$2:$C$4,Дані!$D$2:$D$4,1) і значеннями 10, 8, 12; кругова у F18; лінійна «Підсумок» у C1 (Excel показує її як лінію з маркерами) зі значеннями 1 і 2; об'єднання A12:C12 прочитано як MergeArea зі значенням «Об’єднана шапка», B12 входить в об'єднання"
       },
-      "automatedTest": "tests/xlsx-behavior.html: cached value checks + sheet without column widths has no empty <cols>; tests/tables-named-ranges-behavior.html: XLSX export writes workbook definedNames; tests/tables-charts-behavior.html: XLSX export writes drawing and chart parts, round-trip keeps charts",
+      "automatedTest": "tests/xlsx-behavior.html: cached value checks + sheet without column widths has no empty <cols>; tests/tables-named-ranges-behavior.html: XLSX export writes workbook definedNames; tests/tables-charts-behavior.html: XLSX export writes drawing and chart parts, round-trip keeps charts; tests/tables-merge-behavior.html: XLSX export writes mergeCells right after sheetData, round-trip keeps merged cells",
       "result": "passed"
     },
     {

@@ -103,6 +103,7 @@ const ALL_LOCAL_ASSETS = [
   './tables/js/cell-format-ui.js',
   './tables/js/charts.js',
   './tables/js/chart-model.js',
+  './tables/js/merge-model.js',
   './tables/js/conditional-formatting.js',
   './tables/js/clipboard.js',
   './tables/js/column-sizing.js',

@@ -9,7 +9,7 @@ param(
   [string]$OutDir = $PSScriptRoot,
   # Необов'язковий журнал кроків: допомагає знайти COM-виклик, який чекає прихований діалог.
   [string]$ProgressLog = '',
-  # Лише вибрані випадки (formulas-types, two-sheets, formatting-chart, named-ranges, charts); порожньо — усі.
+  # Лише вибрані випадки (formulas-types, two-sheets, formatting-chart, named-ranges, charts, merges); порожньо — усі.
   [string[]]$Only = @()
 )
 
@@ -186,6 +186,31 @@ try {
   Release-Com $columnChart; Release-Com $pieChart; Release-Com $lineChart; Release-Com $scatterChart; Release-Com $otherSheetChart
   Release-Com $grades; Release-Com $report; Release-Com $wb
   Step 'excel: charts saved'
+  }
+
+  # 6. Об'єднані клітинки: шапка A1:D1 і вертикальне A3:A4 у шкільному розкладі.
+  if (Wants 'merges') {
+  $wb = $excel.Workbooks.Add()
+  $ws = $wb.Worksheets.Item(1)
+  $ws.Name = 'Розклад'
+  $ws.Range('A1').Value2 = 'Розклад уроків'
+  [void]$ws.Range('A1:D1').Merge()
+  $ws.Range('A2').Value2 = 'День'
+  $ws.Range('B2').Value2 = 'Урок 1'
+  $ws.Range('C2').Value2 = 'Урок 2'
+  $ws.Range('D2').Value2 = 'Урок 3'
+  $ws.Range('A3').Value2 = 'Понеділок'
+  [void]$ws.Range('A3:A4').Merge()
+  $ws.Range('B3').Value2 = 'Математика'
+  $ws.Range('C3').Value2 = 'Історія'
+  $ws.Range('D3').Value2 = 'Фізика'
+  $ws.Range('B4').Value2 = 'Хімія'
+  $ws.Range('C4').Value2 = 'Мова'
+  $ws.Range('D4').Value2 = 'Музика'
+  $wb.SaveAs((Join-Path $OutDir 'excel-merges.xlsx'), $xlOpenXMLWorkbook)
+  $wb.Close($false)
+  Release-Com $ws; Release-Com $wb
+  Step 'excel: merges saved'
   }
 } finally {
   $excel.Quit()

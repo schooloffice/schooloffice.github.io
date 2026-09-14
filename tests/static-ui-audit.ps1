@@ -631,6 +631,7 @@ $runtimeFiles = @(
   'tables/js/model.js',
   'tables/js/named-ranges.js',
   'tables/js/chart-model.js',
+  'tables/js/merge-model.js',
   'tables/js/charts.js',
   'tables/js/xlsx-charts.js',
   'tables/js/storage.js',
@@ -1598,6 +1599,16 @@ $swChartsText = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'sw.js')
 Assert-True ($swChartsText -match "'\./tables/js/chart-model\.js'" -and $swChartsText -match "'\./tables/js/xlsx-charts\.js'") 'sw.js: chart modules must be cached for offline use'
 Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/js/calculation.js')) -match 'renderSheetCharts\(\)') 'tables/js/calculation.js: recalculation must refresh sheet charts'
 Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')) -match 'tables-charts-behavior\.html') 'tests/run-browser-smoke.ps1: charts smoke page must run'
+
+# Об'єднані клітинки: модель у книзі, виділення через getBounds, рендер вікном, XLSX mergeCells.
+$mergeModelModule = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/js/merge-model.js')
+Assert-True ($mergeModelModule -match 'window\.TablesMergeModel\s*=' -and $mergeModelModule -match 'MERGE_MAX_PER_SHEET\s*=\s*1000') 'tables/js/merge-model.js: should expose TablesMergeModel with a merge limit'
+Assert-True ($tablesChartsIndex -match 'src="js/chart-model\.js"[\s\S]*src="js/merge-model\.js"[\s\S]*src="js/core\.js"') 'tables/index.html: merge-model.js should load after chart-model.js and before core.js'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/js/state.js')) -match 'expandBoundsToMerges\(bounds, sheetMerges\)') 'tables/js/state.js: selection bounds must cover whole merged cells'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/js/grid.js')) -match 'mergeRenderLayout\(sheetMerges, view\)') 'tables/js/grid.js: merged cells must be laid out against the rendered window, not as a plain colspan'
+Assert-True ($xlsxAdapter -match '<mergeCells count=') 'tables/js/xlsx-file.js: merged cells must be exported as mergeCells'
+Assert-True ($swChartsText -match "'\./tables/js/merge-model\.js'") 'sw.js: merge-model.js must be cached for offline use'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')) -match 'tables-merge-behavior\.html') 'tests/run-browser-smoke.ps1: merged cells smoke page must run'
 
 # Ctrl/Cmd+S у Схемах зберігає JSON-проєкт; PNG лишається окремим експортом у меню.
 $flowchartsShortcuts = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'flowcharts/js/keyboard-shortcuts.js')

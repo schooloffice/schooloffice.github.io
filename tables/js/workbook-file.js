@@ -111,6 +111,7 @@ function validateWorkbookSheet(value, usedNames, index) {
     colWidths: validateColumnWidths(sheet.colWidths, cols),
     condRules: validateCondRules(sheet.condRules, rows, cols),
     charts: normalizeSheetCharts(sheet.charts, rows, cols, { strict: true }),
+    merges: normalizeSheetMerges(sheet.merges, rows, cols, { strict: true }),
     rows,
     cols
   };
@@ -119,7 +120,7 @@ function validateWorkbookSheet(value, usedNames, index) {
 function validateWorkbookPayload(payload) {
   workbookObject(payload, 'Файл');
   if (payload.type && payload.type !== 'art-tables-workbook') throw new Error('Це не файл ПЛЮС Таблиць');
-  // Версія 3 додала іменовані діапазони, 4 — діаграми аркушів; старші файли відкриваються без них.
+  // Версія 3 додала іменовані діапазони, 4 — діаграми та об'єднані клітинки; старші файли відкриваються без них.
   if (payload.version != null && ![1, 2, 3, 4].includes(Number(payload.version))) throw new Error('Непідтримувана версія файлу');
 
   const usedNames = new Set();
@@ -137,6 +138,7 @@ function validateWorkbookPayload(payload) {
       colWidths: payload.colWidths,
       condRules: payload.condRules,
       charts: payload.charts,
+      merges: payload.merges,
       rows: payload.rows,
       cols: payload.cols
     }, usedNames, 0)];

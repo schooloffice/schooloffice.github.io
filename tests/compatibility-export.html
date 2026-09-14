@@ -61,11 +61,11 @@
             A1: 'Показник', A2: '10', A3: '4', A4: 'Текст',
             B1: 'Формула', B2: '=A2/A3', B3: '=A2>A3', B4: '=IF(A2>A3,"більше","менше")', B5: '=A2/0',
             B6: '=ROUND(A2/3,2)', B7: '=SUM(Підсумок!A1:A2)', B8: '=AVERAGE(A2:A3)', B9: '=SUM(Показники)', B10: '=Разом*2',
-            C1: 'Місяць', C2: 'Вересень', C3: 'Жовтень', C4: 'Листопад', D1: 'Бал', D2: '10', D3: '8', D4: '=D2+2'
+            C1: 'Місяць', C2: 'Вересень', C3: 'Жовтень', C4: 'Листопад', D1: 'Бал', D2: '10', D3: '8', D4: '=D2+2', A12: 'Об’єднана шапка'
           }, charts: [
             { id: 'bar1', type: 'bar', title: 'Успішність', categories: [2, 2, 2, 4], series: [{ name: [3, 1], values: [3, 2, 3, 4] }], anchor: [5, 1], size: [480, 300] },
             { id: 'pie1', type: 'pie', title: '', categories: [2, 2, 2, 4], series: [{ name: [3, 1], values: [3, 2, 3, 4] }], anchor: [5, 18], size: [360, 280] }
-          ] },
+          ], merges: [[0, 12, 2, 12]] },
           { name: 'Підсумок', rows: 60, cols: 30, colWidths: {}, condRules: [], cellStyles: {}, cellData: { A1: '1', A2: '2' }, charts: [
             { id: 'line1', type: 'line', title: 'Підсумок', categories: null, series: [{ name: null, values: [0, 1, 0, 2] }], anchor: [2, 1], size: [400, 240] }
           ] }

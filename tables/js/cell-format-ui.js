@@ -121,6 +121,7 @@ function updateToolbarState() {
   setPressed('align-left', td.classList.contains('style-align-left'));
   setPressed('align-center', !td.classList.contains('style-align-left') && !td.classList.contains('style-align-right') || td.classList.contains('style-align-center'));
   setPressed('align-right', td.classList.contains('style-align-right'));
+  setPressed('merge-toggle', !!mergeAt(sheetMerges, active.c, active.r));
   const fmt = document.getElementById('numberFormatSelect');
   if (fmt) {
     const found = NUMBER_FORMAT_CLASSES.find(cls => td.classList.contains(cls)) || '';

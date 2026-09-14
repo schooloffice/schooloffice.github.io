@@ -45,8 +45,8 @@ function filterCellValue(col, row) {
 
 function applyRowFilter() {
   for (let r = 1; r <= ROWS; r++) {
-    const cell = cellTd[r]?.[0];
-    const tr = cell ? cell.closest('tr') : null;
+    // Рядок беремо напряму: td об'єднання зареєстрований за якорем, а стоїть в іншому рядку.
+    const tr = rowEls[r];
     if (!tr) continue;
     if (!rowFilter) { tr.style.display = ''; continue; }
     tr.style.display = filterMatches(rowFilter, filterCellValue(rowFilter.col, r)) ? '' : 'none';

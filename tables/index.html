@@ -87,6 +87,8 @@
         <button class="menu-item" data-action="align-right"><span><i class="fa-solid fa-align-right fa-fw"></i> Праворуч</span></button>
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="toggle-border"><span><i class="fa-solid fa-border-all fa-fw"></i> Межі</span></button>
+        <button class="menu-item" data-action="merge-toggle"><span><i class="fa-solid fa-table-cells-large fa-fw"></i> Об'єднати клітинки</span></button>
+        <button class="menu-item" data-action="unmerge-cells"><span><i class="fa-solid fa-table-cells fa-fw"></i> Роз'єднати клітинки</span></button>
         <button class="menu-item" data-action="clear-fill"><span><i class="fa-solid fa-droplet-slash fa-fw"></i> Без заливки</span></button>
         <button class="menu-item" data-action="clear-text-color"><span><i class="fa-solid fa-font fa-fw"></i> Стандартний колір тексту</span></button>
         <div class="menu-sep"></div>
@@ -164,6 +166,7 @@
       <button class="tb-btn" data-action="align-center" title="По центру"><i class="fa-solid fa-align-center"></i></button>
       <button class="tb-btn" data-action="align-right" title="Праворуч"><i class="fa-solid fa-align-right"></i></button>
       <button class="tb-btn" data-action="toggle-border" title="Межі"><i class="fa-solid fa-border-all"></i></button>
+      <button class="tb-btn" data-action="merge-toggle" title="Об'єднати або роз'єднати клітинки"><i class="fa-solid fa-table-cells-large"></i></button>
     </div>
 
     <div class="tb-sep"></div>
@@ -396,6 +399,7 @@
   <script src="js/formula-engine.js"></script>
   <script src="js/named-ranges.js"></script>
   <script src="js/chart-model.js"></script>
+  <script src="js/merge-model.js"></script>
   <script src="js/core.js"></script>
   <script src="js/state.js"></script>
   <script src="js/column-sizing.js"></script>

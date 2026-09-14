@@ -16,8 +16,9 @@ let colWidths = {};
 let cellStyles = {};
 let condRules = []; // умовне форматування: [{ range:[cMin,rMin,cMax,rMax], op, v1, v2, fill }]
 let sheetCharts = []; // діаграми активного аркуша (chart-model.js)
+let sheetMerges = []; // об'єднані клітинки активного аркуша: [[cMin,rMin,cMax,rMax]] (merge-model.js)
 
-let sheets = [];      // [{ name, cellData, cellStyles, colWidths, condRules, charts, rows, cols }]
+let sheets = [];      // [{ name, cellData, cellStyles, colWidths, condRules, charts, merges, rows, cols }]
 let activeSheet = 0;
 // Іменовані діапазони книги (named-ranges.js): [{ name, sheet, range:[cMin,rMin,cMax,rMax] | null }]
 let workbookNames = [];
@@ -30,6 +31,7 @@ function makeSheet(name) {
     colWidths: {},
     condRules: [],
     charts: [],
+    merges: [],
     rows: DEFAULT_ROWS,
     cols: DEFAULT_COL_COUNT
   };
@@ -45,6 +47,7 @@ function normalizeSheet(s) {
     colWidths: s?.colWidths && typeof s.colWidths === 'object' ? s.colWidths : {},
     condRules: Array.isArray(s?.condRules) ? s.condRules : [],
     charts: normalizeSheetCharts(s?.charts, rows, cols),
+    merges: normalizeSheetMerges(s?.merges, rows, cols),
     rows,
     cols
   };
@@ -59,6 +62,7 @@ function syncActiveSheetFromGlobals() {
   s.colWidths = colWidths;
   s.condRules = condRules;
   s.charts = sheetCharts;
+  s.merges = sheetMerges;
   s.rows = ROWS;
   s.cols = COL_COUNT;
 }
@@ -73,6 +77,7 @@ function loadGlobalsFromSheet(i) {
   colWidths = s.colWidths || {};
   condRules = Array.isArray(s.condRules) ? s.condRules : [];
   sheetCharts = Array.isArray(s.charts) ? s.charts : [];
+  sheetMerges = Array.isArray(s.merges) ? s.merges : [];
   setGridSize(s.rows || DEFAULT_ROWS, s.cols || DEFAULT_COL_COUNT);
 }
 

@@ -164,6 +164,7 @@ function importCSVText(text) {
   // overwrite
   cellData = {};
   cellStyles = {};
+  sheetMerges = [];
 
   for (let r = 0; r < rows.length; r++) {
     for (let c = 0; c < rows[r].length; c++) {
@@ -196,6 +197,7 @@ function loadExample() {
   };
 
   cellStyles = {};
+  sheetMerges = [];
   ensureGridSize(60, 30);
   rebuildGrid();
   recalculateAll();

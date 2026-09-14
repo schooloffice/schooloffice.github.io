@@ -129,6 +129,8 @@ function rebuildGrid(requestedRange = null) {
   // Body
   cellTd = Array.from({ length: ROWS + 1 }, () => []);
   cellInp = Array.from({ length: ROWS + 1 }, () => []);
+  rowEls = [];
+  const mergeLayout = mergeRenderLayout(sheetMerges, view);
 
   const renderedColumnCount = (view.colEnd - view.colStart + 1) + 1 + (view.leftWidth ? 1 : 0) + (view.rightWidth ? 1 : 0);
   function appendRowSpacer(height) {
@@ -146,6 +148,7 @@ function rebuildGrid(requestedRange = null) {
 
   for (let r = view.rowStart; r <= view.rowEnd; r++) {
     const tr = document.createElement('tr');
+    rowEls[r] = tr;
 
     const rowTh = document.createElement('th');
     rowTh.textContent = String(r);
@@ -178,97 +181,11 @@ function rebuildGrid(requestedRange = null) {
       tr.appendChild(spacer);
     }
 
-    for (let c = view.colStart; c <= view.colEnd; c++) {
-      const td = document.createElement('td');
-      const id = getCellId(c, r);
-      td.dataset.id = id;
-      td.dataset.c = String(c);
-      td.dataset.r = String(r);
-
-      // apply saved styles
-      const styleStr = cellStyles[id];
-      if (styleStr) {
-        styleStringToClassList(styleStr).forEach(cls => td.classList.add(cls));
-      }
-
-      const inp = document.createElement('input');
-      inp.id = `inp_${id}`;
-      inp.className = 'cell-input';
-      inp.autocomplete = 'off';
-      inp.setAttribute('role', 'gridcell');
-      inp.setAttribute('aria-label', `Клітинка ${id}`);
-      inp.setAttribute('aria-colindex', String(c + 2)); // +2: col1 = row-header
-      inp.setAttribute('aria-rowindex', String(r + 1)); // +1: row1 = col-headers
-
-      // Selection
-      td.addEventListener('mousedown', (e) => {
-        if (!isResizing) startSel(e, c, r, id);
-      });
-      td.addEventListener('mouseenter', () => {
-        if (isFilling) { updateFill(c, r); return; }
-        if (!isResizing) updateSel(c, r);
-      });
-
-      // Editing
-      inp.addEventListener('focus', () => {
-        if (!isSelecting && !isResizing) {
-          setActive(c, r, id);
-          // Cell always shows computed result; formula bar shows the raw formula.
-          // User can press F2 or click formula bar to edit the formula directly.
-        }
-      });
-
-      // F2 switches cell to formula-edit mode (shows raw formula in cell)
-      inp.addEventListener('keydown', (ev) => {
-        if (ev.key === 'F2') {
-          const raw = cellData[id];
-          if (String(raw || '').startsWith('=')) {
-            inp.value = raw;
-            try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (_) { }
-          }
-        }
-      });
-
-      inp.addEventListener('input', (e) => {
-        const v = String(e.target.value || '');
-        if (v.length > 200) {
-          e.target.value = v.substring(0, 200);
-        }
-        cellData[id] = e.target.value;
-        setDirty(true);
-        persistStateToStorage();
-
-        if (activeId === id) {
-          const fb = document.getElementById('formulaBar');
-          if (fb) fb.value = e.target.value;
-        }
-      });
-
-      inp.addEventListener('keydown', (e) => handleKey(e, c, r));
-      inp.addEventListener('blur', () => {
-        // commit on blur
-        recalculateAll();
-        flushStateToStorage();
-        setSaveBadge();
-        saveToHistory();
-      });
-
-      inp.addEventListener('paste', (e) => {
-        // Багатоклітинкова вставка (таби/переноси) або внутрішня вставка формул.
-        const text = e.clipboardData?.getData('text/plain');
-        if (!text) return;
-        const multiCell = text.includes('\t') || text.includes('\n') || text.includes('\r');
-        if (multiCell || TablesClipboard.isInternalPaste(text)) {
-          e.preventDefault();
-          pasteToGrid(text, active.c, active.r);
-        }
-      });
-
-      td.appendChild(inp);
-      tr.appendChild(td);
-
-      cellTd[r][c] = td;
-      cellInp[r][c] = inp;
+    for (let visualC = view.colStart; visualC <= view.colEnd; visualC++) {
+      const cellKey = `${r}:${visualC}`;
+      if (mergeLayout.skip.has(cellKey)) continue;
+      const span = mergeLayout.spans.get(cellKey);
+      tr.appendChild(span ? createGridCell(span.col, span.row, span) : createGridCell(visualC, r));
     }
 
     if (view.rightWidth) {
@@ -290,7 +207,7 @@ function rebuildGrid(requestedRange = null) {
     const cornerRect = thCorner.getBoundingClientRect();
     metrics.rowHeaderW = Math.round(cornerRect.width) || 50;
     metrics.headerH = Math.round(cornerRect.height) || 32;
-    const td0 = cellTd[view.rowStart]?.[view.colStart];
+    const td0 = bRows.querySelector('td[data-id]:not(.merged-cell)');
     if (td0) {
       const tdRect = td0.getBoundingClientRect();
       metrics.rowH = Math.round(tdRect.height) || 30;
@@ -302,18 +219,9 @@ function rebuildGrid(requestedRange = null) {
   renderSel();
 
   // Populate raw values (computed will be shown after recalc)
-  for (let r = view.rowStart; r <= view.rowEnd; r++) {
-    for (let c = view.colStart; c <= view.colEnd; c++) {
-      const id = getCellId(c, r);
-      const inp = cellInp[r][c];
-      if (!inp) continue;
-      const raw = cellData[id];
-      if (raw === undefined || raw === null || raw === '') {
-        inp.value = '';
-      } else {
-        inp.value = raw;
-      }
-    }
+  for (const td of bRows.querySelectorAll('td[data-id]')) {
+    const raw = cellData[td.dataset.id];
+    td.querySelector('.cell-input').value = raw === undefined || raw === null || raw === '' ? '' : raw;
   }
 
   if (typeof applyRowFilter === 'function') applyRowFilter();
@@ -325,6 +233,109 @@ function rebuildGrid(requestedRange = null) {
       try { input.setSelectionRange(focusedInput.start, focusedInput.end); } catch { }
     }
   }
+}
+
+// Клітинка сітки (c, r). Об'єднання (span) — один td на видимій частині діапазону, що показує
+// й редагує свій якір, тому й реєструється за координатами якоря.
+function createGridCell(c, r, span = null) {
+  const td = document.createElement('td');
+  const id = getCellId(c, r);
+  td.dataset.id = id;
+  td.dataset.c = String(c);
+  td.dataset.r = String(r);
+  if (span) {
+    td.colSpan = span.colSpan;
+    td.rowSpan = span.rowSpan;
+    td.classList.add('merged-cell');
+  }
+
+  // apply saved styles
+  const styleStr = cellStyles[id];
+  if (styleStr) {
+    styleStringToClassList(styleStr).forEach(cls => td.classList.add(cls));
+  }
+
+  const inp = document.createElement('input');
+  inp.id = `inp_${id}`;
+  inp.className = 'cell-input';
+  inp.autocomplete = 'off';
+  inp.setAttribute('role', 'gridcell');
+  inp.setAttribute('aria-label', span ? `Об'єднана клітинка ${id}` : `Клітинка ${id}`);
+  inp.setAttribute('aria-colindex', String(c + 2)); // +2: col1 = row-header
+  inp.setAttribute('aria-rowindex', String(r + 1)); // +1: row1 = col-headers
+  if (span) {
+    inp.setAttribute('aria-colspan', String(span.colSpan));
+    inp.setAttribute('aria-rowspan', String(span.rowSpan));
+  }
+
+  // Selection
+  td.addEventListener('mousedown', (e) => {
+    if (!isResizing) startSel(e, c, r, id);
+  });
+  td.addEventListener('mouseenter', () => {
+    if (isFilling) { updateFill(c, r); return; }
+    if (!isResizing) updateSel(c, r);
+  });
+
+  // Editing
+  inp.addEventListener('focus', () => {
+    if (!isSelecting && !isResizing) {
+      setActive(c, r, id);
+      // Cell always shows computed result; formula bar shows the raw formula.
+      // User can press F2 or click formula bar to edit the formula directly.
+    }
+  });
+
+  // F2 switches cell to formula-edit mode (shows raw formula in cell)
+  inp.addEventListener('keydown', (ev) => {
+    if (ev.key === 'F2') {
+      const raw = cellData[id];
+      if (String(raw || '').startsWith('=')) {
+        inp.value = raw;
+        try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (_) { }
+      }
+    }
+  });
+
+  inp.addEventListener('input', (e) => {
+    const v = String(e.target.value || '');
+    if (v.length > 200) {
+      e.target.value = v.substring(0, 200);
+    }
+    cellData[id] = e.target.value;
+    setDirty(true);
+    persistStateToStorage();
+
+    if (activeId === id) {
+      const fb = document.getElementById('formulaBar');
+      if (fb) fb.value = e.target.value;
+    }
+  });
+
+  inp.addEventListener('keydown', (e) => handleKey(e, c, r));
+  inp.addEventListener('blur', () => {
+    // commit on blur
+    recalculateAll();
+    flushStateToStorage();
+    setSaveBadge();
+    saveToHistory();
+  });
+
+  inp.addEventListener('paste', (e) => {
+    // Багатоклітинкова вставка (таби/переноси) або внутрішня вставка формул.
+    const text = e.clipboardData?.getData('text/plain');
+    if (!text) return;
+    const multiCell = text.includes('\t') || text.includes('\n') || text.includes('\r');
+    if (multiCell || TablesClipboard.isInternalPaste(text)) {
+      e.preventDefault();
+      pasteToGrid(text, active.c, active.r);
+    }
+  });
+
+  td.appendChild(inp);
+  cellTd[r][c] = td;
+  cellInp[r][c] = inp;
+  return td;
 }
 
 // ---- Selection ----
@@ -354,6 +365,13 @@ function updateSel(c, r) {
 }
 
 function setActive(c, r, id, opts = {}) {
+  // Прихована клітинка об'єднання активується як його якір.
+  const merge = mergeAt(sheetMerges, c, r);
+  if (merge) {
+    c = merge[0];
+    r = merge[1];
+    id = getCellId(c, r);
+  }
   active = { c, r };
   activeId = id;
 
@@ -426,6 +444,11 @@ function commitCell() {
 }
 
 function focusGridCell(c, r) {
+  const merge = mergeAt(sheetMerges, c, r);
+  if (merge) {
+    c = merge[0];
+    r = merge[1];
+  }
   TablesGridViewport.ensureCellVisible(r, c);
   if (!cellInp[r]?.[c]) {
     rebuildGrid(TablesGridViewport.range(ROWS, COL_COUNT));
@@ -465,18 +488,23 @@ function handleKey(e, c, r) {
     return;
   }
 
+  // Крок з урахуванням об'єднань: за межу поточного, в інше — до його якоря.
+  const step = (dc, dr) => {
+    const next = mergeStep(sheetMerges, c, r, dc, dr, COL_COUNT, ROWS);
+    focusGridCell(next.c, next.r);
+  };
+
   if (e.key === 'Enter') {
     e.preventDefault();
     commitCell();
-    focusGridCell(c, Math.min(r + 1, ROWS));
+    step(0, 1);
     return;
   }
 
   if (e.key === 'Tab') {
     e.preventDefault();
     commitCell();
-    const nextC = e.shiftKey ? Math.max(c - 1, 0) : Math.min(c + 1, COL_COUNT - 1);
-    focusGridCell(nextC, r);
+    step(e.shiftKey ? -1 : 1, 0);
     return;
   }
 
@@ -487,25 +515,25 @@ function handleKey(e, c, r) {
   if (e.key === 'ArrowDown') {
     e.preventDefault();
     commitCell();
-    focusGridCell(c, Math.min(r + 1, ROWS));
+    step(0, 1);
     return;
   }
   if (e.key === 'ArrowUp') {
     e.preventDefault();
     commitCell();
-    focusGridCell(c, Math.max(r - 1, 1));
+    step(0, -1);
     return;
   }
   if (e.key === 'ArrowRight' && isAtEnd) {
     e.preventDefault();
     commitCell();
-    focusGridCell(Math.min(c + 1, COL_COUNT - 1), r);
+    step(1, 0);
     return;
   }
   if (e.key === 'ArrowLeft' && isAtStart) {
     e.preventDefault();
     commitCell();
-    focusGridCell(Math.max(c - 1, 0), r);
+    step(-1, 0);
     return;
   }
 }
@@ -632,7 +660,8 @@ function positionFillHandle() {
   }
 
   const b = getBounds();
-  const td = cellTd[b.rMax]?.[b.cMax];
+  const corner = mergeAt(sheetMerges, b.cMax, b.rMax);
+  const td = corner ? cellTd[corner[1]]?.[corner[0]] : cellTd[b.rMax]?.[b.cMax];
   if (!td) { fillHandleEl.style.display = 'none'; return; }
 
   const cellRect = td.getBoundingClientRect();
@@ -699,6 +728,13 @@ function finishFill() {
   for (const td of fillPreviewCells) td.classList.remove('fill-preview');
   fillPreviewCells = [];
 
+  const target = fillTarget && [fillTarget.cMin, fillTarget.rMin, fillTarget.cMax, fillTarget.rMax];
+  if (target && sheetMerges.some(merge => mergesIntersect(merge, target))) {
+    fillSource = null;
+    fillTarget = null;
+    showInfoModal("Автозаповнення через об'єднані клітинки не підтримується. Спершу роз'єднайте клітинки.");
+    return;
+  }
   const did = fillTarget && applyAutoFill(fillSource, fillTarget);
   if (did) {
     selStart = { c: fillTarget.cMin, r: fillTarget.rMin };

@@ -30,7 +30,8 @@ let metrics = { rowHeaderW: 50, headerH: 32, rowH: 30 };
 let headerMenuState = null;
 
 // Cache for fast access
-let cellTd = [];  // [r][c]
+let cellTd = [];  // [r][c]; об'єднання — за координатами якоря
+let rowEls = [];  // [r] → намальований <tr>
 let cellInp = []; // [r][c]
 let colEls = [];  // colgroup <col> elements (0 = row header)
 
@@ -64,12 +65,15 @@ function clamp(n, min, max) {
 }
 
 function getBounds() {
-  return {
+  const bounds = {
     cMin: Math.min(selStart.c, selEnd.c),
     cMax: Math.max(selStart.c, selEnd.c),
     rMin: Math.min(selStart.r, selEnd.r),
     rMax: Math.max(selStart.r, selEnd.r)
   };
+  // Цілі рядки й колонки не розширюємо: з ними напряму працюють команди структури.
+  const whole = (bounds.cMin === 0 && bounds.cMax === COL_COUNT - 1) || (bounds.rMin === 1 && bounds.rMax === ROWS);
+  return whole ? bounds : expandBoundsToMerges(bounds, sheetMerges);
 }
 
 function ensureCellWithinBounds() {

@@ -20,7 +20,11 @@ function copySelectionToClipboard() {
     }
     cells.push(row);
   }
-  internalClipboard = { startC: b.cMin, startR: b.rMin, cells };
+  // Об'єднання всередині виділення копіюються відносно його лівого верхнього кута.
+  const merges = sheetMerges
+    .filter(merge => merge[0] >= b.cMin && merge[2] <= b.cMax && merge[1] >= b.rMin && merge[3] <= b.rMax)
+    .map(merge => [merge[0] - b.cMin, merge[1] - b.rMin, merge[2] - b.cMin, merge[3] - b.rMin]);
+  internalClipboard = { startC: b.cMin, startR: b.rMin, cells, merges };
 
   const tsv = serializeSelectionToTsv();
   internalClipboardKey = normalizeTsv(tsv);
@@ -74,7 +78,9 @@ function isInternalPaste(text) {
 }
 
 function pasteToGrid(text, startC, startR) {
+  const mergesBefore = JSON.stringify(sheetMerges);
   applyTsvToGridData(text, startC, startR);
+  if (JSON.stringify(sheetMerges) !== mergesBefore) rebuildGrid();
 
   recalculateAll();
   persistStateToStorage();
@@ -101,7 +107,8 @@ function applyTsvToGridData(text, startC, startR) {
     for (let cc = 0; cc < data[rr].length; cc++) {
       const r = startR + rr;
       const c = startC + cc;
-      if (r < 1 || r > ROWS || c < 0 || c >= COL_COUNT) continue;
+      // Приховані клітинки об'єднань лишаються порожніми.
+      if (r < 1 || r > ROWS || c < 0 || c >= COL_COUNT || isMergeCovered(sheetMerges, c, r)) continue;
       cellData[getCellId(c, r)] = data[rr][cc];
     }
   }
@@ -117,12 +124,21 @@ function applyInternalClipboard(startC, startR) {
 
   ensureGridSize(startR + rowCount - 1, startC + colCount);
 
+  // Вставлений діапазон замінює об'єднання, які зачіпає, скопійованими.
+  const area = [startC, startR, startC + colCount - 1, startR + rowCount - 1];
+  const pastedMerges = (clip.merges || [])
+    .map(merge => [merge[0] + startC, merge[1] + startR, merge[2] + startC, merge[3] + startR])
+    .filter(merge => merge[2] < COL_COUNT && merge[3] <= ROWS);
+  if (pastedMerges.length || sheetMerges.some(merge => mergesIntersect(merge, area))) {
+    sheetMerges = [...sheetMerges.filter(merge => !mergesIntersect(merge, area)), ...pastedMerges];
+  }
+
   for (let rr = 0; rr < rowCount; rr++) {
     const cols = clip.cells[rr];
     for (let cc = 0; cc < cols.length; cc++) {
       const r = startR + rr;
       const c = startC + cc;
-      if (r < 1 || r > ROWS || c < 0 || c >= COL_COUNT) continue;
+      if (r < 1 || r > ROWS || c < 0 || c >= COL_COUNT || isMergeCovered(sheetMerges, c, r)) continue;
       const raw = cols[cc];
       cellData[getCellId(c, r)] = String(raw).startsWith('=')
         ? offsetFormulaRefs(raw, rowDelta, colDelta)
