@@ -110,6 +110,7 @@ function validateWorkbookSheet(value, usedNames, index) {
     cellStyles: validateCellStyles(sheet.cellStyles, rows, cols),
     colWidths: validateColumnWidths(sheet.colWidths, cols),
     condRules: validateCondRules(sheet.condRules, rows, cols),
+    charts: normalizeSheetCharts(sheet.charts, rows, cols, { strict: true }),
     rows,
     cols
   };
@@ -118,8 +119,8 @@ function validateWorkbookSheet(value, usedNames, index) {
 function validateWorkbookPayload(payload) {
   workbookObject(payload, 'Файл');
   if (payload.type && payload.type !== 'art-tables-workbook') throw new Error('Це не файл ПЛЮС Таблиць');
-  // Версія 3 додала іменовані діапазони; файли версій 1–2 відкриваються без імен.
-  if (payload.version != null && ![1, 2, 3].includes(Number(payload.version))) throw new Error('Непідтримувана версія файлу');
+  // Версія 3 додала іменовані діапазони, 4 — діаграми аркушів; старші файли відкриваються без них.
+  if (payload.version != null && ![1, 2, 3, 4].includes(Number(payload.version))) throw new Error('Непідтримувана версія файлу');
 
   const usedNames = new Set();
   let validatedSheets;
@@ -135,6 +136,7 @@ function validateWorkbookPayload(payload) {
       cellStyles: payload.cellStyles,
       colWidths: payload.colWidths,
       condRules: payload.condRules,
+      charts: payload.charts,
       rows: payload.rows,
       cols: payload.cols
     }, usedNames, 0)];
@@ -153,7 +155,7 @@ function exportWorkbook() {
   syncActiveSheetFromGlobals();
   const payload = {
     type: 'art-tables-workbook',
-    version: 3,
+    version: 4,
     name: workbookName,
     activeSheet,
     sheets,

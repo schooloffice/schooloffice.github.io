@@ -15,8 +15,9 @@ let cellData = {};
 let colWidths = {};
 let cellStyles = {};
 let condRules = []; // умовне форматування: [{ range:[cMin,rMin,cMax,rMax], op, v1, v2, fill }]
+let sheetCharts = []; // діаграми активного аркуша (chart-model.js)
 
-let sheets = [];      // [{ name, cellData, cellStyles, colWidths, condRules, rows, cols }]
+let sheets = [];      // [{ name, cellData, cellStyles, colWidths, condRules, charts, rows, cols }]
 let activeSheet = 0;
 // Іменовані діапазони книги (named-ranges.js): [{ name, sheet, range:[cMin,rMin,cMax,rMax] | null }]
 let workbookNames = [];
@@ -28,20 +29,24 @@ function makeSheet(name) {
     cellStyles: {},
     colWidths: {},
     condRules: [],
+    charts: [],
     rows: DEFAULT_ROWS,
     cols: DEFAULT_COL_COUNT
   };
 }
 
 function normalizeSheet(s) {
+  const rows = Math.max(1, Math.min(500, Number(s?.rows) || DEFAULT_ROWS));
+  const cols = Math.max(1, Math.min(200, Number(s?.cols) || DEFAULT_COL_COUNT));
   return {
     name: String(s?.name || 'Аркуш'),
     cellData: s?.cellData && typeof s.cellData === 'object' ? s.cellData : {},
     cellStyles: s?.cellStyles && typeof s.cellStyles === 'object' ? s.cellStyles : {},
     colWidths: s?.colWidths && typeof s.colWidths === 'object' ? s.colWidths : {},
     condRules: Array.isArray(s?.condRules) ? s.condRules : [],
-    rows: Math.max(1, Math.min(500, Number(s?.rows) || DEFAULT_ROWS)),
-    cols: Math.max(1, Math.min(200, Number(s?.cols) || DEFAULT_COL_COUNT))
+    charts: normalizeSheetCharts(s?.charts, rows, cols),
+    rows,
+    cols
   };
 }
 
@@ -53,6 +58,7 @@ function syncActiveSheetFromGlobals() {
   s.cellStyles = cellStyles;
   s.colWidths = colWidths;
   s.condRules = condRules;
+  s.charts = sheetCharts;
   s.rows = ROWS;
   s.cols = COL_COUNT;
 }
@@ -66,6 +72,7 @@ function loadGlobalsFromSheet(i) {
   cellStyles = s.cellStyles || {};
   colWidths = s.colWidths || {};
   condRules = Array.isArray(s.condRules) ? s.condRules : [];
+  sheetCharts = Array.isArray(s.charts) ? s.charts : [];
   setGridSize(s.rows || DEFAULT_ROWS, s.cols || DEFAULT_COL_COUNT);
 }
 

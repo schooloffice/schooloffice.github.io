@@ -72,6 +72,7 @@ function recalculateAll() {
   const fb = document.getElementById('formulaBar');
   if (fb && activeId) fb.value = cellData[activeId] || '';
   updateSelectionStats();
+  renderSheetCharts();
 }
 
 window.TablesCalculation = {

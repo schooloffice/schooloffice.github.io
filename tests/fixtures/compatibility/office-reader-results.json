@@ -59,7 +59,65 @@
                                 "Показники":  "=Дані!$A$2:$A$3",
                                 "Разом":  "=Підсумок!$A$2"
                             },
-                  "checkedAt":  "2026-09-13T11:23:52"
+                  "charts":  [
+                                 {
+                                     "sheet":  "Дані",
+                                     "type":  51,
+                                     "title":  "Успішність",
+                                     "topLeft":  "F1",
+                                     "widthPt":  360,
+                                     "heightPt":  225,
+                                     "series":  [
+                                                    {
+                                                        "name":  "Бал",
+                                                        "formula":  "=SERIES(Дані!$D$1,Дані!$C$2:$C$4,Дані!$D$2:$D$4,1)",
+                                                        "values":  [
+                                                                       10,
+                                                                       8,
+                                                                       12
+                                                                   ]
+                                                    }
+                                                ]
+                                 },
+                                 {
+                                     "sheet":  "Дані",
+                                     "type":  5,
+                                     "title":  "",
+                                     "topLeft":  "F18",
+                                     "widthPt":  270,
+                                     "heightPt":  210,
+                                     "series":  [
+                                                    {
+                                                        "name":  "Бал",
+                                                        "formula":  "=SERIES(Дані!$D$1,Дані!$C$2:$C$4,Дані!$D$2:$D$4,1)",
+                                                        "values":  [
+                                                                       10,
+                                                                       8,
+                                                                       12
+                                                                   ]
+                                                    }
+                                                ]
+                                 },
+                                 {
+                                     "sheet":  "Підсумок",
+                                     "type":  65,
+                                     "title":  "Підсумок",
+                                     "topLeft":  "C1",
+                                     "widthPt":  300,
+                                     "heightPt":  180,
+                                     "series":  [
+                                                    {
+                                                        "name":  "Ряд1",
+                                                        "formula":  "=SERIES(,,Підсумок!$A$1:$A$2,1)",
+                                                        "values":  [
+                                                                       1,
+                                                                       2
+                                                                   ]
+                                                    }
+                                                ]
+                                 }
+                             ],
+                  "checkedAt":  "2026-09-14T12:51:33"
               },
     "word":  {
                  "program":  "Microsoft Word 16.0",

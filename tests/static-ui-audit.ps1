@@ -630,6 +630,9 @@ $runtimeFiles = @(
   'tables/js/formula-references.js',
   'tables/js/model.js',
   'tables/js/named-ranges.js',
+  'tables/js/chart-model.js',
+  'tables/js/charts.js',
+  'tables/js/xlsx-charts.js',
   'tables/js/storage.js',
   'tables/js/ui.js',
   'tables/js/grid.js',
@@ -995,7 +998,7 @@ if (Test-Path $tablesIndexPath) {
   Assert-True ($tablesHtml -match 'src="js/grid\.js"[\s\S]*src="js/structure\.js"[\s\S]*src="js/workbook\.js"') "tables/index.html: js/structure.js should load after grid.js and before workbook.js"
   Assert-True ($tablesHtml -match 'src="js/charts\.js"') "tables/index.html: should load js/charts.js as the chart layer"
   Assert-True ($tablesHtml -match 'src="js/workbook\.js"[\s\S]*src="js/charts\.js"[\s\S]*src="js/ui\.js"') "tables/index.html: js/charts.js should load after workbook.js and before ui.js"
-  foreach ($tablesUiModule in @('sorting', 'workbook-file', 'xlsx-file', 'view-options', 'cell-format-ui')) {
+  foreach ($tablesUiModule in @('sorting', 'workbook-file', 'xlsx-charts', 'xlsx-file', 'view-options', 'cell-format-ui')) {
     Assert-True ($tablesHtml -match "src=""js/$tablesUiModule\.js""") "tables/index.html: should load js/$tablesUiModule.js as a UI sublayer"
     Assert-True ($tablesHtml -match "src=""js/ui\.js""[\s\S]*src=""js/$tablesUiModule\.js""[\s\S]*src=""js/calculation\.js""") "tables/index.html: js/$tablesUiModule.js should load after ui.js and before calculation.js"
   }
@@ -1581,6 +1584,20 @@ Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'sw.js')) -match 
 Assert-True ($xlsxAdapter -match '<definedNames>') 'tables/js/xlsx-file.js: workbook names must be exported as definedNames'
 Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')) -match 'tables-named-ranges-behavior\.html') 'tests/run-browser-smoke.ps1: named ranges smoke page must run'
 Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/tables-formula-behavior.html')) -match 'src="\.\./tables/js/named-ranges\.js"') 'tests/tables-formula-behavior.html: formula checks must load named-ranges.js'
+
+# Діаграми аркуша: модель у книзі, малювання над сіткою, OOXML-адаптер, офлайн і smoke.
+$chartModelModule = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/js/chart-model.js')
+Assert-True ($chartModelModule -match 'window\.TablesChartModel\s*=') 'tables/js/chart-model.js: should expose TablesChartModel'
+Assert-True ($chartModelModule -match 'CHART_MAX_PER_SHEET\s*=\s*20') 'tables/js/chart-model.js: charts per sheet must stay limited'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/js/xlsx-charts.js')) -match 'root\.TablesXlsxCharts\s*=') 'tables/js/xlsx-charts.js: should expose TablesXlsxCharts'
+$tablesChartsIndex = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/index.html')
+Assert-True ($tablesChartsIndex -match 'src="js/named-ranges\.js"[\s\S]*src="js/chart-model\.js"[\s\S]*src="js/core\.js"') 'tables/index.html: chart-model.js should load after named-ranges.js and before core.js'
+Assert-True ($tablesChartsIndex -match 'src="js/xlsx-charts\.js"[\s\S]*src="js/xlsx-file\.js"') 'tables/index.html: xlsx-charts.js should load before xlsx-file.js'
+Assert-True ($tablesChartsIndex -notmatch 'id="chartModal"') 'tables/index.html: charts live on the sheet; the transient chart modal must stay removed'
+$swChartsText = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'sw.js')
+Assert-True ($swChartsText -match "'\./tables/js/chart-model\.js'" -and $swChartsText -match "'\./tables/js/xlsx-charts\.js'") 'sw.js: chart modules must be cached for offline use'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/js/calculation.js')) -match 'renderSheetCharts\(\)') 'tables/js/calculation.js: recalculation must refresh sheet charts'
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')) -match 'tables-charts-behavior\.html') 'tests/run-browser-smoke.ps1: charts smoke page must run'
 
 # Ctrl/Cmd+S у Схемах зберігає JSON-проєкт; PNG лишається окремим експортом у меню.
 $flowchartsShortcuts = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'flowcharts/js/keyboard-shortcuts.js')

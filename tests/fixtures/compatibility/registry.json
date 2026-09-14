@@ -33,10 +33,10 @@
       "format": "xlsx",
       "file": "excel-formatting-chart.xlsx",
       "origin": "Microsoft Excel 16.0 build 17932 через COM (generate-office-fixtures.ps1)",
-      "supportedProperties": ["жирний заголовок", "числа 10.5 і 11.25", "ширина колонки"],
-      "expectedLosses": ["діаграма (попередження після імпорту)", "точна заливка й числовий формат 0,00 можуть спроститися"],
-      "automatedTest": "tests/xlsx-behavior.html: Excel fixture: bold header, numbers and column width; chart is reported as not transferred",
-      "result": "passed: оформлення й ширина імпортуються, діаграма названа у попередженні"
+      "supportedProperties": ["жирний заголовок", "числа 10.5 і 11.25", "ширина колонки", "стовпчаста діаграма з A1:B3 з автоматичною назвою"],
+      "expectedLosses": ["точна заливка й числовий формат 0,00 можуть спроститися"],
+      "automatedTest": "tests/xlsx-behavior.html: Excel fixture: bold header, numbers and column width; column chart imports with its ranges. tests/tables-charts-behavior.html: auto title of a one-series chart becomes the series name",
+      "result": "passed: оформлення й ширина імпортуються; з 2026-09-14 діаграма переноситься з рядом B2:B3, категоріями A2:A3, назвою «Оцінка» та якорем D3"
     },
     {
       "id": "xlsx-named-ranges",
@@ -47,6 +47,16 @@
       "expectedLosses": ["ім'я рівня аркуша «Місцеве» (попередження після імпорту)", "ім'я «Ставка.Місяць» із крапкою, несумісне із синтаксисом ПЛЮС (попередження після імпорту)"],
       "automatedTest": "tests/tables-named-ranges-behavior.html: Excel fixture: workbook names import, formulas keep the names, unsupported names are reported exactly, PLUS computes the named formulas like Excel",
       "result": "passed: імена Витрати й Ставка імпортуються; ПЛЮС рахує 300, 120 і 360 — як Excel; «Місцеве» і «Ставка.Місяць» названо в попередженні"
+    },
+    {
+      "id": "xlsx-charts",
+      "format": "xlsx",
+      "file": "excel-charts.xlsx",
+      "origin": "Microsoft Excel 16.0 build 17932 через COM (generate-office-fixtures.ps1 -Only charts)",
+      "supportedProperties": ["стовпчаста діаграма з двома рядами (A1:C4)", "кругова діаграма (A1:B4)", "лінійна діаграма з двома рядами (A1:C4)"],
+      "expectedLosses": ["точкова діаграма (попередження після імпорту)", "діаграма на аркуші «Звіт» з даними аркуша «Оцінки» (попередження після імпорту)"],
+      "automatedTest": "tests/tables-charts-behavior.html: Excel fixture: column chart with two series, pie and line import; unsupported chart types and other-sheet data are reported; PLUS renders the imported column chart",
+      "result": "passed: три діаграми переносяться з діапазонами, ПЛЮС малює ряди 9/11/7 і 10/8/12 з назвами «І семестр» і «ІІ семестр»; точкова й діаграма з даними іншого аркуша названі в попередженні"
     },
     {
       "id": "docx-formatted-text",
@@ -176,9 +186,9 @@
       "origin": "експорт ПЛЮС Таблиці через tests/compatibility-export.html",
       "externalCheck": {
         "program": "Microsoft Excel 16.0 build 17932",
-        "result": "opened after fix: до виправлення Excel не відкривав файл через порожній <cols></cols>. Excel прочитав 2.5 (Double), TRUE (Boolean), «більше» (String), #DIV/0! (Error), 3 і 7; ROUND без кешу перерахував у 3.33. 2026-09-13: імена книги Показники (=Дані!$A$2:$A$3) і Разом (=Підсумок!$A$2) прочитано як Names, =SUM(Показники) = 14 і =Разом*2 = 4"
+        "result": "opened after fix: до виправлення Excel не відкривав файл через порожній <cols></cols>. Excel прочитав 2.5 (Double), TRUE (Boolean), «більше» (String), #DIV/0! (Error), 3 і 7; ROUND без кешу перерахував у 3.33. 2026-09-13: імена книги Показники (=Дані!$A$2:$A$3) і Разом (=Підсумок!$A$2) прочитано як Names, =SUM(Показники) = 14 і =Разом*2 = 4. 2026-09-14: діаграми прочитано як ChartObjects — стовпчаста «Успішність» у F1 480×300 px з рядом =SERIES(Дані!$D$1,Дані!$C$2:$C$4,Дані!$D$2:$D$4,1) і значеннями 10, 8, 12; кругова у F18; лінійна «Підсумок» у C1 (Excel показує її як лінію з маркерами) зі значеннями 1 і 2"
       },
-      "automatedTest": "tests/xlsx-behavior.html: cached value checks + sheet without column widths has no empty <cols>; tests/tables-named-ranges-behavior.html: XLSX export writes workbook definedNames",
+      "automatedTest": "tests/xlsx-behavior.html: cached value checks + sheet without column widths has no empty <cols>; tests/tables-named-ranges-behavior.html: XLSX export writes workbook definedNames; tests/tables-charts-behavior.html: XLSX export writes drawing and chart parts, round-trip keeps charts",
       "result": "passed"
     },
     {

@@ -106,8 +106,6 @@ body {
 .cell-input:focus-visible,
 .modal-primary-btn:focus-visible,
 .modal-secondary-btn:focus-visible,
-.chart-type-btn:focus-visible,
-.chart-close-btn:focus-visible,
 #formulaBar:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -340,8 +338,6 @@ body {
 
 .tb-btn,
 .status-btn,
-.chart-type-btn,
-.chart-close-btn,
 .palette-action,
 .modal-primary-btn,
 .modal-secondary-btn {
@@ -366,8 +362,6 @@ body {
 
 .tb-btn:hover,
 .status-btn:hover,
-.chart-type-btn:hover,
-.chart-close-btn:hover,
 .palette-action:hover,
 .modal-secondary-btn:hover {
   background: var(--accent-soft);
@@ -376,8 +370,7 @@ body {
 
 .tb-btn.active,
 .tb-chip.active,
-.status-btn.active,
-.chart-type-btn.active {
+.status-btn.active {
   background: var(--accent-soft);
   color: var(--accent-dark);
   border-color: #bbf7d0;
@@ -390,8 +383,7 @@ body {
   cursor: not-allowed;
 }
 
-.tb-btn i,
-.chart-close-btn i {
+.tb-btn i {
   font-size: .8rem;
   pointer-events: none;
 }
@@ -728,6 +720,41 @@ th.col-header {
 .named-range-edit:hover { background: #eef2f7; }
 .named-range-btn { padding: 4px 10px; font-size: 13px; }
 
+/* Діаграми на аркуші */
+.sheet-chart-layer { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 6; }
+.sheet-chart {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: .5rem;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .14);
+  overflow: hidden;
+}
+.sheet-chart:focus-visible, .sheet-chart:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sheet-chart-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 10px;
+  border-bottom: 1px solid var(--line);
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+}
+.sheet-chart-title { flex: 1; min-width: 0; font-weight: 800; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sheet-chart-title-input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; }
+.sheet-chart-tools { display: flex; gap: 2px; }
+.sheet-chart-tool { width: 28px; height: 28px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text); cursor: pointer; }
+.sheet-chart-tool:hover, .sheet-chart-tool[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-dark); }
+.sheet-chart-tool:focus-visible { outline: 2px solid var(--accent); }
+.sheet-chart-body { position: relative; flex: 1; min-height: 0; padding: 6px; }
+.sheet-chart-body canvas[hidden], .sheet-chart-empty[hidden] { display: none; }
+.sheet-chart-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; color: var(--muted); font-size: 13px; }
+.sheet-chart-resize { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; touch-action: none; background: linear-gradient(135deg, transparent 50%, var(--line) 50%); }
+@media print { .sheet-chart-tools, .sheet-chart-resize { display: none; } }
+
 /* Sheet tabs (аркуші) */
 .sheet-tabs {
   display: flex;
@@ -843,21 +870,13 @@ th.col-header {
   display: flex;
 }
 
-.modal-content,
-.chart-modal-content {
+.modal-content {
   width: min(92vw, 460px);
   background: var(--panel);
   border-radius: .7rem;
   border: 1px solid var(--line);
   box-shadow: 0 10px 30px rgba(15, 23, 42, .16);
   padding: 1.25rem;
-}
-
-.chart-modal-content {
-  width: min(95vw, 1040px);
-  height: min(82vh, 760px);
-  display: flex;
-  flex-direction: column;
 }
 
 .modal-icon {
@@ -899,25 +918,6 @@ th.col-header {
 
 .modal-secondary-btn {
   border-color: var(--line);
-}
-
-.chart-toolbar {
-  display: flex;
-  justify-content: space-between;
-  gap: .75rem;
-  margin-bottom: .75rem;
-}
-
-.chart-type-group {
-  display: flex;
-  gap: .5rem;
-  flex-wrap: wrap;
-}
-
-.chart-canvas-wrap {
-  flex: 1;
-  min-height: 0;
-  position: relative;
 }
 
 /* Saved style classes */

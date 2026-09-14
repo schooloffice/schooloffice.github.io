@@ -13,6 +13,7 @@ function setZoom(zoom) {
   metrics.rowH = cellHeight;
   metrics.headerH = headerHeight;
   TablesStructure?.hideInsertButtons?.();
+  layoutSheetCharts();
   const label = document.getElementById('zoomLabel');
   if (label) label.textContent = `${currentZoom}%`;
   document.querySelectorAll('.menu-item[data-action^="zoom-"]').forEach(btn => btn.classList.remove('checked'));

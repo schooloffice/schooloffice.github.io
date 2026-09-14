@@ -242,7 +242,7 @@
     });
     if (doc.getElementsByTagNameNS('*', 'mergeCell').length) warnings.add('об’єднані клітинки');
     if (doc.getElementsByTagNameNS('*', 'conditionalFormatting').length) warnings.add('умовне форматування');
-    return { name, cellData: data, cellStyles, colWidths, condRules: [], rows: Math.max(60, maxRow), cols: Math.max(30, maxCol + 1) };
+    return { name, cellData: data, cellStyles, colWidths, condRules: [], charts: [], rows: Math.max(60, maxRow), cols: Math.max(30, maxCol + 1) };
   }
 
   // Ім'я книги Excel на абсолютний прямокутний діапазон одного аркуша: Дані!$B$2:$B$4.
@@ -300,20 +300,32 @@
     const warnings = new Set();
     const sheetNodes = Array.from(workbook.getElementsByTagNameNS('*', 'sheet')).slice(0, 50);
     if (!sheetNodes.length) throw new Error('XLSX не містить аркушів');
+    const sourceNames = sheetNodes.map((sheet, index) => String(sheet.getAttribute('name') || `Аркуш${index + 1}`));
+    const sheetPaths = [];
     const sheets = sheetNodes.map((sheet, index) => {
       const relId = sheet.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || sheet.getAttribute('r:id');
       const path = relationships.get(relId);
       if (!path || !files.has(path)) throw new Error(`Не знайдено дані аркуша ${index + 1}`);
-      const name = String(sheet.getAttribute('name') || `Аркуш${index + 1}`).slice(0, 31);
-      return parseSheet(files.get(path), shared, styles, name, warnings);
+      sheetPaths.push(path);
+      return parseSheet(files.get(path), shared, styles, sourceNames[index].slice(0, 31), warnings);
     });
     const activeTab = Number(workbook.getElementsByTagNameNS('*', 'workbookView')[0]?.getAttribute('activeTab') || 0);
     for (const path of files.keys()) {
-      if (/^(xl\/(drawings|charts|media|pivotTables)|xl\/vbaProject)/i.test(path)) warnings.add('зображення, діаграми, зведені таблиці або макроси');
+      if (/^(xl\/(pivotTables|chartsheets)\/|xl\/vbaProject)/i.test(path)) warnings.add('зведені таблиці, листи діаграм або макроси');
     }
-    const names = parseDefinedNames(workbook, sheets, sheetNodes.map((sheet, index) => String(sheet.getAttribute('name') || `Аркуш${index + 1}`)), warnings);
+    // Діаграми й інші об'єкти малюнка аркуша: перенесене й точний перелік решти.
+    const chartsApi = window.TablesXlsxCharts;
+    const chartStats = chartsApi?.createImportStats();
+    sheets.forEach((sheet, index) => {
+      sheet.charts = chartsApi ? chartsApi.parseSheetCharts({
+        files, sheetPath: sheetPaths[index], sheet, sheetName: sourceNames[index], stats: chartStats,
+        helpers: { childrenByName, firstChild, parseXml, relMap, resolvePath }
+      }) : [];
+    });
+    chartsApi?.reportImportLosses(chartStats, warnings);
+    const names = parseDefinedNames(workbook, sheets, sourceNames, warnings);
     return {
-      payload: { type: 'art-tables-workbook', version: 3, name: filename.replace(/\.xlsx$/i, ''), activeSheet: Math.max(0, Math.min(sheets.length - 1, activeTab)), sheets, names },
+      payload: { type: 'art-tables-workbook', version: 4, name: filename.replace(/\.xlsx$/i, ''), activeSheet: Math.max(0, Math.min(sheets.length - 1, activeTab)), sheets, names },
       warnings: [...warnings]
     };
   }
@@ -434,7 +446,7 @@
     }
   }
 
-  function sheetXml(sheet, styles, cacheFor = () => ({ kind: 'unknown' })) {
+  function sheetXml(sheet, styles, cacheFor = () => ({ kind: 'unknown' }), hasDrawing = false) {
     const styleMap = sheet.cellStyles || {};
     const refs = [...new Set([...Object.keys(sheet.cellData || {}), ...Object.keys(styleMap)])]
       .map(ref => ({ ref: ref.toUpperCase(), coords: cellCoords(ref) })).filter(item => item.coords)
@@ -458,7 +470,8 @@
     const cols = Object.entries(sheet.colWidths || {}).map(([index, px]) => `<col min="${Number(index) + 1}" max="${Number(index) + 1}" width="${Math.max(1, (Number(px) - 5) / 7).toFixed(2)}" customWidth="1"/>`).join('');
     const rowXml = [...rows.entries()].map(([r, cells]) => `<row r="${r}">${cells.join('')}</row>`).join('');
     // Порожній <cols></cols> недопустимий за схемою OOXML: Microsoft Excel через нього не відкривав файл.
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${rowXml}</sheetData></worksheet>`;
+    const relNs = hasDrawing ? ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"' : '';
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"${relNs}>${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${rowXml}</sheetData>${hasDrawing ? '<drawing r:id="rId1"/>' : ''}</worksheet>`;
   }
 
   function exportArrayBuffer(rawPayload) {
@@ -472,31 +485,65 @@
     // Кеш рахуємо з експортованої книги (усі аркуші), а не з живої сітки.
     const evaluateForExport = window.TablesFormulaEngine?.evaluateFormulaForExport;
     const names = Array.isArray(payload.names) ? payload.names : [];
-    const sheetEntries = sheets.map((sheet, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sheet, styles,
-      formula => (typeof evaluateForExport === 'function' ? evaluateForExport(formula, sheets, i, names) : { kind: 'unknown' }))]);
-    const workbookSheets = sheets.map((sheet, i) => `<sheet name="${xmlEscape(sheet.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
     // Зламані імена (#REF!) не пишемо: describeExportLosses називає їх перед експортом.
     const addressOf = window.TablesNamedRanges?.address;
     const definedNames = typeof addressOf === 'function'
       ? names.filter(entry => entry.sheet && Array.isArray(entry.range))
         .map(entry => `<definedName name="${xmlEscape(entry.name)}">${xmlText(addressOf(entry))}</definedName>`).join('')
       : '';
+    // Діаграми: малюнок на аркуш, кеші значень рахуються з експортованої книги.
+    const chartsApi = window.TablesXlsxCharts;
+    const chartEntries = [];
+    const chartOverrides = [];
+    const drawingSheets = new Set();
+    let chartCount = 0;
+    if (chartsApi && typeof addressOf === 'function') {
+      sheets.forEach((sheet, i) => {
+        const built = chartsApi.buildSheetCharts({
+          sheet, chartStart: chartCount + 1, drawingIndex: drawingSheets.size + 1,
+          rangeRef: range => addressOf({ sheet: sheet.name, range }),
+          valueAt: (col, row) => exportCellValue(sheets, i, names, col, row)
+        });
+        if (!built) return;
+        drawingSheets.add(i);
+        chartCount += built.charts.length;
+        chartEntries.push([`xl/worksheets/_rels/sheet${i + 1}.xml.rels`, built.sheetRels], [`xl/drawings/drawing${drawingSheets.size}.xml`, built.drawing],
+          [`xl/drawings/_rels/drawing${drawingSheets.size}.xml.rels`, built.drawingRels], ...built.charts);
+        chartOverrides.push(`<Override PartName="/xl/drawings/drawing${drawingSheets.size}.xml" ContentType="${chartsApi.DRAWING_CONTENT_TYPE}"/>`,
+          ...built.charts.map(([path]) => `<Override PartName="/${path}" ContentType="${chartsApi.CHART_CONTENT_TYPE}"/>`));
+      });
+    }
+    const sheetEntries = sheets.map((sheet, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sheet, styles,
+      formula => (typeof evaluateForExport === 'function' ? evaluateForExport(formula, sheets, i, names) : { kind: 'unknown' }), drawingSheets.has(i))]);
+    const workbookSheets = sheets.map((sheet, i) => `<sheet name="${xmlEscape(sheet.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
     const workbookRels = sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('') + `<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`;
     const overrides = sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('');
     const entries = [
-      ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${overrides}</Types>`],
+      ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${overrides}${chartOverrides.join('')}</Types>`],
       ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
       ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView activeTab="${payload.activeSheet || 0}"/></bookViews><sheets>${workbookSheets}</sheets>${definedNames ? `<definedNames>${definedNames}</definedNames>` : ''}<calcPr calcMode="auto" fullCalcOnLoad="1"/></workbook>`],
       ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${workbookRels}</Relationships>`],
       ['xl/styles.xml', styles.xml],
-      ...sheetEntries
+      ...sheetEntries,
+      ...chartEntries
     ];
     return zipStore(entries).buffer;
   }
 
+  // Значення клітинки для кешу діаграми: текст або число; формула — лише обчислене як у Excel.
+  function exportCellValue(sheets, sheetIndex, names, col, row) {
+    const raw = sheets[sheetIndex]?.cellData?.[colName(col) + row];
+    if (raw == null || raw === '') return '';
+    const text = String(raw);
+    if (!text.startsWith('=')) return text;
+    const evaluate = window.TablesFormulaEngine?.evaluateFormulaForExport;
+    const cached = typeof evaluate === 'function' ? evaluate(text.slice(1), sheets, sheetIndex, names) : { kind: 'unknown' };
+    return cached.kind === 'number' || cached.kind === 'string' ? cached.value : '';
+  }
+
   function currentPayload() {
     if (typeof syncActiveSheetFromGlobals === 'function') syncActiveSheetFromGlobals();
-    return { type: 'art-tables-workbook', version: 3, name: workbookName, activeSheet, sheets, names: workbookNames };
+    return { type: 'art-tables-workbook', version: 4, name: workbookName, activeSheet, sheets, names: workbookNames };
   }
 
   // Дозволені класи оформлення, яких XLSX v1 не переносить (решту мапить styleDescriptor).
@@ -526,6 +573,11 @@
     if (brokenNames.length) {
       losses.push(`іменовані діапазони з помилкою #REF! (${brokenNames.map(entry => entry.name).join(', ')}) — формули з ними в Excel покажуть #NAME?`);
     }
+    const emptyCharts = [];
+    sheets.forEach(sheet => (sheet.charts || []).forEach((chart, index) => {
+      if (!chart.series.length) emptyCharts.push(`«${chart.title || `Діаграма ${index + 1}`}» на аркуші ${sheet.name}`);
+    }));
+    if (emptyCharts.length) losses.push(`діаграми без даних (${emptyCharts.join(', ')}) — у XLSX їх не буде`);
     return losses;
   }
 
@@ -605,7 +657,7 @@
       const result = await importArrayBuffer(await file.arrayBuffer(), file.name);
       window.TablesWorkbookFile?.applyWorkbookPayload?.(result.payload);
       const warning = result.warnings.length ? `\n\nНе перенесено у цьому файлі: ${result.warnings.join(', ')}.` : '';
-      showInfoModal(`XLSX імпортовано.${warning}\n\nПідтримано: аркуші, числа, текст, дати, базові формули, ширини колонок і базове форматування. Не підтримуються: merge, зображення, діаграми, pivot, макроси та формули поза набором ПЛЮС.`);
+      showInfoModal(`XLSX імпортовано.${warning}\n\nПідтримано: аркуші, числа, текст, дати, базові формули, іменовані діапазони, стовпчасті, лінійні й кругові діаграми, ширини колонок і базове форматування. Не підтримуються: merge, зображення, інші типи діаграм, pivot, макроси та формули поза набором ПЛЮС.`);
       return result;
     } catch (error) {
       showInfoModal(`Не вдалося відкрити XLSX: ${error?.message || 'помилка читання'}`);

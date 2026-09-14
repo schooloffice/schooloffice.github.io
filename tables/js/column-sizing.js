@@ -16,6 +16,7 @@ function resizeColumn(e) {
   const newWidth = Math.max(50, resizeCol.startWidth + diff);
   colWidths[resizeCol.idx] = newWidth;
   applyColWidths();
+  layoutSheetCharts();
   persistStateToStorage();
   setSaveBadge();
 }

@@ -161,9 +161,6 @@ function initMenusAndToolbar() {
     document.querySelectorAll('[data-close-modal]').forEach(btn => {
       btn.addEventListener('click', () => closeModal(btn.dataset.closeModal));
     });
-    document.querySelectorAll('[data-chart-type]').forEach(btn => {
-      btn.addEventListener('click', () => TablesCharts.setChartType(btn.dataset.chartType));
-    });
 
     menusInitialized = true;
   }

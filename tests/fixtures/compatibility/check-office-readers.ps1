@@ -56,6 +56,26 @@ function Test-Excel {
         type = if ($null -eq $value) { 'empty' } elseif ($isError) { 'Error' } else { $value.GetType().Name }
       }
     }
+    # Діаграми, як їх прочитав Excel: тип (51 стовпчики, 4 лінія, 5 кругова), назва, якір і ряди.
+    $result.charts = @()
+    foreach ($worksheet in $book.Worksheets) {
+      foreach ($chartObject in $worksheet.ChartObjects()) {
+        $chart = $chartObject.Chart
+        $series = @()
+        foreach ($item in $chart.SeriesCollection()) { $series += [ordered]@{ name = $item.Name; formula = $item.Formula; values = @($item.Values) } }
+        $result.charts += [ordered]@{
+          sheet = $worksheet.Name
+          type = $chart.ChartType
+          title = if ($chart.HasTitle) { $chart.ChartTitle.Text } else { '' }
+          topLeft = $chartObject.TopLeftCell.Address(0, 0)
+          widthPt = $chartObject.Width
+          heightPt = $chartObject.Height
+          series = $series
+        }
+        Release-Com $chart; Release-Com $chartObject
+      }
+      Release-Com $worksheet
+    }
     $book.Close($false)
     Release-Com $sheet; Release-Com $book
   } finally {

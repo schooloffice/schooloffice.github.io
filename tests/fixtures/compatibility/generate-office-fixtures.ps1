@@ -9,7 +9,7 @@ param(
   [string]$OutDir = $PSScriptRoot,
   # Необов'язковий журнал кроків: допомагає знайти COM-виклик, який чекає прихований діалог.
   [string]$ProgressLog = '',
-  # Лише вибрані випадки (formulas-types, two-sheets, formatting-chart, named-ranges); порожньо — усі.
+  # Лише вибрані випадки (formulas-types, two-sheets, formatting-chart, named-ranges, charts); порожньо — усі.
   [string[]]$Only = @()
 )
 
@@ -142,6 +142,50 @@ try {
   $wb.Close($false)
   Release-Com $data; Release-Com $totals; Release-Com $wb
   Step 'excel: named ranges saved'
+  }
+
+  # 5. Діаграми: стовпчаста з двома рядами, кругова, лінійна, непідтримувана точкова
+  #    і діаграма на іншому аркуші, дані якої лежать на «Оцінки».
+  if (Wants 'charts') {
+  $xlColumnClusteredChart = 51
+  $xlPie = 5
+  $xlLine = 4
+  $xlXYScatter = -4169
+  $xlColumns = 2
+  $wb = $excel.Workbooks.Add()
+  while ($wb.Worksheets.Count -lt 2) { [void]$wb.Worksheets.Add($missing, $wb.Worksheets.Item($wb.Worksheets.Count)) }
+  $grades = $wb.Worksheets.Item(1)
+  $report = $wb.Worksheets.Item(2)
+  $grades.Name = 'Оцінки'
+  $report.Name = 'Звіт'
+  $grades.Range('A1').Value2 = 'Предмет'
+  $grades.Range('B1').Value2 = 'І семестр'
+  $grades.Range('C1').Value2 = 'ІІ семестр'
+  $grades.Range('A2').Value2 = 'Математика'
+  $grades.Range('B2').Value2 = 9
+  $grades.Range('C2').Value2 = 10
+  $grades.Range('A3').Value2 = 'Історія'
+  $grades.Range('B3').Value2 = 11
+  $grades.Range('C3').Value2 = 8
+  $grades.Range('A4').Value2 = 'Біологія'
+  $grades.Range('B4').Value2 = 7
+  $grades.Range('C4').Value2 = 12
+  $columnChart = $grades.Shapes.AddChart2(-1, $xlColumnClusteredChart, 250, 10, 360, 220)
+  $columnChart.Chart.SetSourceData($grades.Range('A1:C4'), $xlColumns)
+  $pieChart = $grades.Shapes.AddChart2(-1, $xlPie, 250, 250, 300, 220)
+  $pieChart.Chart.SetSourceData($grades.Range('A1:B4'), $xlColumns)
+  $lineChart = $grades.Shapes.AddChart2(-1, $xlLine, 620, 10, 360, 220)
+  $lineChart.Chart.SetSourceData($grades.Range('A1:C4'), $xlColumns)
+  $scatterChart = $grades.Shapes.AddChart2(-1, $xlXYScatter, 620, 250, 300, 220)
+  $scatterChart.Chart.SetSourceData($grades.Range('B1:C4'), $xlColumns)
+  $report.Range('A1').Value2 = 'Звіт за семестр'
+  $otherSheetChart = $report.Shapes.AddChart2(-1, $xlColumnClusteredChart, 20, 40, 360, 220)
+  $otherSheetChart.Chart.SetSourceData($grades.Range('A1:B4'), $xlColumns)
+  $wb.SaveAs((Join-Path $OutDir 'excel-charts.xlsx'), $xlOpenXMLWorkbook)
+  $wb.Close($false)
+  Release-Com $columnChart; Release-Com $pieChart; Release-Com $lineChart; Release-Com $scatterChart; Release-Com $otherSheetChart
+  Release-Com $grades; Release-Com $report; Release-Com $wb
+  Step 'excel: charts saved'
   }
 } finally {
   $excel.Quit()

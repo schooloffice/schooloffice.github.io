@@ -152,7 +152,7 @@
         win.URL.createObjectURL = originalCreateObjectURL;
         win.HTMLAnchorElement.prototype.click = originalAnchorClick;
       }
-      check('.arttab saves names as file version 3', saved?.version === 3 && saved.names?.length === 1 && saved.names[0].name === 'Видатки' && saved.names[0].sheet === 'Кошторис', JSON.stringify(saved?.names));
+      check('.arttab saves names (file version 3 or later)', saved?.version >= 3 && saved.names?.length === 1 && saved.names[0].name === 'Видатки' && saved.names[0].sheet === 'Кошторис', JSON.stringify(saved?.names));
       win.TablesNamedRanges.openDialog();
       doc.querySelector('#namedRangeList [data-named-range-action="delete"]').click();
       const deleteConfirmText = doc.getElementById('namedRangeList').textContent;
@@ -165,7 +165,7 @@
       const rejection = payload => { try { win.TablesWorkbookFile.validateWorkbookPayload(payload); return ''; } catch (error) { return error.message; } };
       check('file with a name that looks like an address is rejected', /A1/.test(rejection({ ...saved, names: [{ name: 'A1', sheet: 'Кошторис', range: [0, 1, 0, 1] }] })));
       check('file with a name outside its sheet is rejected', rejection({ ...saved, names: [{ name: 'Поза', sheet: 'Кошторис', range: [0, 1, 0, 900] }] }) !== '');
-      check('file with an unknown future version is still rejected', /версія/.test(rejection({ ...saved, version: 4 })));
+      check('file with an unknown future version is still rejected', /версія/.test(rejection({ ...saved, version: 99 })));
 
       await win.TablesStorage.flushStateToStorage();
       const draft = await win.OfficeStorage.createDraftStore({ app: 'tables', key: 'tables' }).load();

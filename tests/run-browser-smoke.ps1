@@ -379,6 +379,7 @@ try {
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-formula-behavior.html" 'data-tables-formula="passed"' 'Tables formula smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/xlsx-behavior.html" 'data-xlsx="passed"' 'Tables XLSX behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-named-ranges-behavior.html" 'data-tables-named-ranges="passed"' 'Tables named ranges smoke'
+  Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-charts-behavior.html" 'data-tables-charts="passed"' 'Tables charts smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/vector-behavior.html" 'data-vector-behavior="passed"' 'Vector behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/responsive-smoke.html" 'data-responsive="passed"' 'Responsive layout smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/accessibility-smoke.html" 'data-accessibility="passed"' 'Contrast and zoom 200% smoke'

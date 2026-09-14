@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v73';
+const CACHE_VERSION = 'office-plus-v74';
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_STATUS_CACHE = `${CACHE_VERSION}-offline-status`;
 const OFFLINE_STATUS_URL = new URL('./__offline_status__', self.registration.scope).href;
@@ -102,6 +102,7 @@ const ALL_LOCAL_ASSETS = [
   './tables/js/calculation.js',
   './tables/js/cell-format-ui.js',
   './tables/js/charts.js',
+  './tables/js/chart-model.js',
   './tables/js/conditional-formatting.js',
   './tables/js/clipboard.js',
   './tables/js/column-sizing.js',
@@ -128,6 +129,7 @@ const ALL_LOCAL_ASSETS = [
   './tables/js/view-options.js',
   './tables/js/workbook.js',
   './tables/js/workbook-file.js',
+  './tables/js/xlsx-charts.js',
   './tables/js/xlsx-file.js',
   './tables/style.css',
   './text/core/document-model.js',

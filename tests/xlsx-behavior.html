@@ -92,7 +92,10 @@
         check('Excel fixture: bold header, numbers and column width import', (formatSheet.cellStyles.A1 || '').includes('style-text-bold')
           && formatSheet.cellData.B2 === '10.5' && Math.abs((formatSheet.colWidths[0] || 0) - 150) <= 10,
           JSON.stringify({ data: formatSheet.cellData, styles: formatSheet.cellStyles, widths: formatSheet.colWidths }));
-        check('Excel fixture: chart is reported as not transferred', excelFormat.warnings.some(warning => warning.includes('діаграми')), excelFormat.warnings.join(', '));
+        check('Excel fixture: column chart imports with its ranges', formatSheet.charts?.length === 1 && formatSheet.charts[0].type === 'bar'
+          && JSON.stringify(formatSheet.charts[0].categories) === '[0,2,0,3]'
+          && JSON.stringify(formatSheet.charts[0].series) === JSON.stringify([{ name: [1, 1], values: [1, 2, 1, 3] }]), JSON.stringify(formatSheet.charts));
+        check('Excel fixture: imported chart is not reported as lost', !excelFormat.warnings.some(warning => warning.includes('діаграм')), excelFormat.warnings.join(', '));
 
         // Результати, які обчислив Excel: 10/4, 10>4, IF → «більше», 10+4, 11+9.
         const engine = frame.contentWindow.TablesFormulaEngine;

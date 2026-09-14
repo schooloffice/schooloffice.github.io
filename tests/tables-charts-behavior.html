@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Tables Charts Behavior</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 1rem; }
+    iframe { width: 1100px; height: 720px; border: 1px solid #cbd5e1; }
+    pre { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <pre id="result">Running...</pre>
+  <iframe id="frame" src="about:blank"></iframe>
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('frame');
+    const checks = [];
+    const check = (label, ok, detail = '') => checks.push({ label, ok: !!ok, detail });
+    const json = value => JSON.stringify(value);
+
+    function waitFor(predicate, label, timeout = 10000) {
+      const started = performance.now();
+      return new Promise((resolve, reject) => {
+        function tick() {
+          let ok = false;
+          try { ok = !!predicate(); } catch { ok = false; }
+          if (ok) return resolve();
+          if (performance.now() - started > timeout) return reject(new Error(`Timed out waiting for ${label}`));
+          setTimeout(tick, 50);
+        }
+        tick();
+      });
+    }
+
+    const sheet = (name, cellData, extra = {}) => ({ name, rows: 60, cols: 30, cellData, cellStyles: {}, colWidths: {}, condRules: [], ...extra });
+
+    async function run() {
+      // Фікстури читаємо до iframe: Таблиці реєструють service worker, і пізніші fetch ішли б через нього.
+      const fixtures = {};
+      for (const name of ['excel-formatting-chart.xlsx', 'excel-charts.xlsx']) {
+        fixtures[name] = await (await fetch(`fixtures/compatibility/${name}`, { cache: 'no-store' })).arrayBuffer();
+      }
+      localStorage.clear();
+      frame.src = '../tables/index.html';
+      await new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+      const win = frame.contentWindow;
+      const doc = frame.contentDocument;
+      await waitFor(() => win.TablesApp?.ready, 'Tables ready promise');
+      await win.TablesApp.ready;
+
+      const charts = win.TablesCharts;
+      check('charts API is exposed', typeof charts?.list === 'function' && typeof charts?.makeChart === 'function' && typeof charts?.chartData === 'function');
+      const frames = () => [...doc.querySelectorAll('.sheet-chart')];
+      const chartOf = element => win.Chart.getChart(element.querySelector('canvas'));
+      const value = id => doc.getElementById(`inp_${id}`)?.value;
+      const selectRange = (from, to) => {
+        const cell = id => doc.getElementById(`inp_${id}`).closest('td');
+        cell(from).dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+        cell(to).dispatchEvent(new win.MouseEvent('mouseenter'));
+        doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+      };
+      const goTo = id => {
+        const nameBox = doc.getElementById('activeCellRef');
+        nameBox.value = id;
+        nameBox.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        doc.activeElement?.blur?.();
+      };
+      const command = (element, name) => element.querySelector(`[data-chart-command="${name}"]`).click();
+
+      win.TablesWorkbookFile.applyWorkbookPayload({
+        type: 'art-tables-workbook', version: 3, name: 'Оцінки класу', activeSheet: 0,
+        sheets: [
+          sheet('Оцінки', { A1: 'Місяць', B1: 'Бал', A2: 'Вересень', B2: '10', A3: 'Жовтень', B3: '8', A4: 'Листопад', B4: '=B2+2' }),
+          sheet('Інше', { A1: '1' })
+        ]
+      });
+      check('workbook version 3 without charts opens with no charts', charts.list().length === 0 && frames().length === 0);
+
+      // Створення з виділення: перша колонка — категорії, заголовок — назва ряду.
+      selectRange('A1', 'B4');
+      doc.querySelector('.menu-dropdown[data-menu="insert"] [data-action="chart"]').click();
+      await waitFor(() => frames().length === 1, 'chart frame appears');
+      const created = charts.list()[0];
+      check('chart from a selection stores explicit ranges', created?.type === 'bar' && json(created.categories) === '[0,2,0,4]'
+        && json(created.series) === json([{ name: [1, 1], values: [1, 2, 1, 4] }]) && json(created.anchor) === '[3,1]', json(created));
+      let chartFrame = frames()[0];
+      let instance = chartOf(chartFrame);
+      check('chart renders the computed values, labels and series name', instance?.config.type === 'bar'
+        && json(instance.data.labels) === json(['Вересень', 'Жовтень', 'Листопад'])
+        && json(instance.data.datasets.map(set => set.data)) === '[[10,8,12]]' && instance.data.datasets[0].label === 'Бал',
+        json({ labels: instance?.data.labels, data: instance?.data.datasets.map(set => set.data) }));
+      const anchorRect = doc.getElementById('inp_D1').closest('td').getBoundingClientRect();
+      const frameRect = chartFrame.getBoundingClientRect();
+      check('chart is placed at its anchor cell next to the data', Math.abs(frameRect.left - anchorRect.left) <= 1 && Math.abs(frameRect.top - anchorRect.top) <= 1,
+        `${frameRect.left},${frameRect.top} vs ${anchorRect.left},${anchorRect.top}`);
+
+      win.TablesClipboard.pasteToGrid('9', 1, 3);
+      instance = chartOf(frames()[0]);
+      check('editing a source cell updates the chart', json(instance.data.datasets[0].data) === '[10,9,12]', json(instance.data.datasets[0].data));
+
+      command(frames()[0], 'type-pie');
+      check('chart type switches to pie', charts.list()[0].type === 'pie' && chartOf(frames()[0])?.config.type === 'pie');
+      win.undo();
+      check('undo restores the bar chart', charts.list()[0]?.type === 'bar' && chartOf(frames()[0])?.config.type === 'bar');
+      win.redo();
+      check('redo switches it to pie again', charts.list()[0]?.type === 'pie');
+      command(frames()[0], 'type-bar');
+
+      command(frames()[0], 'rename');
+      const titleInput = frames()[0].querySelector('.sheet-chart-title-input');
+      titleInput.value = 'Успішність';
+      titleInput.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      check('chart title is saved and shown', charts.list()[0].title === 'Успішність' && chartOf(frames()[0])?.options.plugins.title.text === 'Успішність'
+        && frames()[0].querySelector('.sheet-chart-title')?.textContent === 'Успішність', charts.list()[0].title);
+
+      frames()[0].focus();
+      frames()[0].dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+      frames()[0].dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+      check('arrow keys move a focused chart by one cell', json(charts.list()[0].anchor) === '[4,2]', json(charts.list()[0].anchor));
+
+      // Структурні зміни зсувають діапазони й якір, як посилання $A$1.
+      win.TablesStructure.insertRow(1, 1);
+      let moved = charts.list()[0];
+      check('inserting a row above the data shifts ranges and anchor', json(moved.categories) === '[0,3,0,5]'
+        && json(moved.series) === json([{ name: [1, 2], values: [1, 3, 1, 5] }]) && json(moved.anchor) === '[4,3]', json(moved));
+      win.TablesStructure.deleteRow(4, 1);
+      moved = charts.list()[0];
+      instance = chartOf(frames()[0]);
+      check('deleting a data row shrinks the ranges', json(moved.series[0].values) === '[1,3,1,4]'
+        && json(instance.data.labels) === json(['Вересень', 'Листопад']) && json(instance.data.datasets[0].data) === '[10,12]',
+        json({ moved, labels: instance?.data.labels }));
+      win.TablesStructure.insertColumn(0, 1);
+      moved = charts.list()[0];
+      check('inserting a column shifts series and anchor', json(moved.categories) === '[1,3,1,4]' && json(moved.series[0].name) === '[2,2]'
+        && json(moved.anchor) === '[5,3]', json(moved));
+      win.TablesStructure.deleteColumn(2, 1);
+      check('deleting the value column leaves an empty chart with a message', charts.list()[0]?.series.length === 0
+        && /Дані діаграми видалено/.test(frames()[0]?.querySelector('.sheet-chart-empty')?.textContent || ''), json(charts.list()[0]));
+      win.undo();
+      check('undo brings the series back', charts.list()[0]?.series.length === 1 && json(chartOf(frames()[0])?.data.datasets[0].data) === '[10,12]');
+
+      // .arttab версії 4 зберігає діаграми; некоректна діаграма у файлі зупиняє відкриття.
+      const blobs = new Map();
+      const downloads = [];
+      const originalCreateObjectURL = win.URL.createObjectURL;
+      const originalAnchorClick = win.HTMLAnchorElement.prototype.click;
+      win.URL.createObjectURL = function captureObjectUrl(blob) {
+        const url = originalCreateObjectURL.call(win.URL, blob);
+        blobs.set(url, blob);
+        return url;
+      };
+      win.HTMLAnchorElement.prototype.click = function captureDownload() {
+        if (this.download) { downloads.push(blobs.get(this.href)); return undefined; }
+        return originalAnchorClick.call(this);
+      };
+      let saved = null;
+      try {
+        win.TablesWorkbookFile.exportWorkbook();
+        saved = downloads[0] ? JSON.parse(await downloads[0].text()) : null;
+      } finally {
+        win.URL.createObjectURL = originalCreateObjectURL;
+        win.HTMLAnchorElement.prototype.click = originalAnchorClick;
+      }
+      check('.arttab saves charts as file version 4', saved?.version === 4 && saved.sheets[0].charts?.length === 1
+        && saved.sheets[0].charts[0].title === 'Успішність' && json(saved.sheets[0].charts[0].series[0].values) === '[2,3,2,4]', json(saved?.sheets?.[0]?.charts));
+      frames()[0].focus();
+      frames()[0].dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+      check('Delete removes a focused chart', charts.list().length === 0 && frames().length === 0);
+      win.TablesWorkbookFile.applyWorkbookPayload(saved);
+      check('opening the .arttab restores the chart', charts.list().length === 1 && frames().length === 1 && chartOf(frames()[0])?.config.type === 'bar');
+      const rejection = payload => { try { win.TablesWorkbookFile.validateWorkbookPayload(payload); return ''; } catch (error) { return error.message; } };
+      const withChart = patch => ({ ...saved, sheets: [{ ...saved.sheets[0], charts: [{ ...saved.sheets[0].charts[0], ...patch }] }, saved.sheets[1]] });
+      check('file with a chart range outside the sheet is rejected', rejection(withChart({ series: [{ name: null, values: [1, 1, 1, 900] }] })) !== '');
+      check('file with an unknown chart type is rejected', /тип/.test(rejection(withChart({ type: 'radar' }))), rejection(withChart({ type: 'radar' })));
+      check('file with a two-dimensional value range is rejected', rejection(withChart({ series: [{ name: null, values: [1, 1, 2, 3] }] })) !== '');
+      check('file with an unknown future version is rejected', /версія/.test(rejection({ ...saved, version: 5 })));
+
+      await win.TablesStorage.flushStateToStorage();
+      const draft = await win.OfficeStorage.createDraftStore({ app: 'tables', key: 'tables' }).load();
+      check('draft storage keeps charts', draft?.sheets?.[0]?.charts?.length === 1, json(draft?.sheets?.[0]?.charts));
+
+      // Видалення аркуша прибирає його діаграми; Undo повертає.
+      win.TablesSheets.deleteSheet(0);
+      doc.getElementById('confirmBtnYes').click();
+      await waitFor(() => doc.querySelectorAll('#sheetTabs .sheet-tab').length === 1, 'sheet deleted');
+      check('deleting the sheet removes its charts', charts.list().length === 0 && frames().length === 0);
+      win.undo();
+      check('undo brings the sheet and its chart back', doc.querySelectorAll('#sheetTabs .sheet-tab').length === 2 && frames().length === 1);
+
+      // Великий аркуш рендериться вікном: діаграма біля краю не залежить від того, чи є її клітинки в DOM.
+      const bigData = {};
+      for (let row = 470; row <= 480; row++) { bigData[`A${row}`] = `Тиждень ${row - 469}`; bigData[`B${row}`] = String(row - 460); }
+      // Прокрутку скидаємо до відкриття: перебудова сітки одразу малює верхні рядки,
+      // без кадру анімації (у headless із віртуальним часом кадр може не настати).
+      const gridWrap = doc.getElementById('gridWrap');
+      gridWrap.scrollTop = 0;
+      win.TablesWorkbookFile.applyWorkbookPayload({
+        type: 'art-tables-workbook', version: 4, name: 'Великий аркуш', activeSheet: 0,
+        sheets: [sheet('Журнал', bigData, { rows: 500, cols: 30, charts: [{ id: 'far', type: 'line', title: 'Динаміка', categories: [0, 470, 0, 480], series: [{ name: null, values: [1, 470, 1, 480] }], anchor: [3, 470], size: [420, 260] }] })]
+      });
+      await waitFor(() => doc.getElementById('inp_A1') && frames().length === 1, 'top rows and the far chart rendered');
+      const renderedRows = doc.querySelectorAll('#bodyRows tr:not(.viewport-spacer-row)').length;
+      const farFrame = frames()[0];
+      const headerHeight = doc.querySelector('#headRow th').getBoundingClientRect().height;
+      const rowHeight = doc.getElementById('inp_A1').closest('td').getBoundingClientRect().height;
+      check('large sheet is virtualized while the chart stays in the layout', renderedRows < 100 && !!farFrame && !doc.getElementById('inp_D470'), `rows=${renderedRows}`);
+      check('off-screen chart is positioned from the model', Math.abs(farFrame.offsetTop - (headerHeight + 469 * rowHeight)) <= 2,
+        `top=${farFrame.offsetTop} expected=${headerHeight + 469 * rowHeight}`);
+      check('off-screen chart still has its data', json(chartOf(farFrame)?.data.datasets[0].data) === '[10,11,12,13,14,15,16,17,18,19,20]', json(chartOf(farFrame)?.data.datasets[0].data));
+      goTo('D470');
+      await waitFor(() => doc.getElementById('inp_D470'), 'anchor row rendered after navigation');
+      const farAnchor = doc.getElementById('inp_D470')?.closest('td')?.getBoundingClientRect();
+      const farRect = frames()[0].getBoundingClientRect();
+      check('chart at the viewport edge aligns with its anchor after scrolling', !!farAnchor && Math.abs(farRect.top - farAnchor.top) <= 2 && Math.abs(farRect.left - farAnchor.left) <= 2,
+        `${farRect.left},${farRect.top} vs ${farAnchor?.left},${farAnchor?.top}`);
+
+      // XLSX: drawing, chart XML, зв'язки та кеші; round-trip у модель.
+      const xlsxApi = win.TablesXlsxFile;
+      const xlsxPayload = {
+        type: 'art-tables-workbook', version: 4, name: 'Діаграми', activeSheet: 0,
+        sheets: [
+          sheet('Оцінки', { A1: 'Місяць', B1: 'Бал', A2: 'Вересень', B2: '10', A3: 'Жовтень', B3: '9', A4: 'Листопад', B4: '=B2+2' }, {
+            charts: [
+              { id: 'bar1', type: 'bar', title: 'Успішність', categories: [0, 2, 0, 4], series: [{ name: [1, 1], values: [1, 2, 1, 4] }], anchor: [3, 1], size: [480, 300] },
+              { id: 'pie1', type: 'pie', title: '', categories: [0, 2, 0, 4], series: [{ name: [1, 1], values: [1, 2, 1, 4] }], anchor: [3, 20], size: [360, 300] }
+            ]
+          }),
+          sheet('Мій аркуш', { A1: '3', A2: '5', A3: '4' }, {
+            charts: [{ id: 'line1', type: 'line', title: '', categories: null, series: [{ name: null, values: [0, 1, 0, 3] }], anchor: [2, 2], size: [400, 240] }]
+          })
+        ]
+      };
+      const xlsxText = new TextDecoder().decode(new Uint8Array(xlsxApi.exportArrayBuffer(xlsxPayload)));
+      check('XLSX export writes drawing and chart parts with content types', xlsxText.includes('xl/drawings/drawing1.xml') && xlsxText.includes('xl/charts/chart3.xml')
+        && xlsxText.includes('ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"')
+        && xlsxText.includes('ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"') && xlsxText.includes('<drawing r:id="rId1"/>'));
+      check('XLSX bar chart references the source ranges with caches', xlsxText.includes('<c:barChart>') && xlsxText.includes('<c:f>Оцінки!$B$2:$B$4</c:f>')
+        && xlsxText.includes('<c:f>Оцінки!$A$2:$A$4</c:f>') && xlsxText.includes('<c:f>Оцінки!$B$1</c:f>') && /<c:pt idx="2"><c:v>12<\/c:v><\/c:pt>/.test(xlsxText)
+        && xlsxText.includes('<c:v>Жовтень</c:v>') && xlsxText.includes('Успішність'));
+      check('XLSX pie and line charts are written, sheet names quoted', xlsxText.includes('<c:pieChart>') && xlsxText.includes('<c:lineChart>')
+        && xlsxText.includes("<c:f>'Мій аркуш'!$A$1:$A$3</c:f>"));
+      const roundTrip = await xlsxApi.importArrayBuffer(xlsxApi.exportArrayBuffer(xlsxPayload), 'Діаграми.xlsx');
+      const strip = list => (list || []).map(({ id, size, ...rest }) => rest);
+      const expectStrip = list => list.map(({ id, size, ...rest }) => rest);
+      check('XLSX round-trip keeps chart types, titles, ranges and anchors', json(strip(roundTrip.payload.sheets[0].charts)) === json(expectStrip(xlsxPayload.sheets[0].charts))
+        && json(strip(roundTrip.payload.sheets[1].charts)) === json(expectStrip(xlsxPayload.sheets[1].charts)) && roundTrip.warnings.length === 0,
+        `${json(roundTrip.payload.sheets.map(item => item.charts))} ${roundTrip.warnings.join('; ')}`);
+      const sizeError = Math.max(...roundTrip.payload.sheets[0].charts.map((chart, index) => Math.max(
+        Math.abs(chart.size[0] - xlsxPayload.sheets[0].charts[index].size[0]), Math.abs(chart.size[1] - xlsxPayload.sheets[0].charts[index].size[1]))));
+      check('XLSX round-trip keeps chart size within 2 px', sizeError <= 2, `max error ${sizeError}`);
+      const broken = { ...xlsxPayload, sheets: [{ ...xlsxPayload.sheets[0], charts: [{ ...xlsxPayload.sheets[0].charts[0], series: [] }] }, xlsxPayload.sheets[1]] };
+      const losses = xlsxApi.describeExportLosses(broken);
+      check('chart without data is listed as an XLSX export loss', losses.some(line => line.includes('діаграм') && line.includes('Успішність')), losses.join(' | '));
+
+      // Файли Microsoft Excel.
+      const formatImport = await xlsxApi.importArrayBuffer(fixtures['excel-formatting-chart.xlsx'], 'excel-formatting-chart.xlsx');
+      const formatChart = formatImport.payload.sheets[0].charts?.[0];
+      check('Excel fixture: auto title of a one-series chart becomes the series name', formatChart?.title === 'Оцінка' && json(formatChart.anchor) === '[3,3]', json(formatChart));
+      const multi = await xlsxApi.importArrayBuffer(fixtures['excel-charts.xlsx'], 'excel-charts.xlsx');
+      const gradeCharts = multi.payload.sheets[0].charts || [];
+      check('Excel fixture: column chart with two series, pie and line import', json(gradeCharts.map(chart => chart.type)) === '["bar","pie","line"]'
+        && json(gradeCharts[0].series) === json([{ name: [1, 1], values: [1, 2, 1, 4] }, { name: [2, 1], values: [2, 2, 2, 4] }])
+        && json(gradeCharts[1].series) === json([{ name: [1, 1], values: [1, 2, 1, 4] }]) && json(gradeCharts[2].categories) === '[0,2,0,4]', json(gradeCharts));
+      check('Excel fixture: unsupported chart types and other-sheet data are reported', multi.warnings.includes('діаграми непідтримуваних типів: точкова')
+        && multi.warnings.includes('діаграми з даними на іншому аркуші чи з кількох діапазонів: 1') && (multi.payload.sheets[1].charts || []).length === 0, multi.warnings.join('; '));
+      win.TablesWorkbookFile.applyWorkbookPayload(multi.payload);
+      // Excel зберіг книгу з активним аркушем «Звіт»; діаграми лежать на «Оцінки».
+      win.TablesSheets.switchToSheet(0);
+      const excelBar = frames()[0] ? chartOf(frames()[0]) : null;
+      check('Excel fixture: PLUS renders the imported column chart', excelBar?.config.type === 'bar' && json(excelBar.data.datasets.map(set => set.data)) === '[[9,11,7],[10,8,12]]'
+        && json(excelBar.data.datasets.map(set => set.label)) === json(['І семестр', 'ІІ семестр']), json(excelBar?.data));
+    }
+
+    run().then(() => {
+      const failed = checks.filter(item => !item.ok);
+      result.textContent = checks.map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}${item.ok || !item.detail ? '' : `: ${item.detail}`}`).join('\n')
+        + (failed.length ? `\n\nFAILED: ${failed.map(item => item.label).join('; ')}` : '\n\nPASSED');
+      document.body.dataset.tablesCharts = failed.length ? 'failed' : 'passed';
+    }).catch(error => {
+      result.textContent = `${checks.map(item => `${item.ok ? 'PASS' : 'FAIL'} ${item.label}${item.ok || !item.detail ? '' : `: ${item.detail}`}`).join('\n')}\n\n${error?.stack || error}`;
+      document.body.dataset.tablesCharts = 'failed';
+    });
+  </script>
+</body>
+</html>

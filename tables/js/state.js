@@ -18,9 +18,6 @@ let rowFilter = null; // { col, op, v1, v2 }
 
 let markedCells = [];
 
-let chartObj = null;
-let chartType = 'bar';
-
 let confirmFn = null;
 
 let gridWrap = null;

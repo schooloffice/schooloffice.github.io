@@ -5,6 +5,7 @@
 ## Що перевіряється автоматично (офлайн, у browser smoke)
 
 - `tests/xlsx-behavior.html` — імпорт XLSX, створених Microsoft Excel; типізований кеш формул і XML експорту.
+- `tests/tables-charts-behavior.html` — діаграми аркуша: `excel-formatting-chart.xlsx` і `excel-charts.xlsx` (стовпчаста з двома рядами, кругова, лінійна переносяться; точкова й діаграма з даними іншого аркуша названі в попередженні) та XLSX-частини діаграм в експорті.
 - `tests/tables-named-ranges-behavior.html` — іменовані діапазони: `excel-named-ranges.xlsx` (імена книги переносяться, ім'я рівня аркуша й несумісне ім'я названо в попередженні) та `definedNames` в експорті.
 - `tests/slides-domain-behavior.html` — PPTX із проєктів `plus-slides-*.json` через справжній PptxGenJS: об'єкти, медіа, таблиця, діаграма, посилання.
 - `tests/slides-pptx-import-behavior.html` — пілот імпорту PPTX: `powerpoint-*.pptx`, створені Microsoft PowerPoint (три прості й два складні з точним переліком втрат), а також синтетичні пошкоджені й небезпечні пакети.
