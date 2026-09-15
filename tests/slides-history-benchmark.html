@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Slides history benchmark</title>
+</head>
+<body data-bench="running">
+  <pre id="result">Running...</pre>
+  <script type="module">
+    import { MAX_HISTORY } from '../slides/js/constants.js';
+    import { normalizePresentation } from '../slides/js/project.js';
+    import { historyBudgetBytes, historyBytes, pushHistory, redo, resetHistory, undo } from '../slides/js/history.js';
+    import { applyPresentationData, serializePresentation, state } from '../slides/js/state.js';
+
+    // Вимір історії Слайдів на важкій презентації (E1). Не входить у browser smoke.
+    // Запускати без --virtual-time-budget: під віртуальним часом синхронна робота не просуває
+    // performance.now(). Точний heap потребує Chrome з --enable-precise-memory-info і --js-flags=--expose-gc.
+    // ?scenario=text|photos|camera&edits=80
+    const params = new URLSearchParams(location.search);
+    const scenario = params.get('scenario') || 'photos';
+    const SCENARIOS = {
+      text: { slides: 50, textPerSlide: 10, imageBytes: 0 },
+      photos: { slides: 25, textPerSlide: 1, imageBytes: 800 * 1024 },
+      camera: { slides: 10, textPerSlide: 1, imageBytes: 3 * 1024 * 1024 }
+    };
+    const config = SCENARIOS[scenario];
+    const edits = Number(params.get('edits') || MAX_HISTORY);
+
+    const round = value => Math.round(value * 10) / 10;
+    const median = values => {
+      if (!values.length) return null;
+      const sorted = [...values].sort((a, b) => a - b);
+      return round(sorted[Math.floor(sorted.length / 2)]);
+    };
+    const heap = () => {
+      if (typeof window.gc === 'function') { window.gc(); window.gc(); }
+      return performance.memory ? performance.memory.usedJSHeapSize : null;
+    };
+    const mb = bytes => (bytes === null || bytes === undefined ? null : round(bytes / 1024 / 1024));
+
+    // Різний вміст для кожного слайда: як окремі фотографії, а не одна повторена.
+    function imageDataUrl(bytes, seed) {
+      const raw = new Uint8Array(Math.ceil(bytes * 3 / 4));
+      for (let offset = 0; offset < raw.length; offset += 65536) {
+        crypto.getRandomValues(raw.subarray(offset, Math.min(raw.length, offset + 65536)));
+      }
+      raw[0] = seed & 255;
+      let binary = '';
+      for (let offset = 0; offset < raw.length; offset += 32768) {
+        binary += String.fromCharCode(...raw.subarray(offset, offset + 32768));
+      }
+      return `data:image/jpeg;base64,${btoa(binary)}`;
+    }
+
+    function buildDeck() {
+      const slides = [];
+      for (let index = 0; index < config.slides; index += 1) {
+        const elements = [];
+        for (let text = 0; text < config.textPerSlide; text += 1) {
+          elements.push({ id: `t-${index}-${text}`, type: 'text', x: 60, y: 40 + text * 44, w: 600, h: 40, content: `Слайд ${index + 1}, рядок ${text + 1}` });
+        }
+        if (config.imageBytes) {
+          elements.push({ id: `img-${index}`, type: 'image', x: 120, y: 120, w: 720, h: 400, content: imageDataUrl(config.imageBytes, index) });
+        }
+        slides.push({ id: `s-${index}`, elements });
+      }
+      return { fileName: `benchmark-${scenario}`, slides };
+    }
+
+    async function run() {
+      const heapStart = heap();
+      applyPresentationData(normalizePresentation(buildDeck()));
+      resetHistory();
+      const imagesKept = state.slides.filter(slide => slide.elements.some(element => element.type === 'image' && element.content?.length > 1000)).length;
+      const snapshotChars = JSON.stringify(serializePresentation()).length;
+      const heapDocument = heap();
+
+      const pushMs = [];
+      for (let index = 0; index < edits; index += 1) {
+        const started = performance.now();
+        pushHistory();
+        pushMs.push(performance.now() - started);
+        state.slides[index % state.slides.length].elements[0].x += 1;
+      }
+      const heapHistory = heap();
+      const stepsAfterEdits = state.undoStack.length;
+      const historyMbAfterEdits = mb(historyBytes());
+
+      const undoMs = [];
+      const redoMs = [];
+      const steps = Math.min(10, state.undoStack.length);
+      for (let index = 0; index < steps; index += 1) {
+        const started = performance.now();
+        undo();
+        undoMs.push(performance.now() - started);
+      }
+      for (let index = 0; index < steps; index += 1) {
+        const started = performance.now();
+        redo();
+        redoMs.push(performance.now() - started);
+      }
+
+      // Розкладка часу серіалізації поточної презентації (?profile=1): медіана з 5 повторів.
+      let profile = null;
+      if (params.get('profile')) {
+        const time = fn => {
+          const samples = [];
+          let value;
+          for (let repeat = 0; repeat < 5; repeat += 1) {
+            const started = performance.now();
+            value = fn();
+            samples.push(performance.now() - started);
+          }
+          return { ms: median(samples), value };
+        };
+        const data = serializePresentation();
+        const stringify = time(() => JSON.stringify(data));
+        const json = stringify.value;
+        const encode = time(() => new TextEncoder().encode(json));
+        const bytes = encode.value;
+        const decode = time(() => new TextDecoder().decode(bytes));
+        const latin1 = time(() => json.replace(/[Ā-￿]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`));
+        const latinCopy = latin1.value.slice(0, -1) + latin1.value.slice(-1);
+        profile = {
+          stringifyMs: stringify.ms,
+          parseTwoByteMs: time(() => JSON.parse(json)).ms,
+          encodeMs: encode.ms,
+          decodeMs: decode.ms,
+          parseDecodedMs: time(() => JSON.parse(decode.value)).ms,
+          escapeLatin1Ms: latin1.ms,
+          parseLatin1Ms: time(() => JSON.parse(latin1.value)).ms,
+          compareLatin1StringsMs: time(() => latin1.value === latinCopy).ms,
+          compareBytesLoopMs: time(() => {
+            const copy = bytes.slice();
+            let same = true;
+            for (let index = 0; index < bytes.byteLength; index += 1) if (bytes[index] !== copy[index]) { same = false; break; }
+            return same;
+          }).ms,
+          deepCloneMs: time(() => JSON.parse(JSON.stringify(data))).ms
+        };
+        // Реальна пам'ять на один збережений знімок за стратегією: heap до/після 5 копій.
+        const perCopyMb = make => {
+          const kept = [];
+          const before = heap();
+          for (let copy = 0; copy < 5; copy += 1) kept.push(make());
+          const after = heap();
+          const result = mb((after - before) / kept.length);
+          kept.length = 0;
+          heap();
+          return result;
+        };
+        profile.memoryPerSnapshotMb = {
+          utf8Bytes: perCopyMb(() => new TextEncoder().encode(JSON.stringify(data))),
+          escapedString: perCopyMb(() => JSON.stringify(data).replace(/[Ā-￿]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)),
+          plainString: perCopyMb(() => JSON.stringify(data)),
+          clonedObject: perCopyMb(() => JSON.parse(JSON.stringify(data)))
+        };
+      }
+
+      return {
+        scenario,
+        profile,
+        chrome: navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0],
+        preciseHeap: typeof window.gc === 'function',
+        heapLimitMb: mb(performance.memory?.jsHeapSizeLimit),
+        budgetMb: mb(historyBudgetBytes()),
+        slides: state.slides.length,
+        imagesKept,
+        snapshotMb: mb(snapshotChars),
+        editsPerformed: edits,
+        undoSteps: stepsAfterEdits,
+        historyMb: historyMbAfterEdits,
+        heapStartMb: mb(heapStart),
+        heapDocumentMb: mb(heapDocument),
+        heapHistoryMb: mb(heapHistory),
+        heapHistoryGrowthMb: heapHistory === null ? null : mb(heapHistory - heapDocument),
+        pushMedianMs: median(pushMs),
+        pushMaxMs: pushMs.length ? round(Math.max(...pushMs)) : null,
+        undoMedianMs: median(undoMs),
+        redoMedianMs: median(redoMs)
+      };
+    }
+
+    run().then(output => {
+      document.getElementById('result').textContent = JSON.stringify(output);
+      document.body.dataset.bench = 'done';
+    }).catch(error => {
+      document.getElementById('result').textContent = String(error?.stack || error);
+      document.body.dataset.bench = 'failed';
+    });
+  </script>
+</body>
+</html>

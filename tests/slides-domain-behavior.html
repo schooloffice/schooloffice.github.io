@@ -21,7 +21,7 @@
     import { appendShapeGraphic, applyTextVisualStyles } from '../slides/js/element-rendering.js';
     import { createSlideSnapshot, createThumbSnapshot } from '../slides/js/export.js';
     import { getCropFractions, getCropGeometry } from '../slides/js/image-geometry.js';
-    import { captureState, commitState, pushHistory, redo, resetHistory, undo } from '../slides/js/history.js';
+    import { captureState, commitState, historyBudgetBytes, historyBytes, pushHistory, redo, resetHistory, setHistoryBudget, undo } from '../slides/js/history.js';
     import { alignSelectionUnits, createSelectionUnits, distributeSelectionUnits, groupElements, remapActionTargets, remapGroupIds, ungroupElements } from '../slides/js/object-commands.js';
     import { applyLayoutToSlide, applyThemeToPresentation, getTheme } from '../slides/js/presentation-design.js';
     import { normalizePresentation, normalizeSlideActions, normalizeTransition, parsePresentationText } from '../slides/js/project.js';
@@ -483,7 +483,42 @@
         }
         checks.push(check('history keeps configured maximum snapshots', state.undoStack.length === MAX_HISTORY));
         checks.push(check('history drops oldest snapshots first', state.undoStack[0].slides[0].elements[0].content === 'step-5'));
+
+        // Бюджет пам'яті (E1): undo+redo разом, найстаріші кроки першими, щойно записаний крок лишається.
+        const MB = 1024 * 1024;
+        checks.push(check('history budget is 256 MB capped by a quarter of the heap limit',
+          historyBudgetBytes(4192 * MB) === 256 * MB
+            && historyBudgetBytes(259 * MB) === Math.floor(259 * MB / 4)
+            && historyBudgetBytes(undefined) === 256 * MB));
+        const filler = 'ф'.repeat(4000);
+        resetHistory();
+        state.slides[0].elements[0].content = `старт ${filler}`;
+        const stepBytes = JSON.stringify(serializePresentation()).length;
+        setHistoryBudget(stepBytes * 3 + 64);
+        for (let index = 0; index < 10; index += 1) {
+          pushHistory();
+          state.slides[0].elements[0].content = `крок-${index} ${filler}`;
+        }
+        const contentNow = () => state.slides[0].elements[0].content.split(' ')[0];
+        const trimsOldest = state.undoStack.length === 3 && state.undoStack[0].slides[0].elements[0].content.startsWith('крок-6')
+          && historyBytes() <= stepBytes * 3 + 64;
+        const undoKeepsBudget = undo() && contentNow() === 'крок-8' && undo() && contentNow() === 'крок-7'
+          && state.undoStack.length === 1 && state.redoStack.length === 2;
+        const redoAfterTrim = redo() && contentNow() === 'крок-8' && redo() && contentNow() === 'крок-9';
+        checks.push(check('history budget drops the oldest steps and keeps undo/redo within it', trimsOldest && undoKeepsBudget && redoAfterTrim));
+
+        resetHistory();
+        setHistoryBudget(Math.floor(stepBytes / 2));
+        for (let index = 0; index < 3; index += 1) {
+          pushHistory();
+          state.slides[0].elements[0].content = `велике-${index} ${filler}`;
+        }
+        const oversizedKeepsOneStep = state.undoStack.length === 1 && undo() && contentNow() === 'велике-1'
+          && state.undoStack.length === 0 && state.redoStack.length === 1 && redo() && contentNow() === 'велике-2';
+        checks.push(check('snapshot larger than the budget still keeps exactly one step', oversizedKeepsOneStep));
+        checks.push(check('history snapshots keep Cyrillic text exact', captureState().slides[0].elements[0].content === `велике-2 ${filler}`));
       } finally {
+        setHistoryBudget(null);
         applyPresentationData(previousPresentation);
         state.undoStack = previousUndoStack;
         state.redoStack = previousRedoStack;

@@ -772,7 +772,13 @@ $slidesHistoryPath = Join-Path $Root 'slides/js/history.js'
 if (Test-Path $slidesHistoryPath) {
   $slidesHistory = Get-Content -Raw -Encoding UTF8 $slidesHistoryPath
   Assert-True ($slidesHistory -notmatch 'deepClone\(serializePresentation\(\)\)') "slides/js/history.js: serializePresentation already returns a detached snapshot and must not be cloned twice"
+  # E1: бюджет пам'яті undo+redo і знімки як байти однієї серіалізації.
+  Assert-True ($slidesHistory -match 'HISTORY_BUDGET_BYTES' -and $slidesHistory -match 'HISTORY_HEAP_SHARE') "slides/js/history.js: undo/redo history must respect the memory budget from constants.js"
+  Assert-True ($slidesHistory -match 'function enforceBudget\(' -and $slidesHistory -match 'enforceBudget\(state\.redoStack\)' -and $slidesHistory -match 'enforceBudget\(state\.undoStack\)') "slides/js/history.js: commit, undo and redo must all enforce the history budget"
+  Assert-True ($slidesHistory -match 'const snapshotBytes = new WeakMap\(\)' -and $slidesHistory -match 'pendingJson\.delete\(snapshot\)') "slides/js/history.js: snapshots must come from one serialization and must not keep their JSON in the stacks"
 }
+$slidesAppForHistory = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'slides/js/app.js')
+Assert-True ($slidesAppForHistory -notmatch 'deepClone\(state\.(?:undo|redo)Stack\)') "slides/js/app.js: history stacks are immutable; cloning them through JSON exceeds the V8 string limit on photo decks"
 
 $slidesElementRenderingPath = Join-Path $Root 'slides/js/element-rendering.js'
 if (Test-Path $slidesElementRenderingPath) {
@@ -1499,6 +1505,9 @@ if (Test-Path $swPath) {
   Assert-True ($sw -match "type === 'RETRY_OFFLINE_CACHE'") "sw.js: missing RETRY_OFFLINE_CACHE message API"
   Assert-True ($sw -match "type: 'OFFLINE_STATUS'") "sw.js: status response must identify its payload"
   Assert-True ($sw -match 'editors\[editor\] = \{ ready:') "sw.js: status response must expose per-editor readiness"
+  # E1: неповне оновлення не має забрати в редакторів офлайн-готовність попередньої версії.
+  Assert-True ($sw -match 'event\.waitUntil\(installCurrentVersion\(\)') "sw.js: install must go through installCurrentVersion"
+  Assert-True ($sw -match 'async function editorsLostByUpdate\(' -and $sw -match 'throw new Error\(`Offline update is incomplete') "sw.js: an update that loses prepared editors must be rejected so the previous version stays active"
   Assert-True ($sw -match 'const MAX_RUNTIME_ENTRIES =') "sw.js: runtime cache should declare an explicit size cap"
   Assert-True ($sw -match "request\.mode === 'navigate' \|\| acceptsHtml\(request\)") "sw.js: HTML requests should use a dedicated navigation strategy"
   Assert-True ($sw -match 'event\.waitUntil\(refresh\)') "sw.js: asset refresh should continue in the background"
@@ -1529,6 +1538,8 @@ if (Test-Path $offlineSmokeRunnerPath) {
   Assert-True ($offlineSmokeRunner -match 'Stop-Process[\s\S]*phase=offline') "run-offline-smoke.ps1: local server must stop before the offline phase"
   Assert-True ($offlineSmokeRunner -match 'StartsWith\(\$resolvedTests') "run-offline-smoke.ps1: profile cleanup must validate its owning tests directory"
   Assert-True ($offlineSmokeRunner -match 'Remove-Item -LiteralPath \$resolvedProfile') "run-offline-smoke.ps1: cleanup must target only the resolved temporary profile"
+  Assert-True ($offlineSmokeRunner -match 'phase=partial' -and $offlineSmokeRunner -match 'phase=update') "run-offline-smoke.ps1: partial cache failure and incomplete update phases must run"
+  Assert-True ($offlineSmokeRunner -match '-FailPaths' -and $offlineSmokeRunner -match '-CacheVersionOverride') "run-offline-smoke.ps1: failure phases must use the test server switches instead of copying the repository"
 }
 
 # Browser/offline smoke мають завершуватися контрольовано навіть із завислим Chrome.

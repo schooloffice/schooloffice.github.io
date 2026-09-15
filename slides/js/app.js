@@ -1693,10 +1693,12 @@ async function onProjectFileSelected() {
 // валідацію), повертаємо попередній проєкт РАЗОМ з історією та статусом збереження.
 function replacePresentation(presentation, { statusText, unsaved = false }) {
   cancelDraftHydration();
+  // Знімки історії незмінні, а resetHistory ставить нові масиви, тож для відкату досить посилань.
+  // JSON-копія стеків на презентації з фото перевищувала максимальну довжину рядка V8 (RangeError).
   const previous = {
     presentation: serializePresentation(),
-    undoStack: deepClone(state.undoStack),
-    redoStack: deepClone(state.redoStack),
+    undoStack: state.undoStack,
+    redoStack: state.redoStack,
     unsavedChanges: state.unsavedChanges
   };
   try {

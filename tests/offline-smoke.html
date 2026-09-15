@@ -10,7 +10,22 @@
   <script>
     const result = document.getElementById('result');
     const phase = new URLSearchParams(location.search).get('phase') || 'prime';
+    const DATASETS = { partial: 'offlinePartial', prime: 'offlinePrime', update: 'offlineUpdate', offline: 'offlineSmoke' };
+    const editors = ['text', 'tables', 'slides', 'paint', 'vector', 'flowcharts'];
     const pages = ['../index.html', '../text/index.html', '../tables/index.html', '../slides/index.html', '../paint/index.html', '../vector/index.html', '../flowcharts/index.html'];
+    // Файл, який сервер у фазах partial і update віддає як 404 (run-offline-smoke.ps1).
+    const FAILED_ASSET = './vector/js/app.js';
+
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+    async function waitUntil(predicate, timeoutMs, label) {
+      const started = performance.now();
+      while (performance.now() - started < timeoutMs) {
+        if (predicate()) return;
+        await wait(100);
+      }
+      throw new Error(label);
+    }
 
     function send(worker, type) {
       return new Promise((resolve, reject) => {
@@ -35,25 +50,65 @@
       });
     }
 
-    async function run() {
-      const openedPages = phase === 'prime' ? Promise.all(pages.map(openPage)) : Promise.resolve();
-      const registration = phase === 'prime'
+    function describeMissing(status) {
+      return Object.entries(status.editors || {})
+        .filter(([, editor]) => !editor.ready)
+        .map(([name, editor]) => `${name}: ${(editor.missing || []).join(', ')}`)
+        .join('; ');
+    }
+
+    async function activeRegistration(register) {
+      const registration = register
         ? await navigator.serviceWorker.register('../sw.js')
         : await navigator.serviceWorker.getRegistration('../');
       if (!registration) throw new Error('Service Worker registration is missing');
       const ready = registration.active ? registration : await navigator.serviceWorker.ready;
-      const worker = ready.active || registration.active;
-      if (!worker) throw new Error('Service Worker is not active');
+      if (!(ready.active || registration.active)) throw new Error('Service Worker is not active');
+      return registration;
+    }
 
-      let status = await send(worker, 'CHECK_OFFLINE_STATUS');
-      if (!status.ready && phase === 'prime') status = await send(worker, 'RETRY_OFFLINE_CACHE');
-      if (!status.ready) {
-        const missing = Object.entries(status.editors || {})
-          .filter(([, editor]) => !editor.ready)
-          .map(([name, editor]) => `${name}: ${(editor.missing || []).join(', ')}`)
-          .join('; ');
-        throw new Error(`offline groups are incomplete: ${missing}`);
+    // Перше встановлення з недоступним файлом Вектора: чесний статус саме для Вектора,
+    // решта редакторів готові.
+    async function runPartial() {
+      const registration = await activeRegistration(true);
+      const status = await send(registration.active, 'CHECK_OFFLINE_STATUS');
+      const others = editors.filter(name => name !== 'vector');
+      if (status.editors.vector.ready || !status.editors.vector.missing.includes(FAILED_ASSET)) {
+        throw new Error(`vector must be reported as not ready because of ${FAILED_ASSET}: ${describeMissing(status)}`);
       }
+      const notReadyOthers = others.filter(name => !status.editors[name].ready);
+      if (notReadyOthers.length) throw new Error(`other editors must stay ready: ${describeMissing(status)}`);
+      return `vector is honestly not ready (${FAILED_ASSET}); ${others.length} other editors are ready`;
+    }
+
+    // Нова версія SW, яка не докешувала файл Вектора, не має замінити підготовлену версію.
+    async function runUpdate() {
+      const registration = await activeRegistration(false);
+      const before = await send(registration.active, 'CHECK_OFFLINE_STATUS');
+      if (!before.ready) throw new Error(`prepared version is not ready before update: ${describeMissing(before)}`);
+      let sawInstall = !!registration.installing || !!registration.waiting;
+      registration.addEventListener('updatefound', () => { sawInstall = true; });
+      if (!sawInstall) await registration.update().catch(() => {});
+      await waitUntil(() => sawInstall, 20000, 'service worker update was not detected');
+      await waitUntil(() => !registration.installing && !registration.waiting, 90000, 'service worker update did not settle');
+      await wait(500);
+      const after = await send(registration.active, 'CHECK_OFFLINE_STATUS');
+      if (after.cacheVersion !== before.cacheVersion) {
+        throw new Error(`incomplete update replaced ${before.cacheVersion} with ${after.cacheVersion}: ${describeMissing(after)}`);
+      }
+      if (!after.ready) throw new Error(`prepared editors were lost by the update: ${describeMissing(after)}`);
+      const keys = await caches.keys();
+      if (keys.some(key => !key.startsWith(`${before.cacheVersion}-`))) throw new Error(`rejected update left caches behind: ${keys.join(', ')}`);
+      return `incomplete update was rejected; ${before.cacheVersion} stays active and all editors stay ready`;
+    }
+
+    async function runPrimeOrOffline() {
+      const openedPages = phase === 'prime' ? Promise.all(pages.map(openPage)) : Promise.resolve();
+      const registration = await activeRegistration(phase === 'prime');
+      let status = await send(registration.active, 'CHECK_OFFLINE_STATUS');
+      // Повтор кешування після часткової помилки не має загубити вже готові групи.
+      if (!status.ready && phase === 'prime') status = await send(registration.active, 'RETRY_OFFLINE_CACHE');
+      if (!status.ready) throw new Error(`offline groups are incomplete: ${describeMissing(status)}`);
 
       await openedPages;
 
@@ -62,16 +117,21 @@
         cache: 'no-store'
       })));
       if (responses.some(response => !response.ok)) throw new Error('one or more editor pages are unavailable');
-
-      result.textContent = `PASSED ${phase}: core and all six editors are offline-ready`;
-      if (phase === 'prime') document.body.dataset.offlinePrime = 'passed';
-      else document.body.dataset.offlineSmoke = 'passed';
+      return 'core and all six editors are offline-ready';
     }
 
-    run().catch(error => {
+    async function run() {
+      if (phase === 'partial') return runPartial();
+      if (phase === 'update') return runUpdate();
+      return runPrimeOrOffline();
+    }
+
+    run().then(message => {
+      result.textContent = `PASSED ${phase}: ${message}`;
+      document.body.dataset[DATASETS[phase]] = 'passed';
+    }).catch(error => {
       result.textContent = error?.stack || String(error);
-      document.body.dataset.offlinePrime = 'failed';
-      document.body.dataset.offlineSmoke = 'failed';
+      document.body.dataset[DATASETS[phase] || 'offlineSmoke'] = 'failed';
     });
   </script>
 </body>

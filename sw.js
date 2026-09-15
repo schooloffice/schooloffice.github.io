@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v75';
+const CACHE_VERSION = 'office-plus-v76';
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_STATUS_CACHE = `${CACHE_VERSION}-offline-status`;
 const OFFLINE_STATUS_URL = new URL('./__offline_status__', self.registration.scope).href;
@@ -225,9 +225,48 @@ const GROUP_CACHE_NAMES = Object.fromEntries(
 
 const ASSET_EXTENSIONS = /\.(?:css|js|json|png|jpg|jpeg|svg|woff2|ico|webmanifest)$/i;
 
+const EDITORS = ['text', 'tables', 'slides', 'paint', 'vector', 'flowcharts'];
+const OFFLINE_STATUS_SUFFIX = '-offline-status';
+
 self.addEventListener('install', event => {
-  event.waitUntil(cacheAllGroups().then(() => self.skipWaiting()));
+  event.waitUntil(installCurrentVersion().then(() => self.skipWaiting()));
 });
+
+// Оновлення не має ламати редактори, які попередня версія вже підготувала до офлайн-роботи.
+// Якщо нова версія не докешувала їхні ресурси, встановлення відхиляється: попередня версія
+// лишається активною зі своїми кешами, а браузер повторить оновлення під час наступного відкриття.
+// Перше встановлення без попередньої версії активується й неповним: статус показує неготові
+// редактори, а RETRY_OFFLINE_CACHE докешовує їх без втрати готових груп.
+async function installCurrentVersion() {
+  const status = await cacheAllGroups();
+  const lost = await editorsLostByUpdate(status);
+  if (!lost.length) return;
+  await Promise.all([...Object.values(GROUP_CACHE_NAMES), OFFLINE_STATUS_CACHE].map(name => caches.delete(name)));
+  throw new Error(`Offline update is incomplete for prepared editors: ${lost.join(', ')}`);
+}
+
+// Редактори, готові в попередній версії (за її збереженим статусом), але не готові в новій.
+async function editorsLostByUpdate(status) {
+  const keys = await caches.keys();
+  const lost = new Set();
+  for (const statusCacheName of keys.filter(key => key.endsWith(OFFLINE_STATUS_SUFFIX) && key !== OFFLINE_STATUS_CACHE)) {
+    const version = statusCacheName.slice(0, -OFFLINE_STATUS_SUFFIX.length);
+    let failures = null;
+    try {
+      const response = await (await caches.open(statusCacheName)).match(OFFLINE_STATUS_URL);
+      failures = response ? (await response.json()).failures : null;
+    } catch {
+      failures = null;
+    }
+    if (!failures) continue;
+    const coreReady = keys.includes(`${version}-core`) && Array.isArray(failures.core) && failures.core.length === 0;
+    for (const editor of EDITORS) {
+      const wasReady = coreReady && keys.includes(`${version}-${editor}`) && Array.isArray(failures[editor]) && failures[editor].length === 0;
+      if (wasReady && !status.editors[editor].ready) lost.add(editor);
+    }
+  }
+  return [...lost];
+}
 
 self.addEventListener('activate', event => {
   const keepCaches = new Set([...Object.values(GROUP_CACHE_NAMES), RUNTIME_CACHE, OFFLINE_STATUS_CACHE]);
@@ -322,7 +361,7 @@ async function checkOfflineStatus() {
   }));
   const groups = Object.fromEntries(groupEntries);
   const editors = {};
-  for (const editor of ['text', 'tables', 'slides', 'paint', 'vector', 'flowcharts']) {
+  for (const editor of EDITORS) {
     const missing = [...groups.core.missing, ...groups[editor].missing];
     editors[editor] = { ready: groups.core.ready && groups[editor].ready, missing };
   }

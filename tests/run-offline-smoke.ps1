@@ -175,24 +175,46 @@ if (-not $resolvedProfile.StartsWith($resolvedTests, [StringComparison]::Ordinal
 
 $serverCapture = $null
 $server = $null
-try {
-  New-Item -ItemType Directory -Path $profilePath -Force | Out-Null
-  $serverCapture = Start-CapturedProcess -FilePath 'powershell' -ArgumentList @(
+
+# Один профіль і один порт на всі фази: service worker і кеші мають пережити перезапуски сервера.
+function Start-OfficeServer {
+  param([string[]]$ExtraArguments = @())
+  $script:serverCapture = Start-CapturedProcess -FilePath 'powershell' -ArgumentList (@(
     '-NoProfile', '-ExecutionPolicy', 'Bypass',
     '-File', (Join-Path $PSScriptRoot 'serve-office.ps1'),
     '-Port', $Port,
     '-Root', $Root
-  )
-  $server = $serverCapture.Process
+  ) + $ExtraArguments)
+  $script:server = $script:serverCapture.Process
   Wait-ForServer -PortNumber $Port
+}
 
-  Invoke-LiveOfflinePage -Url "http://127.0.0.1:$Port/tests/offline-smoke.html?phase=prime" -DatasetName 'offlinePrime' -Name 'Offline cache prime'
-
-  if ($server -and -not $server.HasExited) {
-    Stop-Process -Id $server.Id -Force
-    [void]$server.WaitForExit(10000)
+function Stop-OfficeServer {
+  if ($script:server -and -not $script:server.HasExited) {
+    Stop-Process -Id $script:server.Id -Force
+    [void]$script:server.WaitForExit(10000)
   }
-  $server = $null
+  $script:server = $null
+}
+
+# Недоступний файл Вектора в першому встановленні й у новій версії SW.
+$failedAsset = 'vector/js/app.js'
+
+try {
+  New-Item -ItemType Directory -Path $profilePath -Force | Out-Null
+
+  Start-OfficeServer @('-FailPaths', $failedAsset)
+  Invoke-LiveOfflinePage -Url "http://127.0.0.1:$Port/tests/offline-smoke.html?phase=partial" -DatasetName 'offlinePartial' -Name 'Offline partial cache status'
+  Stop-OfficeServer
+
+  # prime повторює кешування після часткової помилки й відкриває всі редактори з мережею.
+  Start-OfficeServer
+  Invoke-LiveOfflinePage -Url "http://127.0.0.1:$Port/tests/offline-smoke.html?phase=prime" -DatasetName 'offlinePrime' -Name 'Offline cache prime'
+  Stop-OfficeServer
+
+  Start-OfficeServer @('-FailPaths', $failedAsset, '-CacheVersionOverride', 'office-plus-offline-update-test')
+  Invoke-LiveOfflinePage -Url "http://127.0.0.1:$Port/tests/offline-smoke.html?phase=update" -DatasetName 'offlineUpdate' -Name 'Offline incomplete update keeps prepared editors'
+  Stop-OfficeServer
 
   Invoke-LiveOfflinePage -Url "http://127.0.0.1:$Port/tests/offline-smoke.html?phase=offline" -DatasetName 'offlineSmoke' -Name 'Network-loss offline smoke'
 } catch {

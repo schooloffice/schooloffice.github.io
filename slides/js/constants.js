@@ -1,5 +1,10 @@
 export const STORAGE_KEY = 'art_slides_v1';
 export const MAX_HISTORY = 80;
+// Бюджет пам'яті undo+redo разом: 256 МБ, але не більше чверті ліміту heap браузера. Вимір 2026-09-15:
+// презентація з 25 фото (знімок 19,6 МБ) за 80 правок займала 1,6 ГБ, а в режимі слабкого
+// пристрою Chrome (ліміт heap 259 МБ) зависала вже на 8-й правці.
+export const HISTORY_BUDGET_BYTES = 256 * 1024 * 1024;
+export const HISTORY_HEAP_SHARE = 0.25;
 export const STAGE_WIDTH = 960;
 export const STAGE_HEIGHT = 540;
 

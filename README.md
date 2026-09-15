@@ -131,7 +131,16 @@ powershell -ExecutionPolicy Bypass -File tests\cleanup-test-artifacts.ps1
 
 `tests/browser-smoke.html` можна відкрити в браузері як додатковий smoke-тест DOM-структури, а `tests/run-browser-smoke.ps1` автоматизує цей сценарій через headless Chrome і додатково запускає поведінкові перевірки для Flowcharts, Slides і Tables. Для `slides/` `slides/js/runtime.js` лишається тонкою module-entry обгорткою для стабільного підключення в HTML, а `tests/slides-behavior.html` перевіряє, що `SlidesApp.boot`, список слайдів, сцена і project helpers справді працюють у браузері. Зовнішні CDN-ресурси поки лише позначаються warning-ами: їх винесення в локальний `vendor/` є окремим наступним кроком. Директорії `tests/.browser-profile*` і файли `.browser-smoke.*` є локальними артефактами запуску; вони ігноруються git і чистяться через `tests\cleanup-test-artifacts.ps1`.
 
-Реальну готовність пакета без мережі перевіряє `tests/run-offline-smoke.ps1`: тест на динамічному порту прогріває головну сторінку та всі шість редакторів, зупиняє локальний сервер і повторно відкриває їх із тим самим тимчасовим профілем Chrome. Профіль належить лише цьому запуску й видаляється після завершення.
+Реальну готовність пакета без мережі перевіряє `tests/run-offline-smoke.ps1` на динамічному порту з одним тимчасовим профілем Chrome у чотири фази:
+
+1. Перше встановлення, коли сервер віддає `vector/js/app.js` як 404 (`serve-office.ps1 -FailPaths`), чесно показує неготовим лише Вектор.
+2. Повтор кешування з повним сервером прогріває головну сторінку та всі шість редакторів.
+3. Нова версія `sw.js` (`-CacheVersionOverride`), яка знову не отримує цей файл, відхиляється: попередня версія лишається активною й готовою.
+4. Після зупинки сервера всі редактори відкриваються офлайн.
+
+Профіль належить лише цьому запуску й видаляється після завершення.
+
+Історію Слайдів на важкій презентації вимірює `tests/slides-history-benchmark.html?scenario=text|photos|camera&edits=80`. Сторінка не входить у smoke; запускати її треба без `--virtual-time-budget`, а точний heap дає Chrome із `--enable-precise-memory-info --js-flags=--expose-gc`.
 
 Адаптивну розкладку перевіряє `tests/responsive-smoke.html` на `390×844`, `768×1024` і `1366×768`: горизонтальні toolbar-и Text/Slides, мобільні drawer-панелі Paint/Vector та компактну палітру Flowcharts із canvas у першому екрані.
 

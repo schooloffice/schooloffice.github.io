@@ -7,7 +7,11 @@ param(
   # Скільки з'єднання може чекати на запит. Chrome відкриває спекулятивні з'єднання й
   # надсилає ними запит пізніше, тож закривати їх раніше за сам браузер не можна.
   [ValidateRange(1, 3600)]
-  [int]$IdleTimeoutSeconds = 60
+  [int]$IdleTimeoutSeconds = 60,
+  # Лише для офлайн-smoke: шляхи через кому, які сервер віддає як 404, і підмінена CACHE_VERSION
+  # у sw.js. Так перевіряються часткова помилка кешу й неповне оновлення без копії репозиторію.
+  [string]$FailPaths = '',
+  [string]$CacheVersionOverride = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,6 +33,7 @@ $mime = @{
 
 $rootPath = [IO.Path]::GetFullPath($Root).TrimEnd('\')
 $rootPrefix = $rootPath + '\'
+$failPathList = @($FailPaths -split ',' | ForEach-Object { $_.Trim().TrimStart('/') } | Where-Object { $_ })
 
 function Write-RequestLog {
   param([string]$Message)
@@ -78,6 +83,11 @@ function Invoke-Request {
   $urlPath = ($matches[1] -split '\?')[0]
   $requestPath = [Uri]::UnescapeDataString($urlPath.TrimStart('/'))
   if ([string]::IsNullOrWhiteSpace($requestPath)) { $requestPath = 'index.html' }
+  if ($failPathList -contains $requestPath) {
+    Write-RequestLog "404 (simulated) GET $urlPath"
+    Send-Text $Socket 404 'Not Found'
+    return
+  }
   $fullPath = [IO.Path]::GetFullPath([IO.Path]::Combine($rootPath, ($requestPath -replace '/', [IO.Path]::DirectorySeparatorChar)))
 
   if (-not $fullPath.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
@@ -97,6 +107,10 @@ function Invoke-Request {
   }
 
   $bytes = [IO.File]::ReadAllBytes($fullPath)
+  if ($CacheVersionOverride -and $requestPath -eq 'sw.js') {
+    $workerSource = [Text.Encoding]::UTF8.GetString($bytes) -replace "const CACHE_VERSION = '[^']+';", "const CACHE_VERSION = '$CacheVersionOverride';"
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($workerSource)
+  }
   $ext = [IO.Path]::GetExtension($fullPath).ToLowerInvariant()
   $contentType = if ($mime.ContainsKey($ext)) { $mime[$ext] } else { 'application/octet-stream' }
   try {
