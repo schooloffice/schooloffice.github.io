@@ -1508,6 +1508,9 @@ if (Test-Path $swPath) {
   # E1: неповне оновлення не має забрати в редакторів офлайн-готовність попередньої версії.
   Assert-True ($sw -match 'event\.waitUntil\(installCurrentVersion\(\)') "sw.js: install must go through installCurrentVersion"
   Assert-True ($sw -match 'async function editorsLostByUpdate\(' -and $sw -match 'throw new Error\(`Offline update is incomplete') "sw.js: an update that loses prepared editors must be rejected so the previous version stays active"
+  # Запис статусу попередньої версії може загубитися після аварійного завершення браузера.
+  Assert-True ($sw -match 'async function previousGroupReady\(' -and $sw -match 'CACHE_GROUPS\[group\]\.every\(asset => cachedUrls\.has\(assetUrl\(asset\)\)\)') "sw.js: previous readiness must also be derived from the previous version's group caches"
+  Assert-True ($sw -notmatch 'if \(!failures\) continue;') "sw.js: a missing previous status record must not skip the previous version"
   Assert-True ($sw -match 'const MAX_RUNTIME_ENTRIES =') "sw.js: runtime cache should declare an explicit size cap"
   Assert-True ($sw -match "request\.mode === 'navigate' \|\| acceptsHtml\(request\)") "sw.js: HTML requests should use a dedicated navigation strategy"
   Assert-True ($sw -match 'event\.waitUntil\(refresh\)') "sw.js: asset refresh should continue in the background"
@@ -1540,6 +1543,12 @@ if (Test-Path $offlineSmokeRunnerPath) {
   Assert-True ($offlineSmokeRunner -match 'Remove-Item -LiteralPath \$resolvedProfile') "run-offline-smoke.ps1: cleanup must target only the resolved temporary profile"
   Assert-True ($offlineSmokeRunner -match 'phase=partial' -and $offlineSmokeRunner -match 'phase=update') "run-offline-smoke.ps1: partial cache failure and incomplete update phases must run"
   Assert-True ($offlineSmokeRunner -match '-FailPaths' -and $offlineSmokeRunner -match '-CacheVersionOverride') "run-offline-smoke.ps1: failure phases must use the test server switches instead of copying the repository"
+}
+
+$offlineSmokePagePath = Join-Path $Root 'tests/offline-smoke.html'
+if (Test-Path $offlineSmokePagePath) {
+  $offlineSmokePage = Get-Content -Raw -Encoding UTF8 $offlineSmokePagePath
+  Assert-True ($offlineSmokePage -match '-offline-status`\)\)\.delete\(') "offline-smoke.html: the update phase must remove the previous status record so the cache-based guard is always exercised"
 }
 
 # Browser/offline smoke мають завершуватися контрольовано навіть із завислим Chrome.

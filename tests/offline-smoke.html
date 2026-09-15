@@ -86,9 +86,14 @@
       const registration = await activeRegistration(false);
       const before = await send(registration.active, 'CHECK_OFFLINE_STATUS');
       if (!before.ready) throw new Error(`prepared version is not ready before update: ${describeMissing(before)}`);
-      let sawInstall = !!registration.installing || !!registration.waiting;
+      // Запис статусу попередньої версії губиться, якщо браузер завершився одразу після RETRY_OFFLINE_CACHE
+      // (раннер зупиняє Chrome примусово). Видаляємо його явно: відхилення неповного оновлення має
+      // спиратися на самі групові кеші й не залежати від того, чи встиг запис зберегтися.
+      if (registration.installing || registration.waiting) throw new Error('update started before the status record was removed');
+      await (await caches.open(`${before.cacheVersion}-offline-status`)).delete(new URL('./__offline_status__', registration.scope).href);
+      let sawInstall = false;
       registration.addEventListener('updatefound', () => { sawInstall = true; });
-      if (!sawInstall) await registration.update().catch(() => {});
+      await registration.update().catch(() => {});
       await waitUntil(() => sawInstall, 20000, 'service worker update was not detected');
       await waitUntil(() => !registration.installing && !registration.waiting, 90000, 'service worker update did not settle');
       await wait(500);

@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v76';
+const CACHE_VERSION = 'office-plus-v78';
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_STATUS_CACHE = `${CACHE_VERSION}-offline-status`;
 const OFFLINE_STATUS_URL = new URL('./__offline_status__', self.registration.scope).href;
@@ -245,27 +245,47 @@ async function installCurrentVersion() {
   throw new Error(`Offline update is incomplete for prepared editors: ${lost.join(', ')}`);
 }
 
-// Редактори, готові в попередній версії (за її збереженим статусом), але не готові в новій.
+// Редактори, готові в попередній версії, але не готові в новій.
 async function editorsLostByUpdate(status) {
+  const notReady = EDITORS.filter(editor => !status.editors[editor].ready);
+  if (!notReady.length) return [];
   const keys = await caches.keys();
   const lost = new Set();
-  for (const statusCacheName of keys.filter(key => key.endsWith(OFFLINE_STATUS_SUFFIX) && key !== OFFLINE_STATUS_CACHE)) {
-    const version = statusCacheName.slice(0, -OFFLINE_STATUS_SUFFIX.length);
-    let failures = null;
-    try {
-      const response = await (await caches.open(statusCacheName)).match(OFFLINE_STATUS_URL);
-      failures = response ? (await response.json()).failures : null;
-    } catch {
-      failures = null;
-    }
-    if (!failures) continue;
-    const coreReady = keys.includes(`${version}-core`) && Array.isArray(failures.core) && failures.core.length === 0;
-    for (const editor of EDITORS) {
-      const wasReady = coreReady && keys.includes(`${version}-${editor}`) && Array.isArray(failures[editor]) && failures[editor].length === 0;
-      if (wasReady && !status.editors[editor].ready) lost.add(editor);
+  const previousVersions = keys
+    .filter(key => key.endsWith('-core') && key !== GROUP_CACHE_NAMES.core)
+    .map(key => key.slice(0, -'-core'.length));
+  for (const version of previousVersions) {
+    const failures = await readVersionFailures(version, keys);
+    if (!(await previousGroupReady(version, 'core', failures, keys))) continue;
+    for (const editor of notReady) {
+      if (await previousGroupReady(version, editor, failures, keys)) lost.add(editor);
     }
   }
   return [...lost];
+}
+
+async function readVersionFailures(version, keys) {
+  const statusCacheName = `${version}${OFFLINE_STATUS_SUFFIX}`;
+  if (!keys.includes(statusCacheName)) return null;
+  try {
+    const response = await (await caches.open(statusCacheName)).match(OFFLINE_STATUS_URL);
+    return response ? (await response.json()).failures || null : null;
+  } catch {
+    return null;
+  }
+}
+
+// Запис статусу — один перезаписуваний елемент кешу, і після аварійного завершення браузера
+// одразу за RETRY_OFFLINE_CACHE його може не бути або в ньому лишаються старі помилки. Тому група
+// попередньої версії вважається готовою й тоді, коли її кеш містить усі ресурси, яких ця група
+// потребує в новій версії. Файл, доданий лише в новій версії, старий кеш не містить: для такої
+// групи рішення спирається тільки на запис статусу.
+async function previousGroupReady(version, group, failures, keys) {
+  const cacheName = `${version}-${group}`;
+  if (!keys.includes(cacheName)) return false;
+  if (Array.isArray(failures?.[group]) && failures[group].length === 0) return true;
+  const cachedUrls = new Set((await (await caches.open(cacheName)).keys()).map(request => request.url));
+  return CACHE_GROUPS[group].every(asset => cachedUrls.has(assetUrl(asset)));
 }
 
 self.addEventListener('activate', event => {
