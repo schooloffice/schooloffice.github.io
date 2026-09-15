@@ -641,7 +641,10 @@ body.dark-mode .support-card::before {
 
 .footer-socials {
     display: flex;
-    gap: 15px;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px 15px;
+    max-width: 100%;
 }
 
 /* --- ASSISTANT WIDGET --- */
@@ -760,45 +763,51 @@ body.dark-mode .support-card::before {
     border-top: 1px solid var(--border-color);
 }
 
+/* Підписані посилання замість брендових іконок: шрифт fa-brands не вендорено, а текст працює офлайн
+   і дає посиланню доступну назву. Колір тексту — основний, щоб контраст на --tag-bg був ≥ 4.5:1 в обох темах. */
 .social-link {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
+    min-height: 36px;
+    padding: 0 14px;
+    border-radius: 999px;
     background: var(--tag-bg);
-    color: var(--primary-color);
-    display: flex;
+    color: var(--text-main);
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-decoration: none;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     transition: 0.2s;
 }
 
-.social-link:hover {
-    background: var(--primary-color);
-    color: white;
+/* Брендовий колір — лише смужка знизу: білий текст на кольорах Instagram чи Facebook мав би контраст < 4.5:1. */
+.social-link:hover,
+.social-link:focus-visible {
+    background: var(--tag-hover-bg);
+    color: var(--tag-hover-text);
+    box-shadow: inset 0 -3px 0 var(--social-accent, var(--primary-color));
     transform: translateY(-2px);
 }
 
 /* Custom Social Colors */
-.social-link.tiktok:hover {
-    background: #000000;
-    color: white;
+.social-link.tiktok {
+    --social-accent: #000000;
 }
 
-body.dark-mode .social-link.tiktok:hover {
-    background: #ffffff;
-    color: black;
+body.dark-mode .social-link.tiktok {
+    --social-accent: #ffffff;
 }
 
-.social-link.facebook:hover {
-    background: #1877F2;
+.social-link.facebook {
+    --social-accent: #1877F2;
 }
 
-.social-link.instagram:hover {
-    background: #E4405F;
+.social-link.instagram {
+    --social-accent: #E4405F;
 }
 
-.social-link.linkedin:hover {
-    background: #0A66C2;
+.social-link.linkedin {
+    --social-accent: #0A66C2;
 }
 
 /* --- RESPONSIVE DESIGN --- */
