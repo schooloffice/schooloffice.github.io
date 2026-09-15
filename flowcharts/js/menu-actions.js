@@ -18,6 +18,17 @@
     'zoom-reset': 1,
   };
 
+  const ARRANGE_ACTIONS = {
+    'align-left': 'left',
+    'align-center': 'center',
+    'align-right': 'right',
+    'align-top': 'top',
+    'align-middle': 'middle',
+    'align-bottom': 'bottom',
+    'distribute-horizontal': 'distribute-horizontal',
+    'distribute-vertical': 'distribute-vertical',
+  };
+
   function createMenuActionsController(options) {
     const {
       UI,
@@ -39,6 +50,8 @@
       fitDiagram,
       openTemplates,
       exportSvg,
+      selectAllShapes,
+      arrangeSelected,
     } = options || {};
 
     function triggerShapeButton(type) {
@@ -85,6 +98,19 @@
           break;
         case 'clear-canvas':
           clearButton?.click();
+          break;
+        case 'select-all-shapes':
+          selectAllShapes?.();
+          break;
+        case 'align-left':
+        case 'align-center':
+        case 'align-right':
+        case 'align-top':
+        case 'align-middle':
+        case 'align-bottom':
+        case 'distribute-horizontal':
+        case 'distribute-vertical':
+          arrangeSelected?.(ARRANGE_ACTIONS[action]);
           break;
         case 'insert-start-end':
         case 'insert-process':

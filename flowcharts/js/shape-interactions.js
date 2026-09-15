@@ -47,6 +47,8 @@
 
       shape.addEventListener('click', (event) => {
         event.stopPropagation();
+        // Shift/Ctrl/Cmd+клік уже змінив набір вибраних блоків на pointerdown.
+        if (event.shiftKey || event.ctrlKey || event.metaKey) return;
         clearConnectionSelection?.();
         selectShape?.(shape);
       });

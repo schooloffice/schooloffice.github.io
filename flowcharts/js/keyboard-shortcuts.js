@@ -33,6 +33,7 @@
       fitDiagram,
       closeValidationPanel,
       templatesModal,
+      selectAllShapes,
     } = options || {};
 
     const isMacPlatform = detectMacPlatform();
@@ -63,6 +64,14 @@
       if (mod && key === 'o') {
         event.preventDefault();
         runOfficeCommand?.('open') || openProjectFilePicker?.();
+        return;
+      }
+      // Ctrl/Cmd+A вибирає всі блоки схеми; у полі введення лишається звичайне виділення тексту.
+      if (mod && key === 'a' && !event.shiftKey && !event.altKey) {
+        if (!isTextInputActive()) {
+          event.preventDefault();
+          selectAllShapes?.();
+        }
         return;
       }
       if (!mod && key === 'r' && state?.selectedConnId) {

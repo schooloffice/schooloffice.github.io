@@ -937,7 +937,7 @@ if (Test-Path $flowchartsIndexPath) {
   $flowchartsHtml = Get-Content -Raw -Encoding UTF8 $flowchartsIndexPath
   Assert-True ($flowchartsHtml -match 'src="js/core\.js"') "flowcharts/index.html: should load js/core.js as the shared domain layer"
   Assert-True ($flowchartsHtml -match 'src="js/ui\.js"') "flowcharts/index.html: should load js/ui.js as the shared UI helper layer"
-  foreach ($moduleName in @('svg-export', 'autosave', 'modals', 'editor-utils', 'status', 'colors', 'connection-selection', 'shape-selection', 'shape-deletion', 'shape-text', 'shape-interactions', 'shape-factory', 'viewport', 'keyboard-shortcuts', 'history', 'menu-actions', 'flow-actions', 'title', 'shape-geometry', 'shape-placement', 'handles', 'routing', 'connections-dom')) {
+  foreach ($moduleName in @('svg-export', 'autosave', 'modals', 'editor-utils', 'status', 'colors', 'connection-selection', 'shape-selection', 'shape-arrange', 'shape-deletion', 'shape-text', 'shape-interactions', 'shape-factory', 'viewport', 'keyboard-shortcuts', 'history', 'menu-actions', 'flow-actions', 'title', 'shape-geometry', 'shape-placement', 'handles', 'routing', 'connections-dom')) {
     Assert-True ($flowchartsHtml -match "src=""js/$moduleName\.js""") "flowcharts/index.html: should load js/$moduleName.js before editor.js"
     Assert-True ($flowchartsHtml -match "src=""js/$moduleName\.js""[\s\S]*src=""js/editor\.js""") "flowcharts/index.html: js/$moduleName.js must load before js/editor.js"
   }
@@ -977,6 +977,7 @@ $flowchartsModuleContracts = @{
   'flowcharts/js/colors.js' = 'window\.FlowchartsColors\s*='
   'flowcharts/js/connection-selection.js' = 'window\.FlowchartsConnectionSelection\s*='
   'flowcharts/js/shape-selection.js' = 'window\.FlowchartsShapeSelection\s*='
+  'flowcharts/js/shape-arrange.js' = 'window\.FlowchartsShapeArrange\s*='
   'flowcharts/js/shape-deletion.js' = 'window\.FlowchartsShapeDeletion\s*='
   'flowcharts/js/shape-text.js' = 'window\.FlowchartsShapeText\s*='
   'flowcharts/js/shape-interactions.js' = 'window\.FlowchartsShapeInteractions\s*='
@@ -1000,6 +1001,25 @@ foreach ($modulePath in $flowchartsModuleContracts.Keys) {
   if (Test-Path $fullPath) {
     $moduleSource = Get-Content -Raw -Encoding UTF8 $fullPath
     Assert-True ($moduleSource -match $flowchartsModuleContracts[$modulePath]) "${modulePath}: should expose its Flowcharts module namespace"
+  }
+}
+
+# E2: вирівнювання й розподіл кількох вибраних блоків — за видимими межами й одним кроком undo.
+$flowchartsArrangePath = Join-Path $Root 'flowcharts/js/shape-arrange.js'
+if ((Test-Path $flowchartsArrangePath) -and (Test-Path $flowchartsIndexPath)) {
+  $flowchartsArrange = Get-Content -Raw -Encoding UTF8 $flowchartsArrangePath
+  $flowchartsMenuActions = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'flowcharts/js/menu-actions.js')
+  $flowchartsShortcuts = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'flowcharts/js/keyboard-shortcuts.js')
+  $flowchartsSelection = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'flowcharts/js/shape-selection.js')
+  Assert-True ($flowchartsArrange -match 'function visualBox\(' -and $flowchartsArrange -match 'function computeArrangement\(') "flowcharts/js/shape-arrange.js: alignment must use visible shape bounds"
+  Assert-True ([regex]::Matches($flowchartsArrange, 'saveSnapshot\?\.\(\)').Count -eq 1) "flowcharts/js/shape-arrange.js: one arrange command must take exactly one undo snapshot"
+  Assert-True ($flowchartsSelection -match 'function toggleShapeSelection\(' -and $flowchartsSelection -match 'function getSelectedShapes\(') "flowcharts/js/shape-selection.js: blocks must support multi-selection"
+  Assert-True ($flowchartsShortcuts -match "key === 'a'") "flowcharts/js/keyboard-shortcuts.js: Ctrl+A must select all blocks"
+  $browserSmokeRunner = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')
+  Assert-True ((Test-Path (Join-Path $Root 'tests/flowcharts-arrange-behavior.html')) -and $browserSmokeRunner -match 'flowcharts-arrange-behavior\.html') "run-browser-smoke.ps1: Flowcharts align/distribute behavior must run as its own smoke page"
+  foreach ($arrangeAction in @('select-all-shapes', 'align-left', 'align-center', 'align-right', 'align-top', 'align-middle', 'align-bottom', 'distribute-horizontal', 'distribute-vertical')) {
+    Assert-True ($flowchartsHtml -match "data-action=""$arrangeAction""") "flowcharts/index.html: Edit menu must expose $arrangeAction"
+    Assert-True ($flowchartsMenuActions -match "'$arrangeAction'") "flowcharts/js/menu-actions.js: must dispatch $arrangeAction"
   }
 }
 

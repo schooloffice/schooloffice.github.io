@@ -167,6 +167,9 @@ button { cursor: pointer; }
   box-shadow: var(--shadow);
   padding: .3rem;
   z-index: 200;
+  /* Довге меню «Редагування» при 200% масштабі не має виходити за нижній край вікна. */
+  max-height: calc(100vh - var(--header-h) - var(--menubar-h) - 12px);
+  overflow-y: auto;
 }
 .menu-dropdown.open { display: block; }
 .menu-item {

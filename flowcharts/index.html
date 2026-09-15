@@ -79,6 +79,25 @@
               class="fa-solid fa-trash fa-fw"></i> Видалити вибране</span><span class="shortcut">Delete</span></button>
         <button class="menu-item" data-action="clear-canvas" role="menuitem"><span><i
               class="fa-solid fa-broom fa-fw"></i> Очистити полотно</span></button>
+        <button class="menu-item" data-action="select-all-shapes" role="menuitem"><span><i
+              class="fa-solid fa-object-group fa-fw"></i> Виділити всі блоки</span><span class="shortcut">Ctrl+A</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="align-left" role="menuitem"><span><i
+              class="fa-solid fa-align-left fa-fw"></i> Вирівняти ліворуч</span></button>
+        <button class="menu-item" data-action="align-center" role="menuitem"><span><i
+              class="fa-solid fa-align-center fa-fw"></i> Вирівняти по центру</span></button>
+        <button class="menu-item" data-action="align-right" role="menuitem"><span><i
+              class="fa-solid fa-align-right fa-fw"></i> Вирівняти праворуч</span></button>
+        <button class="menu-item" data-action="align-top" role="menuitem"><span><i
+              class="fa-solid fa-arrows-up-to-line fa-fw"></i> Вирівняти вгору</span></button>
+        <button class="menu-item" data-action="align-middle" role="menuitem"><span><i
+              class="fa-solid fa-grip-lines fa-fw"></i> Вирівняти посередині</span></button>
+        <button class="menu-item" data-action="align-bottom" role="menuitem"><span><i
+              class="fa-solid fa-arrows-down-to-line fa-fw"></i> Вирівняти вниз</span></button>
+        <button class="menu-item" data-action="distribute-horizontal" role="menuitem"><span><i
+              class="fa-solid fa-arrows-left-right fa-fw"></i> Розподілити по горизонталі</span></button>
+        <button class="menu-item" data-action="distribute-vertical" role="menuitem"><span><i
+              class="fa-solid fa-arrows-up-down fa-fw"></i> Розподілити по вертикалі</span></button>
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="validate-diagram" role="menuitem"><span><i
               class="fa-solid fa-clipboard-check fa-fw"></i> Перевірити схему</span></button>
@@ -390,6 +409,7 @@
   <script src="js/connection-selection.js"></script>
   <script src="js/connection-waypoints.js"></script>
   <script src="js/shape-selection.js"></script>
+  <script src="js/shape-arrange.js"></script>
   <script src="js/shape-deletion.js"></script>
   <script src="js/shape-text.js"></script>
   <script src="js/shape-interactions.js"></script>

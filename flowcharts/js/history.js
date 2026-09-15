@@ -75,6 +75,7 @@
       state.shapes = [];
       state.connections = [];
       state.selectedShape = null;
+      state.selectedShapes = [];
       state.selectedConnId = null;
       state.activeShape = null;
       state.dragState = null;

@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office PLUS Flowcharts Arrange Behavior Smoke</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    iframe { width: 1px; height: 1px; border: 0; position: absolute; left: -9999px; top: 0; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Office PLUS Flowcharts Arrange Behavior Smoke</h1>
+  <pre id="result">Running...</pre>
+
+  <script>
+    // Вирівнювання й розподіл Схем перевіряються в окремому запуску Chrome: разом із
+    // flowcharts-behavior.html сценарій не завжди вкладався в --virtual-time-budget однієї сторінки.
+    const result = document.getElementById('result');
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function loadFrame() {
+      return new Promise((resolve, reject) => {
+        const frame = document.createElement('iframe');
+        frame.src = '../flowcharts/index.html';
+        frame.addEventListener('load', () => resolve(frame), { once: true });
+        frame.addEventListener('error', () => reject(new Error('flowcharts frame failed to load')), { once: true });
+        document.body.appendChild(frame);
+      });
+    }
+
+    function addCheck(checks, name, ok, detail = '') {
+      checks.push({ name, ok: !!ok, detail });
+    }
+
+    // E2: кілька вибраних блоків вирівнюються й розподіляються за видимими межами одним кроком undo;
+    // стрілки перебудовуються, JSON зберігає нову геометрію, колір і видалення діють на весь вибір.
+    async function runArrangeChecks(win, doc) {
+      const checks = [];
+      const arrange = win.FlowchartsShapeArrange;
+      addCheck(checks, 'namespace FlowchartsShapeArrange', !!arrange?.computeArrangement && !!arrange?.createShapeArrangeController);
+
+      // Чиста геометрія без DOM.
+      const boxes = [
+        { id: 'a', type: 'process', left: 10, top: 0, width: 100, height: 50 },
+        { id: 'b', type: 'process', left: 60, top: 100, width: 40, height: 50 },
+        { id: 'c', type: 'process', left: 300, top: 200, width: 60, height: 50 }
+      ];
+      const movesById = moves => Object.fromEntries((moves || []).map(move => [move.id, move]));
+      const alignedLeft = movesById(arrange?.computeArrangement(boxes, 'left'));
+      addCheck(checks, 'arrange math: align left moves blocks to the leftmost edge only horizontally',
+        !alignedLeft.a && alignedLeft.b?.left === 10 && alignedLeft.b.top === 100 && alignedLeft.c?.left === 10, JSON.stringify(alignedLeft));
+      const alignedRight = movesById(arrange?.computeArrangement(boxes, 'right'));
+      addCheck(checks, 'arrange math: align right uses the rightmost edge',
+        alignedRight.a?.left === 260 && alignedRight.b?.left === 320 && !alignedRight.c, JSON.stringify(alignedRight));
+      // Проміжок (360 - 10 - 200) / 2 = 75, тож середній блок стає на 10 + 100 + 75.
+      const spread = movesById(arrange?.computeArrangement(boxes, 'distribute-horizontal'));
+      addCheck(checks, 'arrange math: distribute keeps outer blocks and equalizes gaps',
+        !spread.a && !spread.c && spread.b?.left === 185, JSON.stringify(spread));
+      const diamond = arrange?.visualBox({ type: 'decision', left: 100, top: 100, width: 100, height: 100 });
+      addCheck(checks, 'arrange math: a decision diamond is measured by its vertices', !!diamond && Math.abs(diamond.minX - (150 - 100 / Math.SQRT2)) < 0.001);
+      addCheck(checks, 'arrange math: too small selection or unknown mode is refused',
+        arrange?.computeArrangement(boxes.slice(0, 1), 'left') === null
+          && arrange?.computeArrangement(boxes.slice(0, 2), 'distribute-vertical') === null
+          && arrange?.computeArrangement(boxes, 'diagonal') === null);
+
+      const waitUntil = async (predicate, timeout = 3000) => {
+        const start = performance.now();
+        while (performance.now() - start < timeout) {
+          if (predicate()) return true;
+          await wait(50);
+        }
+        return predicate();
+      };
+      const shape = id => doc.getElementById(id);
+      const ids = ['shape-1', 'shape-2', 'shape-3', 'shape-4'];
+      const pressKey = init => doc.dispatchEvent(new win.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
+      const menu = action => doc.querySelector(`.menu-item[data-action="${action}"]`).click();
+      const shiftClick = (el, pointerId) => {
+        el.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId, shiftKey: true }));
+        el.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerId, shiftKey: true }));
+        el.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }));
+      };
+      const selectedIds = () => [...doc.querySelectorAll('.shape.selected')].map(el => el.id).sort();
+      const selectionText = () => doc.getElementById('selection-state')?.textContent.trim();
+      const positions = () => ids.map(id => `${shape(id)?.offsetLeft},${shape(id)?.offsetTop}`).join(' ');
+      const spreadOf = values => Math.max(...values) - Math.min(...values);
+      // Видимі межі рахуються тут незалежно від shape-arrange.js.
+      const skew = Math.tan(20 * Math.PI / 180);
+      const bounds = (el) => {
+        const cx = el.offsetLeft + el.offsetWidth / 2;
+        const cy = el.offsetTop + el.offsetHeight / 2;
+        if (el.classList.contains('decision')) {
+          const d = el.offsetWidth / Math.SQRT2;
+          return { minX: cx - d, maxX: cx + d, minY: cy - d, maxY: cy + d };
+        }
+        const s = el.classList.contains('input-output') ? skew * el.offsetHeight / 2 : 0;
+        return { minX: el.offsetLeft - s, maxX: el.offsetLeft + el.offsetWidth + s, minY: el.offsetTop, maxY: el.offsetTop + el.offsetHeight };
+      };
+      const messageModal = doc.getElementById('message-modal');
+
+      const originalRaf = win.requestAnimationFrame;
+      const originalCreateObjectURL = win.URL.createObjectURL;
+      const originalAnchorClick = win.HTMLAnchorElement.prototype.click;
+      const downloads = [];
+      const blobs = new Map();
+      // restoreSnapshot відновлює стрілки через подвійний rAF, а під --virtual-time-budget кадри
+      // в прихованому iframe ненадійні.
+      win.requestAnimationFrame = callback => win.setTimeout(() => callback(performance.now()), 16);
+      win.URL.createObjectURL = function captureObjectUrl(blob) {
+        const url = originalCreateObjectURL.call(win.URL, blob);
+        blobs.set(url, blob);
+        return url;
+      };
+      win.HTMLAnchorElement.prototype.click = function captureDownload() {
+        if (this.download) {
+          downloads.push(blobs.get(this.href) || null);
+          return undefined;
+        }
+        return originalAnchorClick.call(this);
+      };
+
+      try {
+        const project = {
+          version: 2,
+          diagramTitle: 'Вирівнювання E2',
+          shapeCounter: 4,
+          lastShapeType: 'process',
+          snapEnabled: true,
+          shapes: [
+            { id: 'shape-1', type: 'process', textRaw: 'Дія', left: 100, top: 80 },
+            { id: 'shape-2', type: 'decision', textRaw: 'x > 0?', left: 340, top: 260 },
+            { id: 'shape-3', type: 'input-output', textRaw: 'Ввід', left: 180, top: 520 },
+            { id: 'shape-4', type: 'start-end', textRaw: 'Кінець', left: 620, top: 700 }
+          ],
+          connections: [
+            { id: 'conn-shape-1-shape-2', from: 'shape-1', to: 'shape-2', type: null, routeMode: 'auto', label: null },
+            { id: 'conn-shape-2-shape-3-yes', from: 'shape-2', to: 'shape-3', type: 'yes', routeMode: 'auto', label: null }
+          ]
+        };
+        const fileInput = doc.getElementById('project-file-input');
+        const transfer = new win.DataTransfer();
+        transfer.items.add(new win.File([JSON.stringify(project)], 'arrange.json', { type: 'application/json' }));
+        fileInput.files = transfer.files;
+        fileInput.dispatchEvent(new win.Event('change'));
+        const opened = await waitUntil(() => doc.querySelectorAll('.shape').length === 4 && !!shape('shape-4')
+          && !!doc.getElementById('conn-shape-1-shape-2') && !!doc.getElementById('conn-shape-2-shape-3-yes'));
+        messageModal?.classList.remove('active');
+        addCheck(checks, 'arrange: project with four block types opened', opened, `shapes=${doc.querySelectorAll('.shape').length}`);
+
+        shape('shape-1').click();
+        shiftClick(shape('shape-2'), 71);
+        shiftClick(shape('shape-3'), 72);
+        addCheck(checks, 'arrange: Shift+click builds a multi-selection',
+          selectedIds().join() === 'shape-1,shape-2,shape-3' && selectionText() === 'Вибрано блоків: 3'
+            && doc.getElementById('toolbar-edit-button').disabled && !doc.getElementById('toolbar-delete-button').disabled,
+          `selected=${selectedIds().join()} state=${selectionText()}`);
+        shiftClick(shape('shape-3'), 73);
+        const afterToggleOff = selectedIds().join();
+        shiftClick(shape('shape-3'), 74);
+        addCheck(checks, 'arrange: Shift+click on a selected block removes it from the selection',
+          afterToggleOff === 'shape-1,shape-2' && selectedIds().length === 3, `after=${afterToggleOff}`);
+
+        const before = positions();
+        const topsBefore = ['shape-1', 'shape-2', 'shape-3'].map(id => shape(id).offsetTop).join();
+        const pathBefore = doc.getElementById('conn-shape-1-shape-2')?.getAttribute('d');
+        menu('align-left');
+        const lefts = ['shape-1', 'shape-2', 'shape-3'].map(id => bounds(shape(id)).minX);
+        addCheck(checks, 'arrange: align left lines up visible left edges and keeps vertical positions',
+          spreadOf(lefts) <= 1 && ['shape-1', 'shape-2', 'shape-3'].map(id => shape(id).offsetTop).join() === topsBefore
+            && shape('shape-4').offsetLeft === 620,
+          `lefts=${lefts.map(value => value.toFixed(1)).join(',')}`);
+        await wait(80);
+        addCheck(checks, 'arrange: arrows are rerouted after alignment',
+          !!pathBefore && doc.getElementById('conn-shape-1-shape-2')?.getAttribute('d') !== pathBefore);
+
+        const aligned = positions();
+        menu('align-left');
+        const statusAfterRepeat = doc.querySelector('.office-statusbar')?.textContent || '';
+        addCheck(checks, 'arrange: repeating an alignment moves nothing and says so',
+          positions() === aligned && statusAfterRepeat.includes('вже розташовані'), statusAfterRepeat.trim().slice(0, 80));
+
+        pressKey({ key: 'z', ctrlKey: true });
+        const undone = await waitUntil(() => positions() === before && !!doc.getElementById('conn-shape-1-shape-2'));
+        addCheck(checks, 'arrange: one Ctrl+Z restores every aligned block', undone, `before=${before} now=${positions()}`);
+        pressKey({ key: 'y', ctrlKey: true });
+        const redone = await waitUntil(() => positions() === aligned && !!doc.getElementById('conn-shape-2-shape-3-yes'));
+        addCheck(checks, 'arrange: Ctrl+Y re-applies the alignment', redone, `aligned=${aligned} now=${positions()}`);
+
+        pressKey({ key: 'a', ctrlKey: true });
+        addCheck(checks, 'arrange: Ctrl+A selects every block', selectedIds().length === 4 && selectionText() === 'Вибрано блоків: 4',
+          `selected=${selectedIds().join()} state=${selectionText()}`);
+        const verticalBefore = ids.map(id => bounds(shape(id)));
+        menu('distribute-vertical');
+        const vertical = ids.map(id => bounds(shape(id))).sort((a, b) => (a.minY + a.maxY) - (b.minY + b.maxY));
+        const gaps = vertical.slice(1).map((box, index) => box.minY - vertical[index].maxY);
+        const outerKept = Math.abs(vertical[0].minY - Math.min(...verticalBefore.map(box => box.minY))) <= 1
+          && Math.abs(vertical[vertical.length - 1].maxY - Math.max(...verticalBefore.map(box => box.maxY))) <= 1;
+        addCheck(checks, 'arrange: distribute vertically keeps outer blocks and equalizes visible gaps',
+          spreadOf(gaps) <= 2 && outerKept, `gaps=${gaps.map(value => value.toFixed(1)).join(',')}`);
+
+        downloads.length = 0;
+        pressKey({ key: 's', ctrlKey: true });
+        await waitUntil(() => downloads.length > 0, 2000);
+        doc.getElementById('save-title-modal')?.classList.remove('active');
+        const saved = downloads[0] ? win.FlowchartCore.parseProject(await downloads[0].text()) : null;
+        const savedMatchesDom = !!saved && ids.every((id) => {
+          const item = saved.shapes.find(savedShape => savedShape.id === id);
+          return !!item && item.left === shape(id).offsetLeft && item.top === shape(id).offsetTop;
+        });
+        addCheck(checks, 'arrange: saved JSON keeps the distributed geometry', savedMatchesDom, saved ? positions() : 'no JSON captured');
+
+        const colorButton = doc.querySelector('.color-option[data-color="#16a34a"]');
+        const probe = doc.createElement('div');
+        probe.style.backgroundColor = '#16a34a';
+        colorButton?.click();
+        addCheck(checks, 'arrange: a color applies to every selected block',
+          !!colorButton && ids.every(id => shape(id).style.backgroundColor === probe.style.backgroundColor));
+
+        shape('shape-3').click();
+        shiftClick(shape('shape-4'), 75);
+        pressKey({ key: 'Delete' });
+        const confirmText = doc.getElementById('message-modal-text')?.textContent || '';
+        const confirmButton = messageModal?.querySelector('.no-btn');
+        const confirmLabel = confirmButton?.textContent.trim();
+        confirmButton?.click();
+        const deleted = await waitUntil(() => doc.querySelectorAll('.shape').length === 2 && !doc.getElementById('conn-shape-2-shape-3-yes'));
+        addCheck(checks, 'arrange: Delete removes every selected block and its arrows after one confirmation',
+          deleted && confirmText.includes('Видалити вибрані блоки (2)') && confirmLabel === 'Видалити',
+          `text=${confirmText.trim().slice(0, 60)} button=${confirmLabel} shapes=${doc.querySelectorAll('.shape').length}`);
+        pressKey({ key: 'z', ctrlKey: true });
+        const restored = await waitUntil(() => doc.querySelectorAll('.shape').length === 4 && !!doc.getElementById('conn-shape-2-shape-3-yes'));
+        addCheck(checks, 'arrange: one Ctrl+Z restores the deleted blocks and arrows', deleted && restored, `shapes=${doc.querySelectorAll('.shape').length}`);
+
+        shape('shape-1').click();
+        const single = positions();
+        menu('align-right');
+        const refused = !!messageModal?.classList.contains('active') && positions() === single
+          && (messageModal.textContent || '').includes('щонайменше 2 блоки');
+        addCheck(checks, 'arrange: aligning one block explains the selection and moves nothing', refused);
+      } finally {
+        messageModal?.classList.remove('active');
+        win.requestAnimationFrame = originalRaf;
+        win.URL.createObjectURL = originalCreateObjectURL;
+        win.HTMLAnchorElement.prototype.click = originalAnchorClick;
+      }
+      return checks;
+    }
+
+    async function run() {
+      const frame = await loadFrame();
+      const win = frame.contentWindow;
+      const doc = frame.contentDocument;
+      await wait(500);
+      const checks = await runArrangeChecks(win, doc);
+
+      const failures = checks.filter(check => !check.ok);
+      result.className = failures.length ? 'fail' : 'pass';
+      result.textContent = checks.map(check =>
+        `${check.ok ? 'PASS' : 'FAIL'} ${check.name}${check.detail ? ` (${check.detail})` : ''}`
+      ).join('\n') + `\n\n${failures.length ? 'FAILED' : 'PASSED'}`;
+      document.body.dataset.flowchartsArrange = failures.length ? 'failed' : 'passed';
+      frame.remove();
+    }
+
+    run().catch(error => {
+      result.className = 'fail';
+      result.textContent = String(error && error.stack || error);
+      document.body.dataset.flowchartsArrange = 'failed';
+    });
+  </script>
+</body>
+</html>

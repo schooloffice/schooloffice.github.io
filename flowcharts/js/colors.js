@@ -8,6 +8,7 @@
       colorButtons,
       saveSnapshot,
       scheduleRefresh,
+      getSelectedShapes,
     } = options || {};
 
     const defaults = defaultBaseColors || {};
@@ -30,14 +31,20 @@
       state.currentColor = hex;
       syncColorPickerToCurrent(hex);
 
-      if (state.selectedShape) {
+      // Колір застосовується до всіх вибраних блоків одним кроком undo.
+      const selected = typeof getSelectedShapes === 'function'
+        ? getSelectedShapes()
+        : (state.selectedShape ? [state.selectedShape] : []);
+      if (selected.length) {
         saveSnapshot?.();
-        state.selectedShape.style.backgroundColor = hex;
-        const shape = state.shapes.find((item) => item.id === state.selectedShape.id);
-        if (shape) {
-          shape.color = hex;
-          state.baseColors[shape.type] = hex;
-        }
+        selected.forEach((el) => {
+          el.style.backgroundColor = hex;
+          const shape = state.shapes.find((item) => item.id === el.id);
+          if (shape) {
+            shape.color = hex;
+            state.baseColors[shape.type] = hex;
+          }
+        });
         scheduleRefresh?.();
         return;
       }

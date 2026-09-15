@@ -17,6 +17,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
   const colorsApi = window.FlowchartsColors || {};
   const connectionSelectionApi = window.FlowchartsConnectionSelection || {};
   const shapeSelectionApi = window.FlowchartsShapeSelection || {};
+  const shapeArrangeApi = window.FlowchartsShapeArrange || {};
   const shapeDeletionApi = window.FlowchartsShapeDeletion || {};
   const shapeTextApi = window.FlowchartsShapeText || {};
   const shapeInteractionsApi = window.FlowchartsShapeInteractions || {};
@@ -148,6 +149,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     shapes: [],           // {id,type,color,textRaw}
     connections: [],      // {id,from,to,type,routeMode}
     selectedShape: null,
+    selectedShapes: [],   // усі вибрані блоки; selectedShape — основний з них
     selectedConnId: null,
 
     baseColors: { ...DEFAULT_BASE_COLORS },
@@ -277,6 +279,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     colorButtons: Array.from(document.querySelectorAll('.color-option')),
     saveSnapshot: (...args) => saveSnapshot(...args),
     scheduleRefresh,
+    getSelectedShapes: () => getSelectedShapes(),
   }) || {};
   const getBaseColor = colorController.getBaseColor || ((type) => state.baseColors[type] || DEFAULT_BASE_COLORS[type] || '#3f51b5');
   const syncColorPickerToCurrent = colorController.syncColorPickerToCurrent || (() => {});
@@ -395,6 +398,9 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
   let updateConnectionBar = () => {};
   let cycleSelectedConnectionRouteMode = () => {};
   let selectShape = () => {};
+  let toggleShapeSelection = () => {};
+  let selectShapes = () => {};
+  let getSelectedShapes = () => (state.selectedShape ? [state.selectedShape] : []);
   let deselectAll = () => {};
 
   // ================= MANUAL WAYPOINTS =================
@@ -443,6 +449,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     onSelect: (connId) => showWaypointHandles(connId),
     onClear: () => clearWaypointHandles(),
     onRouteChange: (connId) => showWaypointHandles(connId),
+    getSelectedShapes: () => getSelectedShapes(),
   }) || {};
   clearConnectionSelection = connectionSelection.clearConnectionSelection || clearConnectionSelection;
   selectConnection = connectionSelection.selectConnection || selectConnection;
@@ -527,7 +534,37 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     updateConnectionBar: (...args) => updateConnectionBar(...args),
   }) || {};
   selectShape = shapeSelection.selectShape || selectShape;
+  toggleShapeSelection = shapeSelection.toggleShapeSelection || toggleShapeSelection;
+  selectShapes = shapeSelection.selectShapes || selectShapes;
+  getSelectedShapes = shapeSelection.getSelectedShapes || getSelectedShapes;
   deselectAll = shapeSelection.deselectAll || deselectAll;
+
+  function selectAllShapes() {
+    const elements = state.shapes.map((shape) => document.getElementById(shape.id)).filter(Boolean);
+    if (!elements.length) {
+      showMessageModal('Спочатку додай хоча б один блок.');
+      return;
+    }
+    clearConnectionSelection(false);
+    selectShapes(elements);
+  }
+
+  // ================= ALIGN / DISTRIBUTE =================
+  const shapeArrange = shapeArrangeApi.createShapeArrangeController?.({
+    getSelectedShapes: () => getSelectedShapes(),
+    getShapeType: shapeGeometry.getShapeType,
+    decisionVertexDistance: core?.decisionVertexDistance,
+    saveSnapshot: (...args) => saveSnapshot(...args),
+    updateConnectionsForShape,
+    updateHandleGroup,
+    scheduleRefresh,
+    // Замалий вибір пояснюємо діалогом, результат дії — рядком стану.
+    announce: (message, kind) => {
+      if (kind === 'selection') showMessageModal(message);
+      else window.OfficeUI?.updateStatus?.(message, 'secondary');
+    },
+  }) || {};
+  const arrangeSelected = shapeArrange.arrangeSelected || (() => {});
 
   // ================= DRAG SHAPES =================
   function onShapePointerDown(e) {
@@ -537,6 +574,14 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     // when the press starts on a shape.
     if (viewport.isPanGesture?.(e)) return;
     e.stopPropagation();
+
+    // Shift/Ctrl/Cmd+клік додає блок до вибору або прибирає з нього, без перетягування.
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      clearConnectionSelection();
+      toggleShapeSelection(this);
+      e.preventDefault();
+      return;
+    }
 
     clearConnectionSelection();
     selectShape(this);
@@ -688,6 +733,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     hideAllHandles,
     updateHistoryButtons,
     deleteConnection,
+    getSelectedShapes: () => getSelectedShapes(),
   }) || {};
   const deleteSelected = shapeDeletion.deleteSelected || (() => {});
 
@@ -936,6 +982,8 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     fitDiagram,
     openTemplates,
     exportSvg,
+    selectAllShapes,
+    arrangeSelected,
   }) || {};
   const toggleHelp = menuActions.toggleHelp || (() => {});
   const menuApi = menuActions.bind?.() || null;
@@ -966,6 +1014,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     fitDiagram,
     closeValidationPanel: () => validation.close?.(),
     templatesModal,
+    selectAllShapes,
   })?.bind?.();
 
   // ================= REFRESH LAYOUT =================

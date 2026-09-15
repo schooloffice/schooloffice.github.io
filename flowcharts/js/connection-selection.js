@@ -57,6 +57,7 @@
       onSelect,
       onClear,
       onRouteChange,
+      getSelectedShapes,
     } = options || {};
 
     const modes = Array.isArray(routeModes) && routeModes.length ? routeModes : ['auto'];
@@ -104,7 +105,10 @@
 
     function updateConnectionBar() {
       const hasSelectedConn = !!state?.selectedConnId;
-      const hasShapeSelected = !!state?.selectedShape;
+      const selectedShapeCount = typeof getSelectedShapes === 'function'
+        ? getSelectedShapes().length
+        : (state?.selectedShape ? 1 : 0);
+      const hasShapeSelected = selectedShapeCount > 0;
       const hasAnySelection = hasSelectedConn || hasShapeSelected;
 
       if (selectionStateEl) {
@@ -112,6 +116,9 @@
           const conn = state.connections.find((c) => c.id === state.selectedConnId);
           const label = conn?.type === 'yes' ? 'стрілка Так' : conn?.type === 'no' ? 'стрілка Ні' : 'стрілка';
           selectionStateEl.textContent = `Вибрано: ${label}`;
+          selectionStateEl.classList.remove('is-empty');
+        } else if (selectedShapeCount > 1) {
+          selectionStateEl.textContent = `Вибрано блоків: ${selectedShapeCount}`;
           selectionStateEl.classList.remove('is-empty');
         } else if (hasShapeSelected) {
           const shapeData = state.shapes.find((shape) => shape.id === state.selectedShape.id);
@@ -142,7 +149,7 @@
         setButtonLabel(labelButton, conn?.label ? 'Підпис: змінити' : 'Підпис');
       }
 
-      if (editShapeButton) editShapeButton.disabled = !hasShapeSelected || hasSelectedConn;
+      if (editShapeButton) editShapeButton.disabled = selectedShapeCount !== 1 || hasSelectedConn;
       if (deleteButton) deleteButton.disabled = !hasAnySelection;
     }
 

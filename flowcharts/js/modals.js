@@ -38,7 +38,7 @@
       setTimeout(() => ok.focus(), 30);
     }
 
-    function showConfirmModal(text, onOk) {
+    function showConfirmModal(text, onOk, okText = 'Очистити') {
       const parts = getMessageModalParts();
       if (!parts) return;
       const { modal, textEl, buttonsEl } = parts;
@@ -52,7 +52,7 @@
         onClick: () => closeModal(modal),
       });
       const ok = createButton({
-        text: 'Очистити',
+        text: okText,
         className: 'modal-btn no-btn',
         onClick: () => {
           closeModal(modal);

@@ -79,6 +79,7 @@
       <div class="help-step"><span class="step-num">13</span><span><strong>Перетягни блок</strong> — фігуру з лівої панелі можна не лише натиснути, а й перетягнути одразу в потрібне місце полотна.</span></div>
       <div class="help-step"><span class="step-num">14</span><span><strong>Маршрут стрілки вручну</strong> — виділи стрілку й тягни рожеві кружечки на ній, щоб задати власний шлях. Режим <strong>Розумний обхід</strong> (кнопка <strong>Маршрут</strong> або <strong>R</strong>) сам огинає блоки.</span></div>
       <div class="help-step"><span class="step-num">15</span><span><strong>Вмістити схему</strong> — кнопка <strong><i class="fa-solid fa-maximize"></i></strong> або <strong>Shift+1</strong> показує всю схему. Утримуй <strong>Пробіл</strong> чи середню кнопку миші, щоб рухати полотно.</span></div>
+      <div class="help-step"><span class="step-num">16</span><span><strong>Вирівняти блоки</strong> — вибери кілька блоків через <strong>Shift+клік</strong> (або всі — <strong>Ctrl+A</strong>) і обери в меню <strong>Редагування</strong> пункт <strong>Вирівняти…</strong> чи <strong>Розподілити…</strong>. Стрілки перебудуються самі, а <strong>Ctrl+Z</strong> поверне все одним кроком.</span></div>
       <div class="help-step help-step-link"><span class="step-num">?</span><span>Потрібні приклади схем або пояснення типів блоків — відкрий <a href="manual.html" target="_blank" rel="noopener noreferrer">довідник</a>.</span></div>
     `;
   }

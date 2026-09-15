@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v80';
+const CACHE_VERSION = 'office-plus-v81';
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_STATUS_CACHE = `${CACHE_VERSION}-offline-status`;
 const OFFLINE_STATUS_URL = new URL('./__offline_status__', self.registration.scope).href;
@@ -40,6 +40,7 @@ const ALL_LOCAL_ASSETS = [
   './flowcharts/js/shape-deletion.js',
   './flowcharts/js/shape-placement.js',
   './flowcharts/js/shape-selection.js',
+  './flowcharts/js/shape-arrange.js',
   './flowcharts/js/shape-text.js',
   './flowcharts/js/status.js',
   './flowcharts/style.css',
