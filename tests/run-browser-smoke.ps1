@@ -335,6 +335,77 @@ function Invoke-SmokePage {
   }
 }
 
+# Сторінка, чий сценарій спирається на IndexedDB у реальному часі, не проходить під --virtual-time-budget:
+# поки запис триває, віртуальний годинник «доскакує» до тайм-аутів сховища й вичерпує бюджет. Така сторінка
+# йде наживо: Chrome без віртуального часу, результат читається через DevTools, межа — той самий PageTimeoutSeconds.
+function Invoke-LiveSmokePage {
+  param(
+    [string]$Url,
+    [string]$PassPattern,
+    [string]$Name
+  )
+
+  $pageProfile = New-PageProfile
+  $serverLogOffset = Get-ServerLogLength
+  $failPattern = $PassPattern -replace 'passed', 'failed'
+  $pagePattern = [regex]::Escape(([Uri]$Url).AbsolutePath)
+  $debugPort = Get-FreeTcpPort
+  $capture = Start-SafeProcess $chromePath @(
+    '--headless=new',
+    '--disable-gpu',
+    '--disable-crash-reporter',
+    '--no-first-run',
+    "--user-data-dir=$pageProfile",
+    "--disk-cache-dir=$(Join-Path $pageProfile 'cache')",
+    "--remote-debugging-port=$debugPort",
+    '--enable-logging=stderr',
+    '--log-level=0',
+    $Url
+  )
+  $dom = ''
+  $problem = $null
+  $result = $null
+  try {
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    while ($clock.Elapsed.TotalSeconds -lt $PageTimeoutSeconds) {
+      if ($capture.Process.HasExited) {
+        $problem = "$Name browser launch failed with exit code $($capture.Process.ExitCode); page checks did not run."
+        break
+      }
+      try {
+        $dom = [string](Invoke-CdpPageEvaluation -DebugPort $debugPort -UrlPattern $pagePattern -Expression 'document.documentElement.outerHTML' -TimeoutSeconds 10)
+      } catch {
+        $dom = ''
+      }
+      if ($dom -match $PassPattern -or $dom -match $failPattern) { break }
+      Start-Sleep -Milliseconds 500
+    }
+    if (-not $problem -and $dom -notmatch $PassPattern -and $dom -notmatch $failPattern) {
+      $problem = "$Name timed out: no result within $PageTimeoutSeconds s wall-clock."
+    }
+  } finally {
+    # Живий браузер сам не завершується: зупиняємо лише дерево й профіль цього запуску.
+    [void](Stop-OwnedProcessTree -Capture $capture -OwnedMarker $pageProfile)
+    $result = Wait-CapturedProcess -Capture $capture -TimeoutSeconds 5 -OwnedMarker $pageProfile
+  }
+
+  try {
+    if (-not $problem) {
+      Assert-NoUncaughtPageErrors $result.Stderr $Name
+      if ($dom -notmatch $PassPattern) {
+        $reason = if ($dom -match '(?s)<pre id="result"[^>]*>(.*?)</pre>') { ($matches[1] -replace '\s+', ' ').Trim() } else { 'result element missing' }
+        $problem = "$Name failed: $reason"
+      }
+    }
+    if ($problem) { throw "$problem`nBrowser stderr:`n$($result.Stderr)" }
+    Write-Host "$Name passed."
+  } catch {
+    throw (Add-ServerLogDetails $_.Exception.Message $serverLogOffset $Name)
+  } finally {
+    Remove-PageProfile $pageProfile
+  }
+}
+
 $Port = if ($Port -gt 0) { $Port } else { Get-FreeTcpPort }
 $chromePath = if ($ChromePath) { (Resolve-Path -LiteralPath $ChromePath).Path } else { Get-ChromePath }
 $resolvedTests = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\') + '\'
@@ -359,7 +430,8 @@ try {
   Assert-ServerKeepsPreconnectedSockets -PortNumber $Port
 
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/browser-smoke.html" 'data-smoke="passed"' 'Browser smoke'
-  Invoke-SmokePage "http://127.0.0.1:$Port/tests/storage-ui-behavior.html" 'data-storage-ui="passed"' 'Storage UI smoke'
+  # Сценарій спільного ПК спирається на IndexedDB у реальному часі, тож іде наживо, без віртуального часу.
+  Invoke-LiveSmokePage "http://127.0.0.1:$Port/tests/storage-ui-behavior.html" 'data-storage-ui="passed"' 'Storage UI smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-behavior.html" 'data-text-behavior="passed"' 'Text behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-model-behavior.html" 'data-text-model="passed"' 'Text document model smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-header-footer-behavior.html" 'data-text-header-footer="passed"' 'Text header and footer smoke'

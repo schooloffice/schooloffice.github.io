@@ -4,22 +4,30 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Storage UI Behavior</title>
+  <style>
+    iframe { width: 1024px; height: 640px; border: 1px solid #d6dce5; }
+  </style>
 </head>
 <body>
   <h1>Storage UI Behavior</h1>
   <pre id="result">Running...</pre>
-  <iframe id="landingFrame" title="Головна сторінка"></iframe>
+  <div id="frames"></div>
   <script>
     'use strict';
 
+    // Спільний ПК (E2): скасування зберігає дані, явне очищення прибирає чернетки всіх редакторів,
+    // а автозбереження, заплановане до очищення (закриття вкладки, перезавантаження), їх не повертає.
     const result = document.getElementById('result');
-    const frame = document.getElementById('landingFrame');
+    const framesHost = document.getElementById('frames');
+    const lines = [];
+    const failures = [];
+    const APPS = ['text', 'tables', 'slides', 'paint', 'vector', 'flowcharts'];
 
     function wait(ms) {
       return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    async function waitFor(predicate, label, timeout = 5000) {
+    async function waitFor(predicate, label, timeout = 6000) {
       const started = performance.now();
       while (performance.now() - started < timeout) {
         if (predicate()) return;
@@ -28,32 +36,225 @@
       throw new Error(label);
     }
 
-    async function run() {
-      await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('landing load timed out')), 6000);
-        frame.addEventListener('load', () => { clearTimeout(timer); resolve(); }, { once: true });
-        frame.src = '../index.html';
+    // Перевірки не зупиняють сценарій: так один прогін показує всі розбіжності.
+    function check(name, ok, detail = '') {
+      lines.push(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !detail ? '' : `\n  ${detail}`}`);
+      if (!ok) failures.push(name);
+      result.textContent = `${lines.join('\n')}\n\nRunning...`;
+    }
+
+    function loadFrame(src) {
+      return new Promise((resolve, reject) => {
+        const frame = document.createElement('iframe');
+        const timer = setTimeout(() => reject(new Error(`load timed out: ${src}`)), 8000);
+        frame.addEventListener('load', () => { clearTimeout(timer); resolve(frame); }, { once: true });
+        frame.src = src;
+        framesHost.appendChild(frame);
       });
-      const doc = frame.contentDocument;
-      await waitFor(() => doc.querySelector('[data-office-clear-drafts]'), 'clear-all control missing');
-      doc.querySelector('[data-office-clear-drafts]').click();
-      await waitFor(() => doc.querySelector('.office-storage-confirm.active'), 'first confirmation missing');
-      const firstTitle = doc.querySelector('.office-storage-confirm h2')?.textContent;
-      doc.querySelector('.office-storage-danger')?.click();
-      await waitFor(() => doc.querySelector('.office-storage-confirm.active h2')?.textContent === 'Підтвердьте очищення', 'second confirmation missing');
-      const secondTitle = doc.querySelector('.office-storage-confirm h2')?.textContent;
-      doc.querySelector('.office-storage-confirm button')?.click();
-      await waitFor(() => !doc.querySelector('.office-storage-confirm'), 'second confirmation did not close');
-      if (firstTitle !== 'Очистити всі локальні чернетки?' || secondTitle !== 'Підтвердьте очищення') {
-        throw new Error('clear-all flow must require two distinct confirmations');
+    }
+
+    // Окреме вікно з власним OfficeStorage: воно бачить сховище так, як нова вкладка.
+    async function storageWindow() {
+      const frame = await loadFrame('storage-probe.html');
+      await waitFor(() => !!frame.contentWindow.OfficeStorage, 'storage probe did not load');
+      return frame;
+    }
+
+    // Під --virtual-time-budget IndexedDB іде в реальному часі, а віртуальний годинник може «доскочити»
+    // до 1,2-секундного тайм-ауту office-storage.js: вікно переходить на резервний localStorage і бачить
+    // неповну картину. Таке читання (статус error) повторюємо зі свіжого вікна.
+    async function readDrafts() {
+      for (let attempt = 1; ; attempt += 1) {
+        const frame = await storageWindow();
+        const storage = frame.contentWindow.OfficeStorage;
+        const values = {};
+        for (const app of APPS) {
+          values[app] = await storage.createDraftStore({ app, key: app }).load();
+        }
+        const degraded = APPS.some(app => storage.getDraftStatus(app)?.state === 'error');
+        frame.remove();
+        if (!degraded || attempt >= 4) return values;
+        await wait(200);
       }
-      document.documentElement.dataset.storageUi = 'passed';
-      result.textContent = 'PASSED';
+    }
+
+    // Той самий виклик, що й кнопка очищення на головній, але з окремої «вкладки».
+    async function clearAllElsewhere() {
+      const frame = await storageWindow();
+      const cleared = await frame.contentWindow.OfficeStorage.clearAllKnownDrafts();
+      frame.remove();
+      return cleared;
+    }
+
+    function confirmDialog(doc) {
+      return doc.querySelector('.office-storage-confirm.active');
+    }
+
+    async function answer(doc, buttonText) {
+      await waitFor(() => confirmDialog(doc), `confirmation missing before «${buttonText}»`);
+      const dialog = confirmDialog(doc);
+      const title = dialog.querySelector('h2').textContent;
+      const button = Array.from(dialog.querySelectorAll('button')).find(item => item.textContent === buttonText);
+      if (!button) throw new Error(`button «${buttonText}» missing in «${title}»`);
+      button.click();
+      await waitFor(() => !doc.querySelector('.office-storage-confirm') || confirmDialog(doc)?.querySelector('h2').textContent !== title, `dialog «${title}» did not close`);
+      return title;
+    }
+
+    // Чекаємо повного запуску Тексту (TextApp.ready): текст, введений раніше, перезаписав би boot.
+    async function openText(query = '') {
+      const frame = await loadFrame(`../text/index.html${query}`);
+      const win = frame.contentWindow;
+      await waitFor(() => win.TextApp?.ready && win.art?.storage && win.document.getElementById('editor'), 'text editor did not boot', 8000);
+      await Promise.race([win.TextApp.ready, wait(8000)]);
+      return frame;
+    }
+
+    async function typeInText(frame, text) {
+      const doc = frame.contentDocument;
+      const editor = doc.getElementById('editor');
+      editor.focus();
+      const block = editor.querySelector('.page-content p') || editor.querySelector('.page-content') || editor;
+      const range = doc.createRange();
+      range.selectNodeContents(block);
+      range.collapse(false);
+      const selection = frame.contentWindow.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      doc.execCommand('insertText', false, text);
+      const inserted = editor.textContent.includes(text);
+      if (!inserted) {
+        block.appendChild(doc.createTextNode(text));
+        editor.dispatchEvent(new frame.contentWindow.Event('input', { bubbles: true }));
+      }
+      const saved = await frame.contentWindow.art.storage.saveNow();
+      return {
+        inserted,
+        inEditor: editor.textContent.includes(text),
+        saved,
+        focus: doc.hasFocus(),
+        status: frame.contentWindow.OfficeStorage.getDraftStatus('text'),
+        payload: String(frame.contentWindow.art.editor.getDraftPayload()?.html || '').slice(0, 80)
+      };
+    }
+
+    const hasText = (draft, text) => !!draft && typeof draft.html === 'string' && draft.html.includes(text);
+    const shortDraft = draft => JSON.stringify(draft && (draft.html ? draft.html.replace(/<[^>]+>/g, ' ').slice(0, 80) : draft));
+
+    async function run() {
+      // --- A. Очищення з головної: скасування на кожному кроці зберігає, підтвердження прибирає все ---
+      const seed = await storageWindow();
+      for (const app of APPS) await seed.contentWindow.OfficeStorage.createDraftStore({ app, key: app }).save({ marker: `учень-А-${app}` });
+      seed.remove();
+      const seeded = await readDrafts();
+      check('each editor has a draft before the session ends', APPS.every(app => seeded[app]?.marker === `учень-А-${app}`), JSON.stringify(seeded));
+
+      // Вкладка, відкрита ДО очищення: її пізніше автозбереження не має повернути чернетки.
+      const staleTab = await storageWindow();
+      const staleStores = APPS.map(app => staleTab.contentWindow.OfficeStorage.createDraftStore({ app, key: app }));
+      await Promise.all(staleStores.map(store => store.load()));
+
+      const landing = await loadFrame('../index.html');
+      const landingDoc = landing.contentDocument;
+      await waitFor(() => landingDoc.querySelector('[data-office-clear-drafts]'), 'clear-all control missing');
+      landingDoc.querySelector('[data-office-clear-drafts]').click();
+      const firstTitle = await answer(landingDoc, 'Скасувати');
+      const afterFirstCancel = await readDrafts();
+      landingDoc.querySelector('[data-office-clear-drafts]').click();
+      await answer(landingDoc, 'Продовжити');
+      const secondTitle = await answer(landingDoc, 'Скасувати');
+      const afterSecondCancel = await readDrafts();
+      check('clear-all needs two distinct confirmations', firstTitle === 'Очистити всі локальні чернетки?' && secondTitle === 'Підтвердьте очищення');
+      check('cancelling either confirmation keeps every draft',
+        APPS.every(app => afterFirstCancel[app]?.marker === `учень-А-${app}` && afterSecondCancel[app]?.marker === `учень-А-${app}`));
+
+      landingDoc.querySelector('[data-office-clear-drafts]').click();
+      await answer(landingDoc, 'Продовжити');
+      await answer(landingDoc, 'Очистити всі чернетки');
+      await waitFor(() => landingDoc.querySelector('[data-office-clear-drafts-result]')?.textContent, 'clear-all result missing');
+      const clearMessage = landingDoc.querySelector('[data-office-clear-drafts-result]').textContent;
+      landing.remove();
+      const cleared = await readDrafts();
+      check('confirmed clear-all removes the drafts of all six editors',
+        clearMessage === 'Усі локальні чернетки очищено.' && APPS.every(app => cleared[app] === null), JSON.stringify(cleared));
+
+      // --- B. Застаріле автозбереження іншої вкладки ---
+      await Promise.all(staleStores.map((store, index) => store.save({ marker: `застаріле-${APPS[index]}` }).catch(() => null)));
+      const afterStaleSave = await readDrafts();
+      check('autosave from a tab opened before the clear does not restore drafts', APPS.every(app => afterStaleSave[app] === null), JSON.stringify(afterStaleSave));
+      staleTab.remove();
+      await clearAllElsewhere();
+
+      const freshTab = await storageWindow();
+      await freshTab.contentWindow.OfficeStorage.createDraftStore({ app: 'vector', key: 'vector' }).save({ marker: 'новий учень' });
+      freshTab.remove();
+      check('a tab opened after the clear saves new work', (await readDrafts()).vector?.marker === 'новий учень');
+
+      // --- C. Реальний Текст: «Завершити роботу на цьому ПК» ---
+      let text = await openText();
+      const typedA = await typeInText(text, 'Робота учня А');
+      const draftA = (await readDrafts()).text;
+      check('text editor autosaves typed work', hasText(draftA, 'Робота учня А'), JSON.stringify({ typedA, draft: shortDraft(draftA) }));
+
+      text.contentDocument.querySelector('[data-office-end-session]').click();
+      const endTitle = await answer(text.contentDocument, 'Скасувати');
+      check('cancelling end session keeps the text draft', endTitle === 'Завершити роботу на цьому ПК?' && hasText((await readDrafts()).text, 'Робота учня А'));
+
+      const reloaded = new Promise(resolve => text.addEventListener('load', resolve, { once: true }));
+      text.contentDocument.querySelector('[data-office-end-session]').click();
+      await answer(text.contentDocument, 'Завершити роботу');
+      await reloaded;
+      await waitFor(() => text.contentWindow.art?.storage, 'text editor did not boot after ending the session', 8000);
+      await wait(800);
+      const restoreOffered = [...text.contentDocument.querySelectorAll('.office-storage-confirm h2')].some(node => node.textContent === 'Знайдено локальну чернетку');
+      const afterEnd = (await readDrafts()).text;
+      check('ending the session is not undone by the unload autosave of the reloading page',
+        !restoreOffered && afterEnd === null, JSON.stringify({ restoreOffered, afterEnd: shortDraft(afterEnd) }));
+      text.remove();
+      await clearAllElsewhere();
+
+      // --- D. Реальний Текст, відкритий під час очищення в іншій вкладці ---
+      text = await openText();
+      await typeInText(text, 'Робота учня Б');
+      await clearAllElsewhere();
+      text.remove();
+      await wait(800);
+      const afterClose = (await readDrafts()).text;
+      check('closing a text tab opened before the clear does not bring its draft back', afterClose === null, shortDraft(afterClose));
+      await clearAllElsewhere();
+
+      text = await openText();
+      await typeInText(text, 'Робота учня В');
+      check('a text editor opened after the clear keeps autosaving', hasText((await readDrafts()).text, 'Робота учня В'));
+      text.remove();
+
+      // --- E. Підказка після бездіяльності: лише після збереженої роботи, один раз, без модального вікна ---
+      await clearAllElsewhere();
+      text = await loadFrame('../text/index.html?office-idle-hint-ms=400');
+      await waitFor(() => text.contentWindow.art?.storage && text.contentDocument.getElementById('editor'), 'text editor did not boot', 8000);
+      await wait(900);
+      const hintBeforeWork = !!text.contentDocument.querySelector('.office-session-hint');
+      await typeInText(text, 'Робота учня Г');
+      await waitFor(() => text.contentDocument.querySelector('.office-session-hint'), 'idle hint did not appear', 4000).catch(() => {});
+      const hint = text.contentDocument.querySelector('.office-session-hint');
+      check('idle hint appears once work is saved and the page stays idle, without a modal or deletion',
+        !hintBeforeWork && !!hint && hint.getAttribute('role') === 'status'
+          && hint.textContent.includes('Завершити роботу на цьому ПК')
+          && !text.contentDocument.querySelector('.office-storage-confirm, .modal-overlay.active')
+          && hasText((await readDrafts()).text, 'Робота учня Г'),
+        JSON.stringify({ hintBeforeWork, hint: hint?.textContent }));
+      hint?.querySelector('button')?.click();
+      await wait(1000);
+      check('dismissed idle hint does not come back on the same page', !text.contentDocument.querySelector('.office-session-hint'));
+      text.remove();
     }
 
     run().catch(error => {
-      document.documentElement.dataset.storageUi = 'failed';
-      result.textContent = `FAIL ${error.stack || error.message}`;
+      failures.push('scenario stopped');
+      lines.push(`FAIL scenario stopped: ${error.stack || error.message}`);
+    }).finally(() => {
+      document.documentElement.dataset.storageUi = failures.length ? 'failed' : 'passed';
+      result.textContent = `${lines.join('\n')}\n\n${failures.length ? `FAILED: ${failures.length}` : 'PASSED'}`;
     });
   </script>
 </body>

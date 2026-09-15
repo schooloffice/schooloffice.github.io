@@ -146,3 +146,52 @@ function Wait-CapturedProcess {
     Stderr = Get-CapturedText $Capture.StderrTask '<stderr unavailable: output pipe stayed open>'
   }
 }
+
+# Runtime.evaluate у сторінці живого Chrome, чий URL збігається з UrlPattern. Завислий renderer не
+# відповідає, тож з'єднання й читання обмежені токеном скасування; повідомлення збирається з байтів
+# цілком, щоб багатобайтові символи не розривалися на межі фрагментів.
+function Invoke-CdpPageEvaluation {
+  param(
+    [int]$DebugPort,
+    [string]$UrlPattern,
+    [string]$Expression,
+    [int]$TimeoutSeconds = 10
+  )
+
+  $targets = Invoke-RestMethod -TimeoutSec $TimeoutSeconds -Uri "http://127.0.0.1:$DebugPort/json"
+  $target = @($targets | Where-Object { $_.type -eq 'page' -and $_.url -match $UrlPattern })[0]
+  if (-not $target) { throw 'DevTools page target is not available yet.' }
+  $webSocketUrl = [string](@($target.webSocketDebuggerUrl)[0])
+  if (-not $webSocketUrl) { throw 'DevTools WebSocket is not available yet.' }
+
+  $cancellation = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds($TimeoutSeconds))
+  $socket = [System.Net.WebSockets.ClientWebSocket]::new()
+  try {
+    $token = $cancellation.Token
+    [void]$socket.ConnectAsync([Uri]::new($webSocketUrl), $token).GetAwaiter().GetResult()
+    $message = @{
+      id = 1
+      method = 'Runtime.evaluate'
+      params = @{ expression = $Expression; returnByValue = $true }
+    } | ConvertTo-Json -Compress -Depth 5
+    $bytes = [Text.Encoding]::UTF8.GetBytes($message)
+    [void]$socket.SendAsync([ArraySegment[byte]]::new($bytes), [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $token).GetAwaiter().GetResult()
+
+    $buffer = New-Object byte[] 65536
+    for ($messageIndex = 0; $messageIndex -lt 20; $messageIndex += 1) {
+      $received = [IO.MemoryStream]::new()
+      do {
+        $chunk = $socket.ReceiveAsync([ArraySegment[byte]]::new($buffer), $token).GetAwaiter().GetResult()
+        $received.Write($buffer, 0, $chunk.Count)
+      } while (-not $chunk.EndOfMessage)
+      $response = [Text.Encoding]::UTF8.GetString($received.ToArray()) | ConvertFrom-Json
+      if ($response.id -ne 1) { continue }
+      if ($response.result.exceptionDetails) { throw $response.result.exceptionDetails.text }
+      return $response.result.result.value
+    }
+    throw 'Chrome DevTools did not return the Runtime.evaluate response.'
+  } finally {
+    $socket.Dispose()
+    $cancellation.Dispose()
+  }
+}

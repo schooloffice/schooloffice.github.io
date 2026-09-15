@@ -6,6 +6,9 @@
   const STORE_NAME = 'drafts';
   const DEFAULT_TIMEOUT_MS = 1200;
   const SCHEMA_VERSION = 1;
+  // Позначка останнього явного очищення чернетки, спільна для всіх вкладок (localStorage).
+  const CLEAR_MARK_PREFIX = 'office_draft_cleared_v1:';
+  const IDLE_HINT_DEFAULT_MS = 10 * 60 * 1000;
   const stores = new Map();
   const statuses = new Map();
 
@@ -19,6 +22,10 @@
   };
 
   let dbPromise = null;
+  // «Завершити роботу на цьому ПК» підтверджено: сторінка зараз перезавантажиться й більше нічого не зберігає.
+  let sessionEnding = false;
+  // Цього разу на сторінці вже збережено роботу (для підказки спільного ПК).
+  let workSavedOnPage = false;
 
   function clonePayload(payload) {
     if (typeof structuredClone === 'function') return structuredClone(payload);
@@ -121,6 +128,22 @@
     keys.forEach(key => localStorage.removeItem(key));
   }
 
+  function readClearMark(key) {
+    try {
+      return localStorage.getItem(CLEAR_MARK_PREFIX + key);
+    } catch {
+      return null;
+    }
+  }
+
+  function writeClearMark(key, value) {
+    try {
+      localStorage.setItem(CLEAR_MARK_PREFIX + key, value);
+    } catch {
+      // Без localStorage захист від застарілих вкладок недоступний, але саме очищення триває.
+    }
+  }
+
   function dispatchError(app, operation, error) {
     const message = error?.message || String(error || 'unknown-storage-error');
     window.dispatchEvent(new CustomEvent('office:storage-error', {
@@ -159,6 +182,10 @@
     let latestPayload;
     let degraded = false;
     let idbUsable = true;
+    // Спільний ПК: якщо після відкриття сторінки чернетку очистили в іншій вкладці, ця сторінка
+    // більше її не записує. Інакше збереження при закритті повернуло б роботу попереднього учня.
+    let knownClearMark = readClearMark(key);
+    let savedByThisPage = false;
 
     function enqueue(operation) {
       const result = operationQueue.then(operation, operation);
@@ -228,6 +255,8 @@
 
     function load() {
       return enqueue(async () => {
+        // Сторінка, яка ще нічого не зберегла, бачить уже очищений стан і може працювати далі.
+        if (!savedByThisPage) knownClearMark = readClearMark(key);
         const records = await readAllRecords();
         const chosen = chooseNewerRecord(records);
         if (!chosen) {
@@ -247,16 +276,28 @@
       });
     }
 
+    function markSaved() {
+      savedByThisPage = true;
+      if (app === document.body?.dataset.officeService) workSavedOnPage = true;
+    }
+
     function save(payload) {
+      if (sessionEnding) return Promise.resolve(null);
       latestPayload = clonePayload(payload);
       if (statuses.get(app)?.state !== 'error') updateStatus(app, 'saving');
       return enqueue(async () => {
+        if (sessionEnding) return null;
+        if (readClearMark(key) !== knownClearMark) {
+          updateStatus(app, 'error', 'draft-cleared-in-another-tab');
+          return null;
+        }
         const record = makeRecord(nextRevision(), clonePayload(latestPayload));
         if (idbUsable) {
           try {
             await writeIdb(key, record, timeoutMs);
             localRemove(legacyKeys);
             degraded = false;
+            markSaved();
             updateStatus(app, 'saved');
             return record;
           } catch (error) {
@@ -272,6 +313,7 @@
           updateStatus(app, 'error', fallbackError.message);
           throw fallbackError;
         }
+        markSaved();
         updateStatus(app, degraded ? 'error' : 'saved');
         return record;
       });
@@ -282,6 +324,8 @@
       updateStatus(app, 'saving');
       return enqueue(async () => {
         const tombstone = makeRecord(nextRevision(), null);
+        knownClearMark = String(tombstone.revision);
+        writeClearMark(key, knownClearMark);
         let idbSaved = false;
         let localSaved = false;
         if (idbUsable) {
@@ -426,9 +470,23 @@
       confirmText: 'Завершити роботу'
     });
     if (!confirmed) return;
+    // Відтепер сторінка нічого не зберігає: ні відкладене автозбереження, ні збереження редактора
+    // під час перезавантаження не мають записати документ поверх очищеної чернетки.
+    sessionEnding = true;
     const cleared = await createDraftStore({ app, ...config }).clear();
     if (cleared) window.location.reload();
+    else sessionEnding = false;
   }
+
+  // Після підтвердженого завершення сеансу обробники редакторів на pagehide, beforeunload і
+  // visibilitychange не мають ні зберегти чернетку знову, ні питати «Покинути сайт?».
+  // office-storage.js підключається раніше за редактори, а capture-слухач на цілі спрацьовує першим.
+  function stopWhenSessionEnds(event) {
+    if (sessionEnding) event.stopImmediatePropagation();
+  }
+  window.addEventListener('pagehide', stopWhenSessionEnds, { capture: true });
+  window.addEventListener('beforeunload', stopWhenSessionEnds, { capture: true });
+  document.addEventListener('visibilitychange', stopWhenSessionEnds, { capture: true });
 
   async function clearAllDraftsFromLanding(trigger) {
     const first = await showConfirmation({
@@ -449,6 +507,55 @@
     trigger?.focus();
   }
 
+  function idleHintDelay() {
+    const fromUrl = Number(new URLSearchParams(window.location.search).get('office-idle-hint-ms'));
+    return Number.isFinite(fromUrl) && fromUrl > 0 ? fromUrl : IDLE_HINT_DEFAULT_MS;
+  }
+
+  // Рідкісна підказка спільного ПК: коли на видимій сторінці редактора вже збережено роботу, а потім
+  // довго нічого не відбувається, нагадати завантажити файл і завершити сеанс. Один раз за відкриття
+  // сторінки, без модального вікна, без перехоплення фокусу й без будь-якого видалення.
+  // ?office-idle-hint-ms= скорочує очікування для тестів.
+  function bindIdleHint() {
+    if (!KNOWN_DRAFTS[document.body?.dataset.officeService]) return;
+    const delay = idleHintDelay();
+    let timer = 0;
+    let shown = false;
+
+    function showIdleHint() {
+      if (shown || sessionEnding || document.visibilityState !== 'visible') return;
+      if (!workSavedOnPage) {
+        arm();
+        return;
+      }
+      shown = true;
+      const hint = document.createElement('div');
+      hint.className = 'office-session-hint';
+      hint.setAttribute('role', 'status');
+      const text = document.createElement('span');
+      text.textContent = 'Закінчили роботу? Завантажте файл, а потім виберіть «Файл → Завершити роботу на цьому ПК».';
+      const dismiss = document.createElement('button');
+      dismiss.type = 'button';
+      dismiss.className = 'office-button';
+      dismiss.textContent = 'Зрозуміло';
+      dismiss.addEventListener('click', () => hint.remove());
+      hint.append(text, dismiss);
+      document.body.appendChild(hint);
+    }
+
+    function arm() {
+      clearTimeout(timer);
+      if (shown || document.visibilityState !== 'visible') return;
+      timer = setTimeout(showIdleHint, delay);
+    }
+
+    ['pointerdown', 'keydown', 'wheel', 'touchstart', 'input'].forEach(type => {
+      document.addEventListener(type, arm, { capture: true, passive: true });
+    });
+    document.addEventListener('visibilitychange', arm);
+    arm();
+  }
+
   function bindStorageUi() {
     const app = document.body?.dataset.officeService;
     const status = app ? statuses.get(app) : null;
@@ -466,6 +573,7 @@
         clearAllDraftsFromLanding(clearAll);
       }
     });
+    bindIdleHint();
   }
 
   window.addEventListener('office:storage-status', event => renderStorageStatus(event.detail));

@@ -99,7 +99,7 @@ powershell -ExecutionPolicy Bypass -File tests\run-tests.ps1
 powershell -ExecutionPolicy Bypass -File tests\run-browser-smoke.ps1
 ```
 
-Кожен запуск Chrome у browser/offline smoke обмежений wall-clock тайм-аутом `-PageTimeoutSeconds` (типово 120 с), незалежним від `--virtual-time-budget`. Після тайм-ауту раннер зупиняє лише дерево процесів і профіль цього запуску, прибирає сервер і повідомляє назву перевірки та stderr; помилка запуску браузера, падіння перевірки й тайм-аут мають різні повідомлення.
+Сторінки browser smoke йдуть під `--virtual-time-budget=35000`, крім тих, чий сценарій спирається на IndexedDB у реальному часі: `tests/storage-ui-behavior.html` (спільний ПК) `Invoke-LiveSmokePage` запускає наживо й читає результат через DevTools. Кожен запуск Chrome у browser/offline smoke обмежений wall-clock тайм-аутом `-PageTimeoutSeconds` (типово 120 с), незалежним від `--virtual-time-budget`. Після тайм-ауту раннер зупиняє лише дерево процесів і профіль цього запуску, прибирає сервер і повідомляє назву перевірки та stderr; помилка запуску браузера, падіння перевірки й тайм-аут мають різні повідомлення.
 
 Повна перевірка готовності до контрольованого пілота:
 

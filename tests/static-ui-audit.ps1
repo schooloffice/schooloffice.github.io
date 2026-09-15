@@ -1463,6 +1463,11 @@ if (Test-Path $officeStoragePath) {
   Assert-True ($officeStorage -match "CustomEvent\('office:storage-error'") "office-storage.js: storage failures must emit office:storage-error"
   Assert-True ($officeStorage -match 'schemaVersion:\s*SCHEMA_VERSION[\s\S]*savedAt:\s*Date\.now\(\)[\s\S]*revision[\s\S]*payload') "office-storage.js: records must contain schemaVersion, savedAt, revision, and payload"
   Assert-True ($officeStorage -match 'makeRecord\(nextRevision\(\),\s*null\)') "office-storage.js: clear must persist a tombstone"
+  # E2, спільний ПК: очищення не скасовується застарілим автозбереженням.
+  Assert-True ($officeStorage -match 'writeClearMark\(key, knownClearMark\)' -and $officeStorage -match 'readClearMark\(key\) !== knownClearMark') "office-storage.js: a page opened before another tab cleared the draft must not save it back"
+  Assert-True ($officeStorage -match 'sessionEnding = true;\s*const cleared = await createDraftStore') "office-storage.js: end session must stop all saves before clearing"
+  Assert-True ($officeStorage -match "addEventListener\('pagehide', stopWhenSessionEnds, \{ capture: true \}\)" -and $officeStorage -match "addEventListener\('beforeunload', stopWhenSessionEnds" -and $officeStorage -match "addEventListener\('visibilitychange', stopWhenSessionEnds") "office-storage.js: unload autosaves and leave prompts of editors must not run after ending the session"
+  Assert-True ($officeStorage -match 'function bindIdleHint\(' -and $officeStorage -match "setAttribute\('role', 'status'\)" -and $officeStorage -notmatch 'bindIdleHint[\s\S]*?showConfirmation[\s\S]*?function bindStorageUi') "office-storage.js: the shared-PC idle hint must be a non-modal status without deletion"
 }
 
 $officeUiPath = Join-Path $Root 'office-ui.js'
@@ -1557,6 +1562,10 @@ Assert-True ($processHelpers -match 'WaitForExit\(\$TimeoutSeconds \* 1000\)') "
 Assert-True ($processHelpers -match 'Task\]::WaitAll\(\$tasks, \$TimeoutSeconds \* 1000\)') "test-process-helpers.ps1: stdout/stderr reads must be bounded"
 Assert-True ($processHelpers -match 'ParentProcessId' -and $processHelpers -match '\$OwnedMarker') "test-process-helpers.ps1: only this run's process tree and profile may be stopped"
 Assert-True ($processHelpers -notmatch '(?i)taskkill[^\r\n]*/IM|Get-Process\s+(-Name\s+)?chrome|Name\s*=\s*''chrome\.exe''') "test-process-helpers.ps1: must not stop every chrome.exe"
+# E2, спільний ПК: сценарій з IndexedDB у реальному часі йде наживо, без --virtual-time-budget.
+$browserRunnerSource = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')
+Assert-True ($browserRunnerSource -match 'function Invoke-LiveSmokePage' -and $browserRunnerSource -match 'Invoke-LiveSmokePage "[^"]*/tests/storage-ui-behavior\.html"') "run-browser-smoke.ps1: shared-PC storage smoke must run live, without virtual time"
+Assert-True ($processHelpers -match 'function Invoke-CdpPageEvaluation') "test-process-helpers.ps1: live smoke pages need the shared DevTools evaluation helper"
 foreach ($runnerName in @('run-browser-smoke.ps1', 'run-offline-smoke.ps1')) {
   $runner = Get-Content -Raw -Encoding UTF8 (Join-Path $Root "tests/$runnerName")
   Assert-True ($runner -match '\[int\]\$PageTimeoutSeconds = \d+') "${runnerName}: configurable wall-clock page timeout is required"
