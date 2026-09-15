@@ -271,6 +271,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.elements.shapeGrid.innerHTML = Object.entries(constants.SHAPES).map(([key, shape]) => `
         <button type="button" class="shape-option ${state.currentShape === key ? 'active' : ''}" data-shape="${key}" title="${shape.label}">
           <i class="${shape.icon}"></i>
+          <span class="option-label">${shape.label}</span>
         </button>`).join('');
     },
 

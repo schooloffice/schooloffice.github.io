@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office PLUS Large Labeled Tools Smoke</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+    iframe { position: fixed; left: 0; top: 0; border: 0; opacity: .01; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <h1>Office PLUS Large Labeled Tools Smoke</h1>
+  <pre id="result">Running...</pre>
+  <script>
+    // E2 UX-пілот: режим «Великі інструменти з підписами» в Малюнках і Векторі. Перевіряє перемикання
+    // з меню «Перегляд», збереження налаштування пристрою, незмінність документа, розміри й підписи
+    // на 1366×768, 390×844 і 683×384 (layout-еквівалент 200% zoom) та повернення фокуса.
+    const result = document.getElementById('result');
+    const STORAGE_KEY = 'office_large_tools_v1';
+    const services = ['paint', 'vector'];
+    const lines = [];
+    const failures = [];
+
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const expect = (name, ok, detail = '') => {
+      const line = `${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` (${detail})` : ''}`;
+      lines.push(line);
+      if (!ok) failures.push(line);
+    };
+
+    async function waitUntil(predicate, timeout = 8000) {
+      const start = performance.now();
+      while (performance.now() - start < timeout) {
+        if (predicate()) return true;
+        await wait(50);
+      }
+      return !!predicate();
+    }
+
+    async function waitForQuietDom(doc, quietMs = 250, timeout = 5000) {
+      let lastChange = performance.now();
+      const observer = new MutationObserver(() => { lastChange = performance.now(); });
+      observer.observe(doc.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+      try {
+        return await waitUntil(() => performance.now() - lastChange >= quietMs, timeout);
+      } finally {
+        observer.disconnect();
+      }
+    }
+
+    async function loadEditor(service, width, height) {
+      const frame = document.createElement('iframe');
+      frame.width = width;
+      frame.height = height;
+      frame.style.width = `${width}px`;
+      frame.style.height = `${height}px`;
+      document.body.appendChild(frame);
+      const loaded = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${service} ${width}x${height}: load timeout`)), 8000);
+        frame.addEventListener('load', () => { clearTimeout(timer); resolve(); }, { once: true });
+      });
+      frame.src = `../${service}/index.html?large-tools=${width}x${height}`;
+      await loaded;
+      await waitUntil(() => frame.contentDocument?.body?.classList.contains('office-app') && !!frame.contentWindow.OfficeUI);
+      await frame.contentDocument.fonts?.ready;
+      await waitForQuietDom(frame.contentDocument);
+      return frame;
+    }
+
+    function documentFingerprint(doc, service) {
+      const content = service === 'paint'
+        ? doc.getElementById('drawingCanvas')?.toDataURL()
+        : doc.getElementById('drawingSvg')?.innerHTML;
+      return `${doc.getElementById('fileName')?.textContent}|${content}`;
+    }
+
+    function visible(element) {
+      return !!element && element.getClientRects().length > 0;
+    }
+
+    function truncatedLabels(root, selector) {
+      return [...root.querySelectorAll(selector)]
+        .filter(visible)
+        .filter(label => label.scrollWidth > label.clientWidth + 1)
+        .map(label => label.textContent.trim());
+    }
+
+    function reachable(win, element) {
+      element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      const box = element.getBoundingClientRect();
+      return box.width > 0 && box.left >= -1 && box.top >= -1 && box.right <= win.innerWidth + 1 && box.bottom <= win.innerHeight + 1;
+    }
+
+    async function toggleFromViewMenu(doc) {
+      const title = doc.querySelector('.menu-title[data-menu="view"]');
+      title.click();
+      const toggle = doc.querySelector('.menu-dropdown[data-menu="view"] [data-office-large-tools-toggle]');
+      await waitUntil(() => visible(toggle), 2000);
+      toggle.focus();
+      toggle.click();
+      return { title, toggle };
+    }
+
+    async function checkDesktop(service) {
+      const frame = await loadEditor(service, 1366, 768);
+      try {
+        const doc = frame.contentDocument;
+        const win = frame.contentWindow;
+        const root = doc.documentElement;
+        const rail = doc.querySelector('.tool-rail');
+        const toggle = doc.querySelector('.menu-dropdown[data-menu="view"] [data-office-large-tools-toggle]');
+        expect(`${service}: View menu offers the large tools toggle as a checkbox item`,
+          !!toggle && toggle.getAttribute('role') === 'menuitemcheckbox' && toggle.getAttribute('aria-checked') === 'false'
+            && /Великі інструменти з підписами/.test(toggle.textContent.replace(/\s+/g, ' ')));
+        expect(`${service}: regular mode keeps the compact rail`, !root.dataset.officeTools && rail.getBoundingClientRect().width <= 80,
+          `rail=${Math.round(rail.getBoundingClientRect().width)}px`);
+
+        const fingerprintBefore = documentFingerprint(doc, service);
+        const badgeBefore = doc.getElementById('saveBadge')?.textContent;
+        const { title } = await toggleFromViewMenu(doc);
+        expect(`${service}: toggle turns the mode on and remembers it for this device`,
+          root.dataset.officeTools === 'large' && toggle.getAttribute('aria-checked') === 'true'
+            && win.OfficeUI.isLargeTools() === true && localStorage.getItem(STORAGE_KEY) === '1');
+        expect(`${service}: menu closes and focus returns to the View menu title`,
+          !doc.querySelector('.menu-dropdown.open') && doc.activeElement === title, `active=${doc.activeElement?.className || doc.activeElement?.tagName}`);
+        expect(`${service}: switching the mode does not change the drawing`,
+          documentFingerprint(doc, service) === fingerprintBefore && doc.getElementById('saveBadge')?.textContent === badgeBefore);
+
+        const railBox = rail.getBoundingClientRect();
+        const tools = [...rail.querySelectorAll('.rail-tool')];
+        const shortest = Math.min(...tools.map(tool => tool.getBoundingClientRect().height));
+        const iconSize = parseFloat(win.getComputedStyle(rail.querySelector('.rail-tool i')).fontSize);
+        expect(`${service} 1366x768: rail tools are larger`, railBox.width >= 108 && shortest >= 56 && iconSize >= 22,
+          `rail=${Math.round(railBox.width)}px tool=${Math.round(shortest)}px icon=${iconSize}px`);
+        const truncated = truncatedLabels(rail, '.rail-btn span');
+        expect(`${service} 1366x768: every rail label is visible without hover and not cut off`,
+          tools.every(tool => visible(tool.querySelector('span'))) && truncated.length === 0, truncated.join(', '));
+        expect(`${service} 1366x768: the whole rail fits without scrolling`, rail.scrollHeight <= rail.clientHeight + 1,
+          `${rail.scrollHeight}/${rail.clientHeight}`);
+
+        if (service === 'paint') {
+          doc.querySelector('.rail-tool[data-tool="shapes"]').click();
+          const labels = [...doc.querySelectorAll('#shapeGrid .shape-option .option-label')];
+          await waitUntil(() => labels.length > 0 && labels.every(visible), 2000);
+          expect('paint: shape choices show their names', labels.length >= 6 && labels.every(visible)
+            && truncatedLabels(doc, '#shapeGrid .option-label').length === 0, `${labels.filter(visible).length}/${labels.length}`);
+        } else {
+          doc.getElementById('railShapeBtn').click();
+          const labels = [...doc.querySelectorAll('#propShape .prop-chip .chip-label')];
+          await waitUntil(() => labels.length > 0 && labels.every(visible), 2000);
+          expect('vector: shape choices show their names', labels.length === 5 && labels.every(visible)
+            && truncatedLabels(doc, '#propShape .chip-label').length === 0, `${labels.filter(visible).length}/${labels.length}`);
+        }
+      } finally {
+        frame.remove();
+      }
+
+      const reloaded = await loadEditor(service, 1366, 768);
+      try {
+        const doc = reloaded.contentDocument;
+        const toggle = doc.querySelector('[data-office-large-tools-toggle]');
+        expect(`${service}: the mode survives reopening the editor`,
+          doc.documentElement.dataset.officeTools === 'large' && toggle?.getAttribute('aria-checked') === 'true');
+      } finally {
+        reloaded.remove();
+      }
+    }
+
+    async function checkPhone(service) {
+      const frame = await loadEditor(service, 390, 844);
+      try {
+        const doc = frame.contentDocument;
+        const win = frame.contentWindow;
+        const rail = doc.querySelector('.tool-rail');
+        const buttons = [...rail.querySelectorAll('.rail-btn')].filter(visible);
+        const smallest = buttons.reduce((min, button) => {
+          const box = button.getBoundingClientRect();
+          return { width: Math.min(min.width, box.width), height: Math.min(min.height, box.height) };
+        }, { width: Infinity, height: Infinity });
+        expect(`${service} 390x844: rail stays a horizontal strip with large touch targets`,
+          win.getComputedStyle(rail).flexDirection === 'row' && smallest.width >= 72 && smallest.height >= 70,
+          `${Math.round(smallest.width)}x${Math.round(smallest.height)}`);
+        const truncated = truncatedLabels(rail, '.rail-btn span');
+        expect(`${service} 390x844: labels stay visible and uncut`, truncated.length === 0, truncated.join(', '));
+        expect(`${service} 390x844: page does not scroll sideways`, doc.documentElement.scrollWidth <= 392, `${doc.documentElement.scrollWidth}px`);
+        const lastTool = [...rail.querySelectorAll('.rail-tool')].at(-1);
+        expect(`${service} 390x844: the last tool can be reached in the strip`, reachable(win, lastTool));
+      } finally {
+        frame.remove();
+      }
+    }
+
+    async function checkZoom200(service) {
+      const frame = await loadEditor(service, 683, 384);
+      try {
+        const doc = frame.contentDocument;
+        const win = frame.contentWindow;
+        expect(`${service} 683x384: page does not scroll sideways`, doc.documentElement.scrollWidth <= 685, `${doc.documentElement.scrollWidth}px`);
+        const unreachable = [...doc.querySelectorAll('.tool-rail .rail-tool')]
+          .filter(tool => !reachable(win, tool))
+          .map(tool => tool.dataset.tool || tool.dataset.toolGroup);
+        expect(`${service} 683x384: every tool is reachable`, unreachable.length === 0, unreachable.join(', '));
+
+        const { toggle } = await toggleFromViewMenu(doc);
+        expect(`${service}: the same menu item turns the mode off`,
+          !doc.documentElement.dataset.officeTools && toggle.getAttribute('aria-checked') === 'false' && localStorage.getItem(STORAGE_KEY) === '0');
+      } finally {
+        frame.remove();
+      }
+      // Наступний редактор знову стартує у звичайному режимі.
+      localStorage.removeItem(STORAGE_KEY);
+    }
+
+    async function run() {
+      localStorage.removeItem(STORAGE_KEY);
+      try {
+        for (const service of services) {
+          await checkDesktop(service);
+          await checkPhone(service);
+          await checkZoom200(service);
+        }
+      } finally {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+      result.className = failures.length ? 'fail' : 'pass';
+      result.textContent = `${lines.join('\n')}\n\n${failures.length ? 'FAILED' : 'PASSED'}`;
+      document.body.dataset.largeTools = failures.length ? 'failed' : 'passed';
+    }
+
+    run().catch(error => {
+      result.className = 'fail';
+      result.textContent = `${String(error?.stack || error)}\n\n${lines.join('\n')}`;
+      document.body.dataset.largeTools = 'failed';
+    });
+  </script>
+</body>
+</html>

@@ -908,6 +908,8 @@ window.VectorApp = window.VectorApp || {};
       case 'fit-canvas': fitToWindow(); break;
       case 'toggle-panel': togglePropertiesPanel(); break;
       case 'toggle-objects': ui.toggleObjectsPanel(); break;
+      // Налаштування пристрою в спільному shell: малюнок, історію й чернетку не змінює.
+      case 'toggle-large-tools': window.OfficeUI?.toggleLargeTools?.(); break;
       case 'object-up': reorderSelected(1); break;
       case 'object-down': reorderSelected(-1); break;
       case 'object-rename': renameSelected(); break;

@@ -296,6 +296,39 @@ body.panel-collapsed .properties-panel {
   color: var(--accent-dark);
 }
 .rail-btn.danger:hover { color: var(--danger); background: #fff5f5; border-color: #fecaca; }
+.menu-item.checked { background: var(--accent-soft); color: var(--accent-dark); }
+
+/* E2 UX-пілот «Великі інструменти з підписами» (OfficeUI.setLargeTools ставить атрибут на <html>).
+   Це налаштування пристрою, а не малюнка: ширша rail, більші кнопки й повні підписи без обрізання,
+   фігури в панелі отримують видимі назви. Меню й команди лишаються тими самими. */
+.shape-option .option-label { display: none; }
+:root[data-office-tools="large"] .rail-btn {
+  gap: 6px;
+  font-size: .8rem;
+  white-space: normal;
+  text-align: center;
+}
+:root[data-office-tools="large"] .rail-btn i { font-size: 1.55rem; }
+:root[data-office-tools="large"] .rail-btn span { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+:root[data-office-tools="large"] .shape-grid { grid-template-columns: minmax(0, 1fr); }
+:root[data-office-tools="large"] .shape-option { min-height: 48px; justify-content: flex-start; }
+:root[data-office-tools="large"] .shape-option i { width: 1.6rem; font-size: 1.25rem; }
+:root[data-office-tools="large"] .shape-option .option-label { display: inline; font-size: .8rem; text-align: left; }
+:root[data-office-tools="large"] .brush-option { min-height: 52px; font-size: .8rem; }
+:root[data-office-tools="large"] .stamp-option { min-height: 52px; font-size: 1.45rem; }
+@media (min-width: 761px) {
+  :root[data-office-tools="large"] { --rail-w: 112px; }
+  :root[data-office-tools="large"] .tool-rail { padding: 8px; }
+  :root[data-office-tools="large"] .rail-btn { min-height: 56px; padding: 6px 4px; }
+  :root[data-office-tools="large"] .rail-tool { min-height: 60px; }
+}
+@media (max-width: 760px) {
+  :root[data-office-tools="large"] .editor-body,
+  :root[data-office-tools="large"] body.panel-collapsed .editor-body { grid-template-rows: minmax(0, 1fr) 88px; }
+  :root[data-office-tools="large"] .rail-btn,
+  :root[data-office-tools="large"] .rail-tool { width: 80px; min-width: 80px; min-height: 76px; }
+  :root[data-office-tools="large"] .properties-panel { bottom: calc(var(--status-h) + 94px); }
+}
 
 .properties-panel {
   min-height: 0;

@@ -458,6 +458,7 @@ try {
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/vector-svg-import-behavior.html" 'data-vector-svg-import="passed"' 'Vector SVG import smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/responsive-smoke.html" 'data-responsive="passed"' 'Responsive layout smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/accessibility-smoke.html" 'data-accessibility="passed"' 'Contrast and zoom 200% smoke'
+  Invoke-SmokePage "http://127.0.0.1:$Port/tests/large-tools-behavior.html" 'data-large-tools="passed"' 'Large labeled tools smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/pilot-readiness-behavior.html" 'data-pilot-readiness="passed"' 'Low-end pilot readiness smoke' @('--enable-low-end-device-mode')
 } catch {
   $failure = $_

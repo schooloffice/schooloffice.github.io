@@ -928,6 +928,20 @@ if (Test-Path $vectorSvgImportPath) {
 Assert-True ($vectorHtml -match 'src="js/editor\.js"></script>\s*<script src="js/svg-import\.js"></script>[\s\S]*src="js/app\.js"') 'vector/index.html: svg-import.js must load after editor.js and before app.js'
 Assert-True (($vectorHtml -match 'data-action="import-svg"') -and ($vectorHtml -match 'id="svgFileInput"[^>]*accept="\.svg')) 'vector/index.html: File menu should offer SVG import with an .svg picker'
 Assert-True ($vectorApp -match 'openFilePicker\?\.\(ui\.elements\.svgFileInput\)') 'vector/js/app.js: SVG import must open through the shared file picker'
+
+# E2 UX-пілот: «Великі інструменти з підписами» — спільне налаштування shell (пристрою), а не документа.
+$officeUiLargeTools = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'office-ui.js')
+Assert-True ($officeUiLargeTools -match "LARGE_TOOLS_KEY = 'office_large_tools_v1'" -and $officeUiLargeTools -match 'function setLargeTools\(' -and $officeUiLargeTools -match 'toggleLargeTools') 'office-ui.js: large labeled tools must be a shared, persisted shell preference'
+Assert-True ($officeUiLargeTools -match "aria-checked" -and $officeUiLargeTools -match "dataset\.officeTools = 'large'") 'office-ui.js: large tools toggles must expose aria-checked and set data-office-tools on <html>'
+foreach ($largeToolsService in @('paint', 'vector')) {
+  $largeToolsHtml = Get-Content -Raw -Encoding UTF8 (Join-Path $Root "$largeToolsService/index.html")
+  $largeToolsApp = Get-Content -Raw -Encoding UTF8 (Join-Path $Root "$largeToolsService/js/app.js")
+  $largeToolsCss = Get-Content -Raw -Encoding UTF8 (Join-Path $Root "$largeToolsService/style.css")
+  Assert-True ($largeToolsHtml -match 'data-action="toggle-large-tools"[^>]*data-office-large-tools-toggle') "${largeToolsService}/index.html: View menu must offer the large labeled tools toggle"
+  Assert-True ($largeToolsApp -match "'toggle-large-tools'[\s\S]{0,160}OfficeUI\?\.toggleLargeTools") "${largeToolsService}/js/app.js: the toggle must delegate to OfficeUI.toggleLargeTools"
+  Assert-True ($largeToolsCss -match ':root\[data-office-tools="large"\] \.rail-btn') "${largeToolsService}/style.css: large mode must enlarge the rail tools"
+}
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')) -match 'large-tools-behavior\.html') 'run-browser-smoke.ps1: large labeled tools behavior must run as its own smoke page'
 Assert-True ($vectorApp -match 'pushUndo\(\);\s*restorePayload\(parsed\.payload\);') 'vector/js/app.js: imported SVG must replace the drawing as one undoable step after confirmation'
 Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'sw.js')) -match "'\./vector/js/svg-import\.js'") 'sw.js: svg-import.js must be cached for offline use'
 Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')) -match 'vector-svg-import-behavior\.html') 'tests/run-browser-smoke.ps1: Vector SVG import smoke page must run'

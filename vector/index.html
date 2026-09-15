@@ -151,6 +151,8 @@
             параметрів</span><span class="shortcut">Ctrl+\</span></button>
         <button class="menu-item" data-action="toggle-objects"><span><i class="fa-solid fa-layer-group fa-fw"></i> Панель
             «Об'єкти»</span></button>
+        <button class="menu-item" data-action="toggle-large-tools" data-office-large-tools-toggle role="menuitemcheckbox" aria-checked="false"><span><i class="fa-solid fa-hand-pointer fa-fw"></i> Великі
+            інструменти з підписами</span></button>
       </div>
     </div>
 
@@ -198,23 +200,24 @@
            прозорість, підкладка) однакова завжди і притиснута до низу панелі. -->
       <div class="panel-tool-area">
       <!-- Іконки геометричних примітивів самі є підписом; назву активного вибору
-           показує заголовок секції, тож підпис лишається видимим завжди. -->
+           показує заголовок секції, тож підпис лишається видимим завжди. Назва в .chip-label
+           видима лише в режимі «Великі інструменти з підписами». -->
       <div id="propLine" class="prop-section" data-tool-section="line">
         <div class="prop-title">Лінія <span id="lineToolName" class="prop-title-value">Лінія</span></div>
         <div class="chip-grid chip-grid-icons">
-          <button class="prop-chip" type="button" data-tool="line" title="Лінія" aria-label="Лінія"><i class="fa-solid fa-minus"></i></button>
-          <button class="prop-chip" type="button" data-tool="arrow" title="Стрілка" aria-label="Стрілка"><i class="fa-solid fa-arrow-right-long"></i></button>
+          <button class="prop-chip" type="button" data-tool="line" title="Лінія" aria-label="Лінія"><i class="fa-solid fa-minus"></i><span class="chip-label">Лінія</span></button>
+          <button class="prop-chip" type="button" data-tool="arrow" title="Стрілка" aria-label="Стрілка"><i class="fa-solid fa-arrow-right-long"></i><span class="chip-label">Стрілка</span></button>
         </div>
       </div>
 
       <div id="propShape" class="prop-section" data-tool-section="shape">
         <div class="prop-title">Фігура <span id="shapeToolName" class="prop-title-value">Прямокутник</span></div>
         <div class="chip-grid chip-grid-icons">
-          <button class="prop-chip" type="button" data-tool="rect" title="Прямокутник" aria-label="Прямокутник"><i class="fa-regular fa-square"></i></button>
-          <button class="prop-chip" type="button" data-tool="ellipse" title="Еліпс" aria-label="Еліпс"><i class="fa-regular fa-circle"></i></button>
-          <button class="prop-chip" type="button" data-tool="triangle" title="Трикутник" aria-label="Трикутник"><i class="fa-solid fa-play fa-rotate-270"></i></button>
-          <button class="prop-chip" type="button" data-tool="diamond" title="Ромб" aria-label="Ромб"><i class="fa-regular fa-gem"></i></button>
-          <button class="prop-chip" type="button" data-tool="star" title="Зірка" aria-label="Зірка"><i class="fa-solid fa-star"></i></button>
+          <button class="prop-chip" type="button" data-tool="rect" title="Прямокутник" aria-label="Прямокутник"><i class="fa-regular fa-square"></i><span class="chip-label">Прямокутник</span></button>
+          <button class="prop-chip" type="button" data-tool="ellipse" title="Еліпс" aria-label="Еліпс"><i class="fa-regular fa-circle"></i><span class="chip-label">Еліпс</span></button>
+          <button class="prop-chip" type="button" data-tool="triangle" title="Трикутник" aria-label="Трикутник"><i class="fa-solid fa-play fa-rotate-270"></i><span class="chip-label">Трикутник</span></button>
+          <button class="prop-chip" type="button" data-tool="diamond" title="Ромб" aria-label="Ромб"><i class="fa-regular fa-gem"></i><span class="chip-label">Ромб</span></button>
+          <button class="prop-chip" type="button" data-tool="star" title="Зірка" aria-label="Зірка"><i class="fa-solid fa-star"></i><span class="chip-label">Зірка</span></button>
         </div>
       </div>
 

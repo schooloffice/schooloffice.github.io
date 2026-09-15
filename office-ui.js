@@ -594,6 +594,70 @@
     }
   }
 
+  // E2 UX-пілот: опційний режим «Великі інструменти з підписами». Це налаштування пристрою, а не
+  // документа: зберігається в localStorage, ставить data-office-tools="large" на <html> і не торкається
+  // файла, історії чи чернетки. Редактор, що підтримує режим, має пункт [data-office-large-tools-toggle]
+  // і власні CSS-правила для цього атрибута; решта редакторів атрибут просто ігнорує.
+  const LARGE_TOOLS_KEY = 'office_large_tools_v1';
+  let largeToolsBound = false;
+
+  function readLargeToolsPreference() {
+    try {
+      return window.localStorage.getItem(LARGE_TOOLS_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  function isLargeTools() {
+    return document.documentElement.dataset.officeTools === 'large';
+  }
+
+  function applyLargeTools(enabled) {
+    if (enabled) document.documentElement.dataset.officeTools = 'large';
+    else delete document.documentElement.dataset.officeTools;
+    qsa('[data-office-large-tools-toggle]').forEach(toggle => {
+      setAttributeIfChanged(toggle, 'role', 'menuitemcheckbox');
+      setAttributeIfChanged(toggle, 'aria-checked', String(!!enabled));
+      toggle.classList.toggle('checked', !!enabled);
+    });
+    document.dispatchEvent(new CustomEvent('office:largetoolschange', { detail: { enabled: !!enabled } }));
+  }
+
+  function setLargeTools(enabled, { persist = true } = {}) {
+    const next = !!enabled;
+    // Пункт меню зникає разом зі списком, тож фокус повертаємо на заголовок цього меню.
+    const menuTitle = document.activeElement?.closest?.('.menu-item-wrap')?.querySelector('.menu-title');
+    applyLargeTools(next);
+    if (persist) {
+      try {
+        window.localStorage.setItem(LARGE_TOOLS_KEY, next ? '1' : '0');
+      } catch {
+        // Сховище сайту заборонене: режим діє до перезавантаження сторінки.
+      }
+    }
+    if (menuTitle instanceof HTMLElement) menuTitle.focus();
+    announce(next ? 'Великі інструменти з підписами увімкнено.' : 'Великі інструменти з підписами вимкнено.');
+    return next;
+  }
+
+  function toggleLargeTools(options) {
+    return setLargeTools(!isLargeTools(), options);
+  }
+
+  function bindLargeTools() {
+    applyLargeTools(readLargeToolsPreference());
+    if (largeToolsBound) return;
+    largeToolsBound = true;
+    // Інша вкладка з редактором змінила режим — застосовуємо без перезавантаження.
+    window.addEventListener('storage', event => {
+      if (event.key === LARGE_TOOLS_KEY) applyLargeTools(event.newValue === '1');
+    });
+  }
+
+  // Атрибут ставимо одразу під час виконання скрипта, щоб розкладка не «стрибала» після DOMContentLoaded.
+  if (readLargeToolsPreference()) document.documentElement.dataset.officeTools = 'large';
+
   function init() {
     bindMenuKeyboard();
     bindModalBehavior();
@@ -601,6 +665,7 @@
     bindGlobalOverlayBehavior();
     syncAriaOnPointer();
     bindResponsiveToolbars();
+    bindLargeTools();
   }
 
   if (document.readyState === 'loading') {
@@ -627,6 +692,9 @@
     dispatchOverlayClose,
     announce,
     updateStatus,
-    bindResponsiveToolbars
+    bindResponsiveToolbars,
+    isLargeTools,
+    setLargeTools,
+    toggleLargeTools
   };
 }());

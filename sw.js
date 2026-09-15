@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v81';
+const CACHE_VERSION = 'office-plus-v82';
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_STATUS_CACHE = `${CACHE_VERSION}-offline-status`;
 const OFFLINE_STATUS_URL = new URL('./__offline_status__', self.registration.scope).href;

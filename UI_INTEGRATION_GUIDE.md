@@ -144,8 +144,16 @@ Shared API:
 - `OfficeUI.setPressed(target, pressed)`
 - `OfficeUI.updateStatus(message, slot)`
 - `OfficeUI.announce(message)`
+- `OfficeUI.isLargeTools()`, `OfficeUI.setLargeTools(enabled)`, `OfficeUI.toggleLargeTools()`
 
 Локальні modal helpers мають делегувати в `OfficeUI.openModal/closeModal` і мати fallback.
+
+Режим «Великі інструменти з підписами» (UX-пілот E2) — налаштування пристрою, а не документа:
+
+- `OfficeUI` зберігає його в `localStorage` (`office_large_tools_v1`), ставить `data-office-tools="large"` на `<html>` одразу під час завантаження скрипта й синхронізує вкладки через подію `storage`.
+- Пункти `[data-office-large-tools-toggle]` отримують `role="menuitemcheckbox"`, `aria-checked` і клас `checked`; після перемикання фокус повертається на заголовок меню, а зміна оголошується через `announce`. Також надсилається подія `office:largetoolschange`.
+- Редактор, що підтримує режим, додає пункт у «Перегляд», викликає `OfficeUI.toggleLargeTools()` зі свого dispatcher-а й задає власні CSS-правила для `:root[data-office-tools="large"]`. Документ, історія й чернетка при цьому не змінюються.
+- Зараз режим підтримують Малюнки й Вектор; інші редактори атрибут ігнорують.
 
 `OfficeShell` не замінює modal/status API. Він відповідає лише за boot, command routing і file picker adapter.
 

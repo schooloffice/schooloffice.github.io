@@ -265,6 +265,36 @@ body.panel-collapsed .properties-panel {
   color: var(--accent-dark);
 }
 
+/* E2 UX-пілот «Великі інструменти з підписами» (OfficeUI.setLargeTools ставить атрибут на <html>).
+   Це налаштування пристрою, а не малюнка: ширша rail, більші кнопки й повні підписи без обрізання,
+   чипи ліній і фігур у панелі отримують видимі назви. Меню й команди лишаються тими самими. */
+.prop-chip .chip-label { display: none; }
+:root[data-office-tools="large"] .rail-btn {
+  gap: 6px;
+  font-size: .8rem;
+  white-space: normal;
+  text-align: center;
+}
+:root[data-office-tools="large"] .rail-btn i { font-size: 1.55rem; }
+:root[data-office-tools="large"] .rail-btn span { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+:root[data-office-tools="large"] .chip-grid-icons { grid-template-columns: minmax(0, 1fr); }
+:root[data-office-tools="large"] .prop-chip { min-height: 48px; justify-content: flex-start; padding: 6px 10px; }
+:root[data-office-tools="large"] .prop-chip i { width: 1.6rem; font-size: 1.25rem; }
+:root[data-office-tools="large"] .prop-chip .chip-label { display: inline; font-size: .8rem; }
+@media (min-width: 761px) {
+  :root[data-office-tools="large"] { --rail-w: 112px; }
+  :root[data-office-tools="large"] .tool-rail { padding: 8px; }
+  :root[data-office-tools="large"] .rail-btn { min-height: 56px; padding: 6px 4px; }
+  :root[data-office-tools="large"] .rail-tool { min-height: 64px; }
+}
+@media (max-width: 760px) {
+  :root[data-office-tools="large"] .editor-body,
+  :root[data-office-tools="large"] body.panel-collapsed .editor-body { grid-template-rows: minmax(0, 1fr) 88px; }
+  :root[data-office-tools="large"] .rail-btn,
+  :root[data-office-tools="large"] .rail-tool { width: 80px; min-width: 80px; min-height: 76px; }
+  :root[data-office-tools="large"] .properties-panel { bottom: calc(var(--status-h) + 94px); }
+}
+
 .properties-panel {
   grid-column: 2;
   grid-row: 1;

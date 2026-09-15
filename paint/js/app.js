@@ -436,6 +436,10 @@ window.PaintApp = window.PaintApp || {};
       case 'toggle-panel':
         togglePropertiesPanel();
         break;
+      case 'toggle-large-tools':
+        // Налаштування пристрою в спільному shell: малюнок, історію й чернетку не змінює.
+        window.OfficeUI?.toggleLargeTools?.();
+        break;
       case 'zoom-in':
         zoomIn();
         break;
