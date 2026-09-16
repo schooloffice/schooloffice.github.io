@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self' 'unsafe-inline';">
+<title>CSP style probe</title>
+</head>
+<body>
+<div id="fromMarkup" style="color: rgb(1, 2, 3)">markup</div>
+<div id="host"></div>
+<pre id="out">running</pre>
+<script>
+const results = {};
+const read = (el, prop) => getComputedStyle(el)[prop];
+results.markupAttribute = read(document.getElementById('fromMarkup'), 'color');
+const cssom = document.createElement('div');
+cssom.style.color = 'rgb(4, 5, 6)';
+document.body.appendChild(cssom);
+results.cssomProperty = read(cssom, 'color');
+const attr = document.createElement('div');
+attr.setAttribute('style', 'color: rgb(7, 8, 9)');
+document.body.appendChild(attr);
+results.setAttribute = read(attr, 'color');
+const cssText = document.createElement('div');
+cssText.style.cssText = 'color: rgb(10, 11, 12)';
+document.body.appendChild(cssText);
+results.cssText = read(cssText, 'color');
+const host = document.getElementById('host');
+host.innerHTML = '<div id="inner" style="color: rgb(13, 14, 15)">inner</div>';
+results.innerHtmlAttribute = read(document.getElementById('inner'), 'color');
+const styleTag = document.createElement('style');
+styleTag.textContent = '#fromMarkup { font-weight: 700 }';
+document.head.appendChild(styleTag);
+results.runtimeStyleElement = read(document.getElementById('fromMarkup'), 'fontWeight');
+document.getElementById('out').textContent = JSON.stringify(results, null, 1);
+document.body.dataset.probe = 'done';
+</script>
+</body>
+</html>

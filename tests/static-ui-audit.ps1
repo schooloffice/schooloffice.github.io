@@ -1748,6 +1748,28 @@ $responsiveSmoke = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/respo
 foreach ($viewport in @('390, height: 844', '768, height: 1024', '1366, height: 768')) {
   Assert-True ($responsiveSmoke -match [regex]::Escape($viewport)) "responsive-smoke.html: missing viewport $viewport"
 }
+
+# Точкові властивості .docx: виділення кольором, горизонтальна лінія й підкреслення мають
+# лишатися перевіреними — інакше вони тихо повертаються до жовтого кольору й рядка рисок.
+$docxAdapter = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'text/formats/docx.js')
+Assert-True ($docxAdapter -match 'function _wordHighlight') 'text/formats/docx.js: highlight colours must map to named Word highlights'
+Assert-True ($docxAdapter -notmatch "backgroundColor \? 'yellow'") 'text/formats/docx.js: every highlight must not collapse to yellow'
+Assert-True ($docxAdapter -match 'HORIZONTAL_RULE_STYLE_ID') 'text/formats/docx.js: horizontal rule must be exported as a bordered paragraph style'
+Assert-True ($docxAdapter -match '"u => u"') 'text/formats/docx.js: underline must survive the .docx import'
+Assert-True ($docxAdapter -match "p\[style-name='Horizontal Rule'\] => hr") 'text/formats/docx.js: the exported rule style must map back to <hr>'
+$docxDetailsSmoke = Join-Path $Root 'tests/text-docx-details-behavior.html'
+Assert-True (Test-Path $docxDetailsSmoke) 'tests/text-docx-details-behavior.html: the .docx details smoke page is required'
+Assert-True ($browserSmokeRunner -match 'text-docx-details-behavior.html') 'tests/run-browser-smoke.ps1: the .docx details smoke page must run'
+
+# Крок до суворішого style-src: HTML редакторів не має нести атрибутів style. Що саме блокує
+# style-src без unsafe-inline і чому послаблення поки лишається — CSP_STYLE_INVENTORY.md.
+Assert-True (Test-Path (Join-Path $Root 'CSP_STYLE_INVENTORY.md')) 'CSP_STYLE_INVENTORY.md: the dynamic styling inventory is required before CSP hardening'
+Assert-True (Test-Path (Join-Path $Root 'tests/csp-style-probe.html')) 'tests/csp-style-probe.html: the CSP style probe backs the inventory'
+foreach ($service in $services) {
+  $serviceHtml = Get-Content -Raw -Encoding UTF8 (Join-Path $Root "$($service.Path)/index.html")
+  $styleAttributes = [regex]::Matches($serviceHtml, '<[^>]+\sstyle="').Count
+  Assert-True ($styleAttributes -eq 0) "$($service.Path)/index.html: inline style attributes must stay out of the editor shell (found $styleAttributes)"
+}
 $officeUiSource = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'office-ui.js')
 $shellOverrides = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'shell-overrides.css')
 Assert-True ($officeUiSource -match 'bindResponsiveToolbars') 'office-ui.js: Text/Slides responsive toolbar enhancer is required'

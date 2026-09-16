@@ -146,6 +146,8 @@ powershell -ExecutionPolicy Bypass -File tests\cleanup-test-artifacts.ps1
 
 Історію Слайдів на важкій презентації вимірює `tests/slides-history-benchmark.html?scenario=text|photos|camera&edits=80`. Сторінка не входить у smoke; запускати її треба без `--virtual-time-budget`, а точний heap дає Chrome із `--enable-precise-memory-info --js-flags=--expose-gc`.
 
+`tests/csp-style-probe.html` показує, що саме блокує `style-src 'self'` (атрибут `style`, `innerHTML` зі стилем, `setAttribute`, CSSOM, створений у рантаймі `<style>`). Сторінка не входить у smoke; підсумок вимірювання й порядок можливого посилення CSP — у `CSP_STYLE_INVENTORY.md`.
+
 Адаптивну розкладку перевіряє `tests/responsive-smoke.html` на `390×844`, `768×1024` і `1366×768`: горизонтальні toolbar-и Text/Slides, мобільні drawer-панелі Paint/Vector та компактну палітру Flowcharts із canvas у першому екрані. Для Paint і Vector сторінка також стежить, щоб відкритий drawer лишався над горизонтальною смугою інструментів і не накривав рядок стану - у звичайному режимі й у режимі великих інструментів.
 
 `tests/accessibility-smoke.html` перевіряє три речі:

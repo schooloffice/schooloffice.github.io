@@ -439,6 +439,7 @@ try {
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-sections-behavior.html" 'data-text-sections="passed"' 'Text sections smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-columns-behavior.html" 'data-text-columns="passed"' 'Text columns smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-formats-behavior.html" 'data-text-formats="passed"' 'Text formats smoke'
+  Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-docx-details-behavior.html" 'data-text-docx-details="passed"' 'Text DOCX details smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-storage-behavior.html" 'data-text-storage="passed"' 'Text storage smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/flowcharts-behavior.html" 'data-flowcharts="passed"' 'Flowcharts behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/flowcharts-svg-behavior.html" 'data-flowcharts-svg="passed"' 'Flowcharts SVG behavior smoke'

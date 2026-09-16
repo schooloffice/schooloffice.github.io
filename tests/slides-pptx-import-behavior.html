@@ -221,14 +221,22 @@
       // 4. Складний: група, таблиця, довільна фігура, зірка, градієнтний фон, перехід, анімація.
       ({ presentation, report } = await importFixture('powerpoint-complex-group-table-freeform'));
       [first] = presentation.slides;
-      check('complex group/table: only the supported text box is imported', first.elements.length === 1 && first.elements[0].content === 'Складний слайд', JSON.stringify(first.elements.map(element => element.content)));
+      // Об'єкти групи перераховуються в координати слайда, тож приходять як звичайні фігури.
+      const groupShapes = first.elements.filter(element => element.type === 'shape');
+      check('complex group/table: grouped objects are imported as plain shapes',
+        first.elements.length === 3
+        && groupShapes.length === 2
+        && groupShapes.some(shape => shape.shape === 'rect' && near(shape.x, 40) && near(shape.y, 40) && near(shape.w, 160) && near(shape.h, 80))
+        && groupShapes.some(shape => shape.shape === 'circle' && near(shape.x, 220) && near(shape.y, 40) && near(shape.w, 80) && near(shape.h, 80)),
+        JSON.stringify(first.elements.map(element => ({ type: element.type, shape: element.shape, x: element.x, y: element.y, w: element.w, h: element.h }))));
+      check('complex group/table: the text box is still imported', !!byText(first, 'Складний слайд'));
+      check('complex group/table: slide transition is mapped to the editor one',
+        first.transition.type === 'fade' && first.transition.duration === 'slow', JSON.stringify(first.transition));
       check('complex group/table: gradient background uses the first stop', first.background === '#ffffff', first.background);
       check('complex group/table: exact losses', sameList(report.warnings, [
         'Градієнтний фон замінено першим кольором: 1',
-        'Групи об’єктів не перенесено: 1 (об’єктів у них: 2)',
         'Таблиці не перенесено: 1',
         'Фігури інших типів не перенесено: 2 (довільна фігура, зірка)',
-        'Переходи між слайдами не перенесено: 1',
         'Анімації не перенесено: 1'
       ]), JSON.stringify(report.warnings));
 

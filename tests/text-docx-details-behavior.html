@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <title>Text DOCX Details Smoke</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    iframe {
+      width: 1280px;
+      height: 900px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+    }
+
+    pre {
+      max-width: 1280px;
+      white-space: pre-wrap;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: .75rem;
+      padding: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Text DOCX Details Smoke</h1>
+  <!-- Окрема сторінка для точкових властивостей .docx: виділення, горизонтальної лінії,
+       підкреслення й оформлення таблиць. Разом із text-behavior.html вони не вкладаються
+       в бюджет віртуального часу однієї сторінки. -->
+  <pre id="result">Running...</pre>
+  <iframe id="textFrame" src="../text/index.html"></iframe>
+
+  <script>
+    const result = document.getElementById('result');
+    const frame = document.getElementById('textFrame');
+    const checks = [];
+    const diagnostics = {};
+
+    function check(label, ok) {
+      checks.push({ label, ok: !!ok });
+    }
+
+    // Опитуємо через setTimeout, а не requestAnimationFrame: під --virtual-time-budget
+    // щільний rAF-цикл не дає віртуальному годиннику рухатися рівномірно.
+    function waitFor(predicate, label, timeout = 8000) {
+      const started = performance.now();
+      return new Promise((resolve, reject) => {
+        function tick() {
+          let ok = false;
+          try { ok = !!predicate(); } catch { ok = false; }
+          if (ok) return resolve();
+          if (performance.now() - started > timeout) return reject(new Error('Timed out waiting for ' + label));
+          setTimeout(tick, 50);
+        }
+        tick();
+      });
+    }
+
+    // Читання частин .docx без сторонньої бібліотеки: центральний каталог ZIP дає зсуви,
+    // а стиснені записи розпаковує DecompressionStream самого браузера.
+    async function zipEntries(blob) {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const view = new DataView(bytes.buffer);
+      const entries = {};
+      for (let end = bytes.length - 22; end >= 0; end -= 1) {
+        if (view.getUint32(end, true) !== 0x06054b50) continue;
+        const count = view.getUint16(end + 10, true);
+        let offset = view.getUint32(end + 16, true);
+        for (let index = 0; index < count; index += 1) {
+          const nameLength = view.getUint16(offset + 28, true);
+          const extraLength = view.getUint16(offset + 30, true);
+          const commentLength = view.getUint16(offset + 32, true);
+          const method = view.getUint16(offset + 10, true);
+          const compressedSize = view.getUint32(offset + 20, true);
+          const localHeader = view.getUint32(offset + 42, true);
+          const name = new TextDecoder().decode(bytes.slice(offset + 46, offset + 46 + nameLength));
+          const localNameLength = view.getUint16(localHeader + 26, true);
+          const localExtraLength = view.getUint16(localHeader + 28, true);
+          const start = localHeader + 30 + localNameLength + localExtraLength;
+          const data = bytes.slice(start, start + compressedSize);
+          entries[name] = method === 0
+            ? new TextDecoder().decode(data)
+            : await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+          offset += 46 + nameLength + extraLength + commentLength;
+        }
+        break;
+      }
+      return entries;
+    }
+
+    function highlightNames(xml) {
+      return Array.from(xml.matchAll(/<w:highlight w:val="([^"]+)"/g)).map(match => match[1]);
+    }
+
+    async function run() {
+      await waitFor(() => frame.contentWindow && frame.contentWindow.art && frame.contentWindow.art.formats
+        && frame.contentWindow.art.formats.docx, 'text editor formats');
+      const win = frame.contentWindow;
+      const doc = win.document;
+      const docx = win.art.formats.docx;
+      const asFile = blob => new win.File([blob], 'check.docx', {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      });
+      const parse = html => {
+        const box = doc.createElement('div');
+        box.innerHTML = html;
+        return box;
+      };
+
+      // 1. Виділення: Word приймає лише іменовані кольори, тож пастельна палітра редактора
+      // має лягти на найближчу назву, а не ставати жовтою.
+      const palette = [
+        { color: '#fef08a', expected: 'yellow' },
+        { color: '#fdba74', expected: 'yellow' },
+        { color: '#fecaca', expected: 'red' },
+        { color: '#bfdbfe', expected: 'blue' },
+        { color: '#bbf7d0', expected: 'green' },
+        { color: '#fbcfe8', expected: 'magenta' },
+        { color: '#e5e7eb', expected: 'lightGray' },
+        { color: '#ffffff', expected: 'white' },
+        { color: '#111827', expected: 'black' }
+      ];
+      const highlightSource = '<p>' + palette
+        .map((item, index) => '<span style="background-color:' + item.color + '">п' + index + '</span>')
+        .join(' ') + '</p>';
+      const highlightXml = (await zipEntries(await docx.exportDocx(highlightSource, {})))['word/document.xml'] || '';
+      const gotHighlights = highlightNames(highlightXml);
+      const expectedHighlights = palette.map(item => item.expected);
+      diagnostics.highlights = gotHighlights;
+      check('виділення: кожен колір палітри дає свою назву Word (' + gotHighlights.join(', ') + ')',
+        gotHighlights.join(',') === expectedHighlights.join(','));
+      check('виділення: більше не все жовте', new Set(gotHighlights).size >= 6);
+
+      // 2. Горизонтальна лінія: у Word це нижня межа абзацу, а не рядок рисок.
+      const ruleExport = await zipEntries(await docx.exportDocx(
+        '<p>До лінії</p><hr><p>Після лінії</p><hr style="break-after: page"><p>Нова сторінка</p>', {}));
+      const ruleXml = ruleExport['word/document.xml'] || '';
+      const stylesXml = ruleExport['word/styles.xml'] || '';
+      diagnostics.rule = {
+        border: /<w:pBdr>/.test(ruleXml),
+        dashes: ruleXml.indexOf('────') >= 0,
+        style: /Horizontal Rule/.test(stylesXml)
+      };
+      check('лінія: абзац із нижньою межею', /<w:pBdr>[\s\S]*?<w:bottom /.test(ruleXml));
+      check('лінія: рядок рисок більше не пишеться', ruleXml.indexOf('────') < 0);
+      check('лінія: стиль абзацу оголошено в styles.xml', /Horizontal Rule/.test(stylesXml));
+
+      // 3. Розрив сторінки лишається розривом сторінки, а не перетворюється на лінію.
+      check('розрив сторінки: окремий тип поряд з однією межею абзацу',
+        (ruleXml.match(/<w:br w:type="page"/g) || []).length === 1
+        && (ruleXml.match(/<w:pBdr>/g) || []).length === 1);
+
+      // 4. Зворотне читання: підкреслення й лінія повертаються в редактор.
+      const roundTripSource = '<p><u>підкреслений</u> звичайний</p><hr><p>після лінії</p>'
+        + '<table><tbody><tr><th>Шапка</th><th>Друга</th></tr><tr><td>Клітинка</td><td>Ще</td></tr></tbody></table>';
+      const roundTrip = await docx.importDocx(asFile(await docx.exportDocx(roundTripSource, {})));
+      const restored = parse(roundTrip.html);
+      diagnostics.roundTripHtml = roundTrip.html.slice(0, 300);
+      check('читання: підкреслення збережено', restored.querySelectorAll('u').length === 1);
+      check('читання: лінія повертається як <hr>', restored.querySelectorAll('hr').length === 1);
+      check('читання: замість лінії немає абзацу з рисками', restored.textContent.indexOf('─') < 0);
+      check('читання: таблиця лишається таблицею',
+        restored.querySelectorAll('table').length === 1
+        && restored.querySelectorAll('th').length === 2
+        && restored.querySelectorAll('td').length === 2);
+      check('читання: текст не втрачено', restored.textContent.indexOf('після лінії') >= 0);
+
+      // 5. Чесні попередження про те, що Mammoth не переносить.
+      const lossyNotices = (await docx.importDocx(asFile(await docx.exportDocx(
+        '<p><span style="color:#dc2626">червоний</span> <span style="background-color:#bfdbfe">виділений</span></p>'
+        + '<table><tbody><tr><td style="width:30%">Вужча</td><td>Ширша</td></tr></tbody></table>', {}))))
+        .meta.notices;
+      const plainNotices = (await docx.importDocx(asFile(await docx.exportDocx('<p>Звичайний абзац</p>', {}))))
+        .meta.notices;
+      diagnostics.notices = { lossyNotices, plainNotices };
+      check('попередження: про кольори тексту й виділення',
+        lossyNotices.some(notice => notice.indexOf('Кольори тексту й виділення') === 0));
+      check('попередження: про ширини колонок і заливку клітинок',
+        lossyNotices.some(notice => notice.indexOf('Ширини колонок') === 0));
+      check('попередження: звичайний документ відкривається без зайвих попереджень', plainNotices.length === 0);
+
+      const failed = checks.filter(item => !item.ok);
+      result.textContent = checks
+        .map(item => (item.ok ? 'PASS ' : 'FAIL ') + item.label)
+        .concat([
+          '',
+          'Diagnostics:',
+          JSON.stringify(diagnostics),
+          // Під --virtual-time-budget це віртуальний час сторінки: бюджет раннера — 35000 мс.
+          'virtual time ms: ' + Math.round(performance.now())
+        ])
+        .concat(failed.length ? ['FAILED: ' + failed.map(item => item.label).join('; ')] : ['PASSED'])
+        .join('\n');
+
+      if (failed.length) {
+        document.body.dataset.textDocxDetails = 'failed';
+        return;
+      }
+      document.body.dataset.textDocxDetails = 'passed';
+    }
+
+    run().catch(err => {
+      document.body.dataset.textDocxDetails = 'failed';
+      const previous = result.textContent === 'Running...' ? '' : result.textContent + String.fromCharCode(10, 10);
+      result.textContent = previous + (err && (err.stack || err.message) ? (err.stack || err.message) : String(err));
+    });
+  </script>
+</body>
+</html>

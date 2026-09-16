@@ -33,6 +33,14 @@ const ArtDocx = (() => {
           if (/<w:cols\b[^>]*w:num="(?:[2-9]|\d{2,})"/.test(documentXml)) {
             notices.push('Колонки з цього .docx не переносяться в ПЛЮС Текст: текст відкрито в одну колонку. Колонки задає «Файл → Налаштування сторінки».');
           }
+          // Mammoth переносить накреслення, але не кольори й не оформлення таблиць.
+          // Про втрату чесніше сказати одразу, ніж лишити учня шукати різницю очима.
+          if (/<w:color\b[^>]*w:val="(?!auto)/.test(documentXml) || /<w:highlight\b/.test(documentXml)) {
+            notices.push('Кольори тексту й виділення з цього .docx не переносяться в ПЛЮС Текст: текст відкрито звичайним. Колір і виділення задають кнопки на панелі.');
+          }
+          if (/<w:tbl>/.test(documentXml) && /<w:(?:tcW|tblW)\b[^>]*w:type="(?:dxa|pct)"[^>]*w:w="(?!0")/.test(documentXml)) {
+            notices.push('Ширини колонок і заливку клітинок таблиць із цього .docx не перенесено: таблиці відкрито з рівними колонками. Ширину змінює «Таблиця → Колонка ширша/вужча».');
+          }
           const result = await mammoth.convertToHtml({ arrayBuffer: fr.result }, {
             styleMap: [
               "p[style-name='Heading 1'] => h1:fresh",
@@ -40,7 +48,12 @@ const ArtDocx = (() => {
               "p[style-name='Heading 3'] => h3:fresh",
               "p[style-name='Заголовок 1'] => h1:fresh",
               "p[style-name='Заголовок 2'] => h2:fresh",
-              "p[style-name='Заголовок 3'] => h3:fresh"
+              "p[style-name='Заголовок 3'] => h3:fresh",
+              // Mammoth за замовчуванням відкидає підкреслення; для редактора це звичайне форматування.
+              "u => u",
+              // Горизонтальна лінія редактора йде в .docx абзацом зі стилем «Horizontal Rule»
+              // і нижньою межею. Word показує лінію, а тут вона повертається як <hr>.
+              "p[style-name='Horizontal Rule'] => hr:fresh"
             ],
             // Розрив сторінки Word → позначка в тексті → явний розрив редактора (_mapPageBreaks).
             // styleMap тут не підходить: у цій версії Mammoth правило br[type='page']
@@ -203,9 +216,50 @@ const ArtDocx = (() => {
     }
   }
 
+  // Word зберігає виділення не довільним кольором, а однією з іменованих назв, і всі вони
+  // насичені. Палітра редактора пастельна, тож за простою відстанню в RGB будь-який пастельний
+  // колір опинявся біля lightGray. Тому колір спершу переводимо в HSL: сірі відтінки йдуть за
+  // яскравістю, решта — за тоном, а темні кольори отримують «dark»-варіант назви.
+  const HORIZONTAL_RULE_STYLE_ID = 'HorizontalRule';
+  const HIGHLIGHT_HUES = [
+    { max: 15, name: 'red', dark: 'darkRed' },
+    { max: 65, name: 'yellow', dark: 'darkYellow' },
+    { max: 160, name: 'green', dark: 'darkGreen' },
+    { max: 200, name: 'cyan', dark: 'darkCyan' },
+    { max: 265, name: 'blue', dark: 'darkBlue' },
+    { max: 330, name: 'magenta', dark: 'darkMagenta' },
+    { max: 360, name: 'red', dark: 'darkRed' }
+  ];
+
+  function _wordHighlight(cssColor) {
+    const hex = _cssColorToHex(cssColor);
+    if (!hex) return '';
+    const [r, g, b] = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const lightness = (max + min) / 2;
+    const delta = max - min;
+    const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
+    // Майже чорний колір Word показує як black, хоча відтінок у ньому ще помітний.
+    if (lightness < 0.12) return 'black';
+    if (saturation < 0.15) {
+      if (lightness > 0.92) return 'white';
+      if (lightness > 0.6) return 'lightGray';
+      if (lightness > 0.25) return 'darkGray';
+      return 'black';
+    }
+    let hue = 0;
+    if (max === r) hue = ((g - b) / delta) % 6;
+    else if (max === g) hue = (b - r) / delta + 2;
+    else hue = (r - g) / delta + 4;
+    hue = (hue * 60 + 360) % 360;
+    const bucket = HIGHLIGHT_HUES.find(entry => hue < entry.max) || HIGHLIGHT_HUES[0];
+    return lightness < 0.35 ? bucket.dark : bucket.name;
+  }
+
   async function exportDocx(html, meta = {}) {
     if (typeof docx === 'undefined') throw new Error('Бібліотека docx.js не завантажена');
-    const { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, UnderlineType, PageOrientation, Table, TableRow, TableCell, WidthType, PageBreak, Header, Footer, Tab, TabStopType, LeaderType, PageNumber } = docx;
+    const { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, UnderlineType, PageOrientation, Table, TableRow, TableCell, WidthType, PageBreak, Header, Footer, Tab, TabStopType, LeaderType, PageNumber, BorderStyle } = docx;
     const div = document.createElement('div');
     div.innerHTML = html;
     // Розриви розділів ділять документ на розділи Word, кожен зі своєю геометрією.
@@ -246,7 +300,7 @@ const ArtDocx = (() => {
         font: node.style.fontFamily || fmt.font,
         size: _ptToHalfPt(node.style.fontSize) || fmt.size,
         color: _cssColorToHex(node.style.color) || fmt.color,
-        highlight: node.style.backgroundColor ? 'yellow' : fmt.highlight
+        highlight: _wordHighlight(node.style.backgroundColor) || fmt.highlight
       };
       return [...node.childNodes].flatMap(ch => collectRuns(ch, next));
     }
@@ -377,7 +431,11 @@ const ArtDocx = (() => {
         contentWidth = pageGeometry(section.meta).contentWidth;
       }
       else if (tag === 'hr' && _isPageBreakNode(node)) children.push(new Paragraph({ children: [new PageBreak()] }));
-      else if (tag === 'hr') children.push(new Paragraph({ children: [new TextRun('────────────────────────')] }));
+      else if (tag === 'hr') children.push(new Paragraph({
+        // Word малює горизонтальну лінію нижньою межею абзацу; рядок рисок був лише схожий на лінію.
+        style: HORIZONTAL_RULE_STYLE_ID,
+        border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '9AA4B2', space: 1 } }
+      }));
     });
 
     sectionList.forEach(section => {
@@ -405,6 +463,15 @@ const ArtDocx = (() => {
     }
 
     const doc = new Document({
+      styles: {
+        paragraphStyles: [{
+          id: HORIZONTAL_RULE_STYLE_ID,
+          name: 'Horizontal Rule',
+          basedOn: 'Normal',
+          next: 'Normal',
+          paragraph: { spacing: { before: 120, after: 120 } }
+        }]
+      },
       numbering: {
         config: [{ reference: 'numbered-list', levels: [{ level: 0, format: 'decimal', text: '%1.', alignment: AlignmentType.START }] }]
       },

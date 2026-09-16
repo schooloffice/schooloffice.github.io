@@ -13,7 +13,11 @@
       "format": "xlsx",
       "file": "excel-formulas-types.xlsx",
       "origin": "Microsoft Excel 16.0 build 17932 через COM (generate-office-fixtures.ps1)",
-      "supportedProperties": ["числа й текст", "формули A1/A2, A1>A2, IF із текстовим результатом, SUM", "логічне значення TRUE"],
+      "supportedProperties": [
+        "числа й текст",
+        "формули A1/A2, A1>A2, IF із текстовим результатом, SUM",
+        "логічне значення TRUE"
+      ],
       "expectedLosses": [],
       "automatedTest": "tests/xlsx-behavior.html: Excel fixture checks + PLUS computes the same typed results",
       "result": "passed: формули, текст і TRUE імпортуються; ПЛЮС рахує 2.5, TRUE, «більше», 14 — як Excel"
@@ -23,7 +27,10 @@
       "format": "xlsx",
       "file": "excel-two-sheets.xlsx",
       "origin": "Microsoft Excel 16.0 build 17932 через COM (generate-office-fixtures.ps1)",
-      "supportedProperties": ["два аркуші з кириличними назвами", "міжаркушеві SUM і MAX"],
+      "supportedProperties": [
+        "два аркуші з кириличними назвами",
+        "міжаркушеві SUM і MAX"
+      ],
       "expectedLosses": [],
       "automatedTest": "tests/xlsx-behavior.html: Excel fixture: two sheets and cross-sheet formulas",
       "result": "passed: аркуші «Дані»/«Підсумок» і формули =SUM(Дані!B2:B3), =MAX(Дані!B2:B3); ПЛЮС рахує 20"
@@ -33,8 +40,15 @@
       "format": "xlsx",
       "file": "excel-formatting-chart.xlsx",
       "origin": "Microsoft Excel 16.0 build 17932 через COM (generate-office-fixtures.ps1)",
-      "supportedProperties": ["жирний заголовок", "числа 10.5 і 11.25", "ширина колонки", "стовпчаста діаграма з A1:B3 з автоматичною назвою"],
-      "expectedLosses": ["точна заливка й числовий формат 0,00 можуть спроститися"],
+      "supportedProperties": [
+        "жирний заголовок",
+        "числа 10.5 і 11.25",
+        "ширина колонки",
+        "стовпчаста діаграма з A1:B3 з автоматичною назвою"
+      ],
+      "expectedLosses": [
+        "точна заливка й числовий формат 0,00 можуть спроститися"
+      ],
       "automatedTest": "tests/xlsx-behavior.html: Excel fixture: bold header, numbers and column width; column chart imports with its ranges. tests/tables-charts-behavior.html: auto title of a one-series chart becomes the series name",
       "result": "passed: оформлення й ширина імпортуються; з 2026-09-14 діаграма переноситься з рядом B2:B3, категоріями A2:A3, назвою «Оцінка» та якорем D3"
     },
@@ -43,8 +57,14 @@
       "format": "xlsx",
       "file": "excel-named-ranges.xlsx",
       "origin": "Microsoft Excel 16.0 build 17932 через COM (generate-office-fixtures.ps1 -Only named-ranges)",
-      "supportedProperties": ["імена книги Витрати (Дані!$B$2:$B$4) і Ставка (Дані!$B$2)", "формули =SUM(Витрати), =MAX(Витрати), =B1*Ставка/100 на іншому аркуші"],
-      "expectedLosses": ["ім'я рівня аркуша «Місцеве» (попередження після імпорту)", "ім'я «Ставка.Місяць» із крапкою, несумісне із синтаксисом ПЛЮС (попередження після імпорту)"],
+      "supportedProperties": [
+        "імена книги Витрати (Дані!$B$2:$B$4) і Ставка (Дані!$B$2)",
+        "формули =SUM(Витрати), =MAX(Витрати), =B1*Ставка/100 на іншому аркуші"
+      ],
+      "expectedLosses": [
+        "ім'я рівня аркуша «Місцеве» (попередження після імпорту)",
+        "ім'я «Ставка.Місяць» із крапкою, несумісне із синтаксисом ПЛЮС (попередження після імпорту)"
+      ],
       "automatedTest": "tests/tables-named-ranges-behavior.html: Excel fixture: workbook names import, formulas keep the names, unsupported names are reported exactly, PLUS computes the named formulas like Excel",
       "result": "passed: імена Витрати й Ставка імпортуються; ПЛЮС рахує 300, 120 і 360 — як Excel; «Місцеве» і «Ставка.Місяць» названо в попередженні"
     },
@@ -53,8 +73,15 @@
       "format": "xlsx",
       "file": "excel-charts.xlsx",
       "origin": "Microsoft Excel 16.0 build 17932 через COM (generate-office-fixtures.ps1 -Only charts)",
-      "supportedProperties": ["стовпчаста діаграма з двома рядами (A1:C4)", "кругова діаграма (A1:B4)", "лінійна діаграма з двома рядами (A1:C4)"],
-      "expectedLosses": ["точкова діаграма (попередження після імпорту)", "діаграма на аркуші «Звіт» з даними аркуша «Оцінки» (попередження після імпорту)"],
+      "supportedProperties": [
+        "стовпчаста діаграма з двома рядами (A1:C4)",
+        "кругова діаграма (A1:B4)",
+        "лінійна діаграма з двома рядами (A1:C4)"
+      ],
+      "expectedLosses": [
+        "точкова діаграма (попередження після імпорту)",
+        "діаграма на аркуші «Звіт» з даними аркуша «Оцінки» (попередження після імпорту)"
+      ],
       "automatedTest": "tests/tables-charts-behavior.html: Excel fixture: column chart with two series, pie and line import; unsupported chart types and other-sheet data are reported; PLUS renders the imported column chart",
       "result": "passed: три діаграми переносяться з діапазонами, ПЛЮС малює ряди 9/11/7 і 10/8/12 з назвами «І семестр» і «ІІ семестр»; точкова й діаграма з даними іншого аркуша названі в попередженні"
     },
@@ -63,7 +90,11 @@
       "format": "xlsx",
       "file": "excel-merges.xlsx",
       "origin": "Microsoft Excel 16.0 build 17932 через COM (generate-office-fixtures.ps1 -Only merges)",
-      "supportedProperties": ["об'єднана шапка A1:D1", "вертикальне об'єднання A3:A4", "значення лише в лівих верхніх клітинках"],
+      "supportedProperties": [
+        "об'єднана шапка A1:D1",
+        "вертикальне об'єднання A3:A4",
+        "значення лише в лівих верхніх клітинках"
+      ],
       "expectedLosses": [],
       "automatedTest": "tests/tables-merge-behavior.html: Excel fixture: header and vertical merges import; PLUS draws the merged header and day cell",
       "result": "passed: об'єднання A1:D1 і A3:A4 імпортуються без попереджень, ПЛЮС малює шапку на 4 колонки й клітинку дня на 2 рядки"
@@ -74,8 +105,17 @@
       "direction": "import",
       "file": "excel-chart-columns.svg",
       "origin": "Microsoft Excel 16.0 build 17932, Chart.Export у SVG через COM (generate-office-fixtures.ps1 -Only svg-charts)",
-      "supportedProperties": ["translate на групі", "білий фон діаграми", "прямокутники легенди й рамки", "контури з кількома прямими частинами (сітка, стовпці)", "текст із transform matrix і кирилицею"],
-      "expectedLosses": ["Обрізання (clip-path), маски й фільтри не застосовано: 1", "Шрифт і накреслення тексту замінено типовими: 14"],
+      "supportedProperties": [
+        "translate на групі",
+        "білий фон діаграми",
+        "прямокутники легенди й рамки",
+        "контури з кількома прямими частинами (сітка, стовпці)",
+        "текст із transform matrix і кирилицею"
+      ],
+      "expectedLosses": [
+        "Обрізання (clip-path), маски й фільтри не застосовано: 1",
+        "Шрифт і накреслення тексту замінено типовими: 14"
+      ],
       "automatedTest": "tests/vector-svg-import-behavior.html: Excel column chart SVG; confirmation, undo/redo and re-export of the imported drawing",
       "result": "passed: 31 об'єкт (8 ліній, 6 багатокутників стовпців, 14 написів, 3 прямокутники); білий фон не став об'єктом, координати зсунуто на translate(-417 -17)"
     },
@@ -85,8 +125,15 @@
       "direction": "import",
       "file": "excel-chart-line.svg",
       "origin": "Microsoft Excel 16.0 build 17932, Chart.Export у SVG через COM (generate-office-fixtures.ps1 -Only svg-charts)",
-      "supportedProperties": ["ламані рядів як контури з трьох вузлів", "ключі легенди як відрізки", "сітка, осі й написи"],
-      "expectedLosses": ["Обрізання (clip-path), маски й фільтри не застосовано: 1", "Шрифт і накреслення тексту замінено типовими: 14"],
+      "supportedProperties": [
+        "ламані рядів як контури з трьох вузлів",
+        "ключі легенди як відрізки",
+        "сітка, осі й написи"
+      ],
+      "expectedLosses": [
+        "Обрізання (clip-path), маски й фільтри не застосовано: 1",
+        "Шрифт і накреслення тексту замінено типовими: 14"
+      ],
       "automatedTest": "tests/vector-svg-import-behavior.html: Excel line chart SVG",
       "result": "passed: 27 об'єктів; ряди стали лініями олівця з вузлами 130,143 → 310,110 → 491,176, ключі легенди — лініями"
     },
@@ -96,8 +143,15 @@
       "direction": "import",
       "file": "excel-chart-pie.svg",
       "origin": "Microsoft Excel 16.0 build 17932, Chart.Export у SVG через COM (generate-office-fixtures.ps1 -Only svg-charts)",
-      "supportedProperties": ["назва", "легенда з контуром і заливкою"],
-      "expectedLosses": ["Обрізання (clip-path), маски й фільтри не застосовано: 1", "Контури з кривими або дугами пропущено: 3", "Шрифт і накреслення тексту замінено типовими: 4"],
+      "supportedProperties": [
+        "назва",
+        "легенда з контуром і заливкою"
+      ],
+      "expectedLosses": [
+        "Обрізання (clip-path), маски й фільтри не застосовано: 1",
+        "Контури з кривими або дугами пропущено: 3",
+        "Шрифт і накреслення тексту замінено типовими: 4"
+      ],
       "automatedTest": "tests/vector-svg-import-behavior.html: Excel pie chart SVG",
       "result": "passed: сектори з дугами пропущено з попередженням; назва, три ключі легенди, три підписи й рамка імпортуються"
     },
@@ -106,8 +160,14 @@
       "format": "docx",
       "file": null,
       "origin": "pending: має бути створений Microsoft Word",
-      "supportedProperties": ["заголовок 1", "жирний, курсив", "маркований список"],
-      "expectedLosses": ["підкреслення й колір тексту (mammoth без styleMap для них)"],
+      "supportedProperties": [
+        "заголовок 1",
+        "жирний, курсив",
+        "маркований список"
+      ],
+      "expectedLosses": [
+        "підкреслення й колір тексту (mammoth без styleMap для них)"
+      ],
       "automatedTest": null,
       "result": "not produced: Word 16.0 через COM у середовищі перевірки не завершував SaveAs2 (прихований діалог; ізольована проба з тим самим вмістом зберігала). Потрібно створити файл у Word вручну"
     },
@@ -116,7 +176,10 @@
       "format": "docx",
       "file": null,
       "origin": "pending: має бути створений Microsoft Word",
-      "supportedProperties": ["таблиця 3×3", "рядок заголовка"],
+      "supportedProperties": [
+        "таблиця 3×3",
+        "рядок заголовка"
+      ],
       "expectedLosses": [],
       "automatedTest": null,
       "result": "not produced: див. docx-formatted-text"
@@ -126,8 +189,13 @@
       "format": "docx",
       "file": null,
       "origin": "pending: має бути створений Microsoft Word",
-      "supportedProperties": ["вбудоване PNG", "текст на двох сторінках"],
-      "expectedLosses": ["розрив сторінки (ПЛЮС Текст перерозбиває сторінки сам)"],
+      "supportedProperties": [
+        "вбудоване PNG",
+        "текст на двох сторінках"
+      ],
+      "expectedLosses": [
+        "розрив сторінки (ПЛЮС Текст перерозбиває сторінки сам)"
+      ],
       "automatedTest": null,
       "result": "not produced: див. docx-formatted-text"
     },
@@ -137,10 +205,16 @@
       "file": "plus-exports/plus-slides-text-shapes.pptx",
       "source": "plus-slides-text-shapes.json",
       "origin": "експорт ПЛЮС Слайди (PptxGenJS 4.0.1) через tests/compatibility-export.html",
-      "supportedProperties": ["редаговані текстові блоки", "прямокутник і коло"],
+      "supportedProperties": [
+        "редаговані текстові блоки",
+        "прямокутник і коло"
+      ],
       "expectedLosses": [],
       "automatedTest": "tests/slides-domain-behavior.html: pptx corpus: text and shapes become editable slide objects",
-      "externalCheck": { "program": "Microsoft PowerPoint 16.0 build 17932", "result": "opened: 4 фігури, текст «Кругообіг води», AutoShapeType 1 (прямокутник) і 9 (овал)" },
+      "externalCheck": {
+        "program": "Microsoft PowerPoint 16.0 build 17932",
+        "result": "opened: 4 фігури, текст «Кругообіг води», AutoShapeType 1 (прямокутник) і 9 (овал)"
+      },
       "result": "passed"
     },
     {
@@ -149,10 +223,16 @@
       "file": "plus-exports/plus-slides-local-image.pptx",
       "source": "plus-slides-local-image.json",
       "origin": "експорт ПЛЮС Слайди (PptxGenJS 4.0.1) через tests/compatibility-export.html",
-      "supportedProperties": ["локальне PNG як медіа", "підпис"],
+      "supportedProperties": [
+        "локальне PNG як медіа",
+        "підпис"
+      ],
       "expectedLosses": [],
       "automatedTest": "tests/slides-domain-behavior.html: pptx corpus: local image is embedded as media",
-      "externalCheck": { "program": "Microsoft PowerPoint 16.0 build 17932", "result": "opened: текст і рисунок (Shape.Type 13)" },
+      "externalCheck": {
+        "program": "Microsoft PowerPoint 16.0 build 17932",
+        "result": "opened: текст і рисунок (Shape.Type 13)"
+      },
       "result": "passed"
     },
     {
@@ -161,10 +241,17 @@
       "file": "plus-exports/plus-slides-table-chart-link.pptx",
       "source": "plus-slides-table-chart-link.json",
       "origin": "експорт ПЛЮС Слайди (PptxGenJS 4.0.1) через tests/compatibility-export.html",
-      "supportedProperties": ["таблиця", "нативна стовпчаста діаграма", "посилання на інший слайд"],
+      "supportedProperties": [
+        "таблиця",
+        "нативна стовпчаста діаграма",
+        "посилання на інший слайд"
+      ],
       "expectedLosses": [],
       "automatedTest": "tests/slides-domain-behavior.html: pptx corpus: table, native chart and slide link are exported",
-      "externalCheck": { "program": "Microsoft PowerPoint 16.0 build 17932", "result": "opened: 2 слайди, HasTable, HasChart, дія посилання 7 на тексті" },
+      "externalCheck": {
+        "program": "Microsoft PowerPoint 16.0 build 17932",
+        "result": "opened: 2 слайди, HasTable, HasChart, дія посилання 7 на тексті"
+      },
       "result": "passed"
     },
     {
@@ -173,8 +260,15 @@
       "direction": "import",
       "file": "powerpoint-simple-title-shapes.pptx",
       "origin": "Microsoft PowerPoint 16.0 build 17932 через COM (generate-pptx-fixtures.ps1)",
-      "supportedProperties": ["титульний слайд із placeholder-ами макета", "явний фон слайда", "прямокутник і овал із текстом", "напис із жирним і звичайним run"],
-      "expectedLosses": ["Змішане форматування в текстовому блоці спрощено до переважного: 1"],
+      "supportedProperties": [
+        "титульний слайд із placeholder-ами макета",
+        "явний фон слайда",
+        "прямокутник і овал із текстом",
+        "напис із жирним і звичайним run"
+      ],
+      "expectedLosses": [
+        "Змішане форматування в текстовому блоці спрощено до переважного: 1"
+      ],
       "automatedTest": "tests/slides-pptx-import-behavior.html: simple title/shapes",
       "result": "passed: геометрія placeholder-ів із макета, кольори теми й стилю фігур, точний перелік втрат"
     },
@@ -184,7 +278,11 @@
       "direction": "import",
       "file": "powerpoint-simple-images.pptx",
       "origin": "Microsoft PowerPoint 16.0 build 17932 через COM (generate-pptx-fixtures.ps1)",
-      "supportedProperties": ["вбудовані PNG і JPEG", "центрований підпис", "повернуте зображення"],
+      "supportedProperties": [
+        "вбудовані PNG і JPEG",
+        "центрований підпис",
+        "повернуте зображення"
+      ],
       "expectedLosses": [],
       "automatedTest": "tests/slides-pptx-import-behavior.html: simple images",
       "result": "passed: зображення як data URL, геометрія й поворот"
@@ -195,8 +293,15 @@
       "direction": "import",
       "file": "powerpoint-simple-4x3-bullets.pptx",
       "origin": "Microsoft PowerPoint 16.0 build 17932 через COM (generate-pptx-fixtures.ps1)",
-      "supportedProperties": ["формат 4:3", "маркований список із зразка слайдів", "повернутий прямокутник"],
-      "expectedLosses": ["Слайди формату 4:3 вписано у формат 16:9 з полями", "Змішане форматування в текстовому блоці спрощено до переважного: 1"],
+      "supportedProperties": [
+        "формат 4:3",
+        "маркований список із зразка слайдів",
+        "повернутий прямокутник"
+      ],
+      "expectedLosses": [
+        "Слайди формату 4:3 вписано у формат 16:9 з полями",
+        "Змішане форматування в текстовому блоці спрощено до переважного: 1"
+      ],
       "automatedTest": "tests/slides-pptx-import-behavior.html: simple 4:3",
       "result": "passed: вписування з полями, список, поворот"
     },
@@ -206,10 +311,19 @@
       "direction": "import",
       "file": "powerpoint-complex-group-table-freeform.pptx",
       "origin": "Microsoft PowerPoint 16.0 build 17932 через COM (generate-pptx-fixtures.ps1)",
-      "supportedProperties": ["напис"],
-      "expectedLosses": ["Градієнтний фон замінено першим кольором: 1", "Групи об’єктів не перенесено: 1 (об’єктів у них: 2)", "Таблиці не перенесено: 1", "Фігури інших типів не перенесено: 2 (довільна фігура, зірка)", "Переходи між слайдами не перенесено: 1", "Анімації не перенесено: 1"],
+      "supportedProperties": [
+        "напис",
+        "об’єкти групи (прямокутник і овал) у координатах слайда",
+        "перехід fade зі швидкістю slow"
+      ],
+      "expectedLosses": [
+        "Градієнтний фон замінено першим кольором: 1",
+        "Таблиці не перенесено: 1",
+        "Фігури інших типів не перенесено: 2 (довільна фігура, зірка)",
+        "Анімації не перенесено: 1"
+      ],
       "automatedTest": "tests/slides-pptx-import-behavior.html: complex group/table",
-      "result": "passed: імпортовано лише напис, усі втрати названо"
+      "result": "passed: 2026-09-16 групи розкладаються на об’єкти, перехід переноситься; решту втрат названо"
     },
     {
       "id": "pptx-import-complex-links-notes-linked-image",
@@ -217,8 +331,18 @@
       "direction": "import",
       "file": "powerpoint-complex-links-notes-linked-image.pptx",
       "origin": "Microsoft PowerPoint 16.0 build 17932 через COM (generate-pptx-fixtures.ps1)",
-      "supportedProperties": ["напис", "вбудоване PNG"],
-      "expectedLosses": ["Гіперпосилання не перенесено: 1", "Змішане форматування в текстовому блоці спрощено до переважного: 1", "Лінії та сполучні лінії не перенесено: 1", "Віддзеркалення об’єктів не перенесено: 1", "Зовнішні (пов’язані) зображення не завантажуються: 1", "Нотатки доповідача не перенесено: 1"],
+      "supportedProperties": [
+        "напис",
+        "вбудоване PNG"
+      ],
+      "expectedLosses": [
+        "Гіперпосилання не перенесено: 1",
+        "Змішане форматування в текстовому блоці спрощено до переважного: 1",
+        "Лінії та сполучні лінії не перенесено: 1",
+        "Віддзеркалення об’єктів не перенесено: 1",
+        "Зовнішні (пов’язані) зображення не завантажуються: 1",
+        "Нотатки доповідача не перенесено: 1"
+      ],
       "automatedTest": "tests/slides-pptx-import-behavior.html: complex links",
       "result": "passed: пов'язане зображення не завантажується, усі втрати названо"
     }

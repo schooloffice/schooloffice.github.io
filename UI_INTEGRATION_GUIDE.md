@@ -34,7 +34,7 @@
 
 Для діагностики доступний `window.OfficeOffline`: `checkStatus()` надсилає `CHECK_OFFLINE_STATUS`, а `retryOfflineCache()` — `RETRY_OFFLINE_CACHE`. Очищати Cache Storage або знімати реєстрацію під час звичайного boot заборонено.
 
-Production-сторінки мають використовувати CSP `script-src 'self'` і `connect-src 'self'`. Inline-скрипти та фонові запити до довільних HTTPS-хостів заборонені; `style-src 'unsafe-inline'` поки лишається через динамічну геометрію редакторів. Складний modal-вміст передається як `bodyNode`, створений через `document.createElement`, `textContent` і явні атрибути, а не як HTML-рядок.
+Production-сторінки мають використовувати CSP `script-src 'self'` і `connect-src 'self'`. Inline-скрипти та фонові запити до довільних HTTPS-хостів заборонені; `style-src 'unsafe-inline'` поки лишається: вимірювання в `CSP_STYLE_INVENTORY.md` показує, що під суворим `style-src` перестають застосовуватися атрибути `style` — а саме ними тримається форматування документів учнів. Складний modal-вміст передається як `bodyNode`, створений через `document.createElement`, `textContent` і явні атрибути, а не як HTML-рядок.
 
 Чернетки редакторів мають використовувати `OfficeStorage.createDraftStore()`. IndexedDB є основним сховищем, LocalStorage — лише fallback і джерелом міграції. Кожен редактор має команду «Завершити роботу на цьому ПК», яка очищає його чернетку, створює порожній документ і не видаляє PWA-кеш.
 

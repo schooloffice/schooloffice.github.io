@@ -299,7 +299,8 @@ const WARNING_TEXT = {
   unsupportedShapes: entry => `Фігури інших типів не перенесено: ${entry.count} (${entry.details.join(', ')})`,
   lines: entry => `Лінії та сполучні лінії не перенесено: ${entry.count}`,
   shapeFill: entry => `Градієнтну, текстурну або візерункову заливку фігур спрощено: ${entry.count}`,
-  groups: entry => `Групи об’єктів не перенесено: ${entry.count} (об’єктів у них: ${entry.extra})`,
+  groups: entry => `Групи без розмірів не перенесено: ${entry.count} (об’єктів у них: ${entry.extra})`,
+  groupRotation: entry => `Поворот груп не застосовано, об’єкти в них перенесено без нього: ${entry.count}`,
   tables: entry => `Таблиці не перенесено: ${entry.count}`,
   charts: entry => `Діаграми не перенесено: ${entry.count}`,
   smartArt: entry => `SmartArt не перенесено: ${entry.count}`,
@@ -315,7 +316,7 @@ const WARNING_TEXT = {
   noGeometry: entry => `Об’єкти без розміщення пропущено: ${entry.count}`,
   elementLimit: entry => `Об’єкти понад ліміт слайда пропущено: ${entry.count}`,
   layoutDecor: entry => `Декоративні об’єкти макета чи зразка слайдів не перенесено: ${entry.count}`,
-  transitions: entry => `Переходи між слайдами не перенесено: ${entry.count}`,
+  transitions: entry => `Переходи інших типів не перенесено: ${entry.count}`,
   animations: entry => `Анімації не перенесено: ${entry.count}`,
   notes: entry => `Нотатки доповідача не перенесено: ${entry.count}`
 };
@@ -450,11 +451,15 @@ function readXfrm(xfrm, ctx) {
   const values = [attrNum(off, 'x'), attrNum(off, 'y'), attrNum(ext, 'cx'), attrNum(ext, 'cy')];
   if (values.some(value => value == null)) return null;
   const [x, y, cx, cy] = values;
+  // Усередині групи осі масштабуються окремо (ext / chExt), тож беремо scaleX/scaleY,
+  // які ставить groupContext. На самому слайді обидва дорівнюють ctx.scale.
+  const scaleX = ctx.scaleX == null ? ctx.scale : ctx.scaleX;
+  const scaleY = ctx.scaleY == null ? ctx.scale : ctx.scaleY;
   return {
-    x: round2(ctx.offsetX + x * ctx.scale),
-    y: round2(ctx.offsetY + y * ctx.scale),
-    w: round2(Math.max(1, cx * ctx.scale)),
-    h: round2(Math.max(1, cy * ctx.scale)),
+    x: round2(ctx.offsetX + x * scaleX),
+    y: round2(ctx.offsetY + y * scaleY),
+    w: round2(Math.max(1, cx * scaleX)),
+    h: round2(Math.max(1, cy * scaleY)),
     rotation: round2((attrNum(xfrm, 'rot', 0) / 60000) % 360),
     flipped: xfrm.getAttribute('flipH') === '1' || xfrm.getAttribute('flipV') === '1'
   };
@@ -814,6 +819,63 @@ function countLeafObjects(group) {
   }, 0);
 }
 
+// Група задає власну систему координат: a:off/a:ext — місце на слайді, a:chOff/a:chExt —
+// координати дітей. Замість того щоб втрачати групу цілком, перераховуємо її дітей у
+// координати слайда й імпортуємо як звичайні об'єкти.
+function groupContext(node, ctx, report) {
+  const xfrm = child(child(node, 'p:grpSpPr'), 'a:xfrm');
+  const off = child(xfrm, 'a:off');
+  const ext = child(xfrm, 'a:ext');
+  const childOff = child(xfrm, 'a:chOff');
+  const childExt = child(xfrm, 'a:chExt');
+  const values = [
+    attrNum(off, 'x'), attrNum(off, 'y'), attrNum(ext, 'cx'), attrNum(ext, 'cy'),
+    attrNum(childOff, 'x'), attrNum(childOff, 'y'), attrNum(childExt, 'cx'), attrNum(childExt, 'cy')
+  ];
+  if (values.some(value => value == null)) return null;
+  const [x, y, cx, cy, chX, chY, chCx, chCy] = values;
+  if (!chCx || !chCy) return null;
+  const scaleX = ctx.scaleX == null ? ctx.scale : ctx.scaleX;
+  const scaleY = ctx.scaleY == null ? ctx.scale : ctx.scaleY;
+  const kx = cx / chCx;
+  const ky = cy / chCy;
+  // Поворот і віддзеркалення групи довелося б застосовувати до кожного об'єкта окремо;
+  // об'єкти переносимо без них і кажемо про це в переліку втрат.
+  if ((attrNum(xfrm, 'rot', 0) % 21600000) !== 0) report.add('groupRotation');
+  if (xfrm.getAttribute('flipH') === '1' || xfrm.getAttribute('flipV') === '1') report.add('flips');
+  return {
+    ...ctx,
+    scaleX: scaleX * kx,
+    scaleY: scaleY * ky,
+    offsetX: ctx.offsetX + (x - chX * kx) * scaleX,
+    offsetY: ctx.offsetY + (y - chY * ky) * scaleY,
+    // Кегль тексту масштабуємо за меншою віссю, щоб підпис не виліз за межі об'єкта.
+    pointScale: ctx.pointScale * Math.min(kx, ky)
+  };
+}
+
+// Переходи PPTX різноманітніші за власні; беремо найближчий із чотирьох і чесно
+// повідомляємо про ті, для яких близького немає.
+const TRANSITION_KINDS = {
+  fade: 'fade', dissolve: 'fade', fadeThroughBlack: 'fade',
+  push: 'slide-left', pull: 'slide-left', cover: 'slide-left', wipe: 'slide-left',
+  strips: 'slide-left', comb: 'slide-left', split: 'slide-left',
+  zoom: 'zoom', newsflash: 'zoom', warp: 'zoom'
+};
+const TRANSITION_SPEEDS = { slow: 'slow', med: 'normal', fast: 'fast' };
+
+function readTransition(doc, report) {
+  const node = doc.getElementsByTagNameNS(NS.p, 'transition')[0];
+  if (!node) return { type: 'none', duration: 'normal' };
+  const kind = [...node.children].map(item => item.localName).find(name => name !== 'sndAc');
+  const type = TRANSITION_KINDS[kind] || 'none';
+  if (type === 'none') {
+    report.add('transitions');
+    return { type: 'none', duration: 'normal' };
+  }
+  return { type, duration: TRANSITION_SPEEDS[node.getAttribute('spd')] || 'normal' };
+}
+
 function reportGraphicFrame(node, report) {
   const uri = find(node, 'a:graphic', 'a:graphicData')?.getAttribute('uri') || '';
   if (uri.endsWith('/table')) report.add('tables');
@@ -836,7 +898,11 @@ async function convertTree(tree, scope, ctx, report, elements) {
     let element = null;
     if (node.localName === 'sp') element = convertShape(node, scope, ctx, report);
     else if (node.localName === 'pic') element = await convertPicture(node, scope, ctx, report);
-    else if (node.localName === 'grpSp') report.add('groups', { extra: countLeafObjects(node) });
+    else if (node.localName === 'grpSp') {
+      const groupCtx = groupContext(node, ctx, report);
+      if (groupCtx) await convertTree(node, scope, groupCtx, report, elements);
+      else report.add('groups', { extra: countLeafObjects(node) });
+    }
     else if (node.localName === 'graphicFrame') reportGraphicFrame(node, report);
     else if (node.localName === 'cxnSp') report.add('lines');
     else if (node.localName === 'contentPart') report.add('embedded');
@@ -924,7 +990,7 @@ async function convertSlide(ctx, slidePart, defaultTextStyle, report) {
   const elements = [];
   await convertTree(find(root, 'p:cSld', 'p:spTree'), scope, ctx, report, elements);
   reportLayoutDecor(ctx, scope, doc, report);
-  if (doc.getElementsByTagNameNS(NS.p, 'transition').length) report.add('transitions');
+  const transition = readTransition(doc, report);
   if (doc.getElementsByTagNameNS(NS.p, 'spTgt').length) report.add('animations');
   const notesDoc = await readXml(ctx, firstRelPart(ctx, scope.slideRels, 'notesSlide'));
   const notesText = [...(notesDoc?.getElementsByTagNameNS(NS.p, 'sp') || [])]
@@ -934,7 +1000,7 @@ async function convertSlide(ctx, slidePart, defaultTextStyle, report) {
     id: `pptx-slide-${ctx.slideIndex + 1}`,
     background,
     layout: 'blank',
-    transition: { type: 'none', duration: 'normal' },
+    transition,
     notes: '',
     elements
   };
