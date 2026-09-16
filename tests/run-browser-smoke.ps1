@@ -448,6 +448,7 @@ try {
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/slides-domain-behavior.html" 'data-slides-domain="passed"' 'Slides domain smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/slides-pptx-import-behavior.html" 'data-slides-pptx-import="passed"' 'Slides PPTX import pilot smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/paint-behavior.html" 'data-paint-behavior="passed"' 'Paint behavior smoke'
+  Invoke-SmokePage "http://127.0.0.1:$Port/tests/paint-layers-behavior.html" 'data-paint-layers="passed"' 'Paint layers smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-render-behavior.html" 'data-tables-render="passed"' 'Tables render smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-storage-viewport-behavior.html" 'data-tables-storage-viewport="passed"' 'Tables storage and viewport smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-formula-behavior.html" 'data-tables-formula="passed"' 'Tables formula smoke'

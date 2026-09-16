@@ -8,7 +8,11 @@ window.ArtMalyunky.constants = {
   MAX_UNDO: 80,
   HISTORY_MAX_BYTES: 128 * 1024 * 1024,
   PROJECT_FORMAT: 'office-plus-paint',
-  PROJECT_VERSION: 1,
+  // Версія 2 додала шари; файли версії 1 відкриваються як один шар.
+  PROJECT_VERSION: 2,
+  MAX_LAYERS: 5,
+  DEFAULT_LAYER_NAME: 'Шар',
+  MAX_LAYER_NAME: 40,
   PROJECT_EXT: 'malyunok',
   MAX_PROJECT_BYTES: 64 * 1024 * 1024,
   MAX_RASTER_DATAURL: 48 * 1024 * 1024,

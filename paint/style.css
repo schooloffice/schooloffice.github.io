@@ -778,6 +778,89 @@ body.panel-collapsed .properties-panel {
 }
 /* Відступ навколо полотна — єдине джерело правди для fitDocumentToViewport():
    JS читає його з getComputedStyle, тож значення не розходяться. */
+/* Режим «Шари»: параметри інструмента ховаються, список займає висоту панелі й
+   прокручується сам. Так панель параметрів лишається такою ж заввишки, як була. */
+body.panel-layers .panel-tool-area,
+body.panel-layers .panel-common { display: none; }
+.layers-panel { display: flex; flex-direction: column; gap: 10px; }
+.layers-panel[hidden] { display: none; }
+/* Шари: список згори вниз, як на малюнку. Рядок = видимість + назва (вона ж вибір).
+   Секція має лишатися компактною: панель мусить уміщатися на ноутбучній висоті без прокрутки. */
+.layer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  /* Висота списку обмежена, а не розтягнена: на телефоні панель-drawer має висоту вмісту. */
+  max-height: 44vh;
+  overflow-y: auto;
+}
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--panel-2);
+}
+.layer-row.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.layer-row.is-hidden .layer-name { opacity: .55; text-decoration: line-through; }
+.layer-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: .76rem;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.layer-name:hover { background: var(--accent-soft-2); }
+.layer-visibility {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: .74rem;
+  cursor: pointer;
+}
+.layer-visibility[aria-pressed="true"] { color: var(--accent-dark); border-color: var(--accent); }
+/* Чотири дії в один рядок іконками: підписи лишаються в title і в режимі великих інструментів. */
+.panel-actions-grid.layer-actions { grid-template-columns: repeat(4, 1fr); }
+.layer-actions .panel-action { padding: 5px 2px; min-height: 30px; }
+.layer-actions .panel-action span { display: none; }
+/* Поле назви шару в звичайному модальному вікні. */
+.modal-input {
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  font-size: .9rem;
+}
+:root[data-office-tools="large"] .layer-name { font-size: .9rem; padding: 7px 8px; }
+:root[data-office-tools="large"] .layer-visibility { width: 34px; height: 34px; font-size: .9rem; }
+:root[data-office-tools="large"] .panel-actions-grid.layer-actions { grid-template-columns: repeat(2, 1fr); }
+:root[data-office-tools="large"] .layer-actions .panel-action { min-height: 44px; }
+:root[data-office-tools="large"] .layer-actions .panel-action span { display: inline; }
+
 .canvas-stage-wrap {
   height: 100%;
   min-height: 0;

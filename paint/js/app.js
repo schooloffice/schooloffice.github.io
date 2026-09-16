@@ -65,6 +65,7 @@ window.PaintApp = window.PaintApp || {};
     state.suppressAutosave = true;
     canvasApi.restoreSnapshot(snapshot);
     state.suppressAutosave = false;
+    ui.renderLayerList();
     ui.updateCanvasInfo(state.document.width, state.document.height);
     ui.updateZoomUI();
     ui.updateDetailStatus();
@@ -82,6 +83,94 @@ window.PaintApp = window.PaintApp || {};
     if (!state.redoStack.length) return;
     state.undoStack.push(canvasApi.snapshot());
     applyHistorySnapshot(state.redoStack.pop());
+    markDirty();
+  }
+
+  // === Шари ===================================================================================
+  // Кожна дія, що змінює зображення або стопку, йде через pushUndo: знімок історії тримає
+  // всі шари, їхній порядок і видимість.
+  function refreshLayers() {
+    ui.renderLayerList();
+    ui.updateDetailStatus();
+  }
+
+  // Відкриття режиму «Шари» має саме показати панель, якщо вона згорнута.
+  function toggleLayersPanel() {
+    const next = !ui.layersMode();
+    if (next && document.body.classList.contains('panel-collapsed')) togglePropertiesPanel();
+    ui.setLayersMode(next);
+  }
+
+  function addLayer() {
+    if (!ui.layersMode()) ui.setLayersMode(true);
+    if (!canvasApi.addLayer()) {
+      ui.showInfoModal('Більше шарів не можна', `У пілоті шарів не більше ${constants.MAX_LAYERS}: історія тримає всі шари в пам'яті.`, '🗂️');
+      return;
+    }
+    pushUndo();
+    refreshLayers();
+    markDirty();
+  }
+
+  async function deleteLayer() {
+    const layers = canvasApi.layerList();
+    if (layers.length <= 1) {
+      ui.showInfoModal('Останній шар', 'Малюнок не може лишитися зовсім без шарів.', '🗂️');
+      return;
+    }
+    const active = canvasApi.activeLayer();
+    const okay = await ui.showConfirmModal('Видалити шар?', `Шар «${active.name}» і все намальоване в ньому буде видалено.`, '🗑️', 'Видалити');
+    if (!okay) return;
+    pushUndo();
+    canvasApi.removeLayer(active.id);
+    refreshLayers();
+    markDirty();
+  }
+
+  async function renameLayer() {
+    const active = canvasApi.activeLayer();
+    if (!active) return;
+    const name = await ui.showPromptModal('Назва шару', 'Як назвати цей шар?', active.name, { maxLength: constants.MAX_LAYER_NAME });
+    if (name === null) return;
+    pushUndo();
+    canvasApi.renameLayer(active.id, name);
+    refreshLayers();
+    markDirty();
+  }
+
+  function moveLayer(delta) {
+    const active = canvasApi.activeLayer();
+    if (!active) return;
+    pushUndo();
+    if (!canvasApi.moveLayer(active.id, delta)) {
+      state.undoStack.pop();
+      return;
+    }
+    refreshLayers();
+    markDirty();
+  }
+
+  function toggleLayerVisibility(id) {
+    const layer = canvasApi.layerList().find((item) => item.id === id);
+    if (!layer) return;
+    pushUndo();
+    canvasApi.setLayerVisible(id, !layer.visible);
+    refreshLayers();
+    markDirty();
+  }
+
+  function selectLayer(id) {
+    if (!canvasApi.setActiveLayer(id)) return;
+    refreshLayers();
+  }
+
+  async function flattenLayers() {
+    if (canvasApi.layerList().length <= 1) return;
+    const okay = await ui.showConfirmModal('Звести шари?', 'Усі видимі шари стануть одним. Приховані шари буде втрачено.', '🗂️', 'Звести');
+    if (!okay) return;
+    pushUndo();
+    canvasApi.flattenLayers();
+    refreshLayers();
     markDirty();
   }
 
@@ -228,7 +317,11 @@ window.PaintApp = window.PaintApp || {};
   }
 
   async function clearCanvasWithConfirm() {
-    const okay = await ui.showConfirmModal('Очистити полотно?', 'Усі мазки, фігури та штампи буде видалено.', '🧹', 'Очистити');
+    const single = canvasApi.layerList().length <= 1;
+    const text = single
+      ? 'Усі мазки, фігури та штампи буде видалено.'
+      : `Буде очищено активний шар «${canvasApi.activeLayer().name}». Інші шари лишаться.`;
+    const okay = await ui.showConfirmModal('Очистити полотно?', text, '🧹', 'Очистити');
     if (!okay) return;
     paintText.discardActiveText();
     pushUndo();
@@ -252,6 +345,8 @@ window.PaintApp = window.PaintApp || {};
     paintText.discardActiveText();
     state.undoStack.length = 0;
     state.redoStack.length = 0;
+    // Новий малюнок починається з одного шару, інакше від попереднього лишилася б уся стопка.
+    canvasApi.resetToSingleLayer();
     canvasApi.setDocumentSize(choice.width, choice.height, {
       clear: true,
       background: choice.background,
@@ -261,6 +356,7 @@ window.PaintApp = window.PaintApp || {};
     canvasApi.fitDocumentToViewport();
     state.fileName = constants.DEFAULT_FILE_NAME;
     ui.updateFileNameUI();
+    ui.renderLayerList();
     ui.updateCanvasInfo(state.document.width, state.document.height);
     ui.updateZoomUI();
     state.unsavedChanges = false;
@@ -423,6 +519,27 @@ window.PaintApp = window.PaintApp || {};
         break;
       case 'clear-canvas':
         clearCanvasWithConfirm();
+        break;
+      case 'toggle-layers':
+        toggleLayersPanel();
+        break;
+      case 'layer-add':
+        addLayer();
+        break;
+      case 'layer-delete':
+        deleteLayer();
+        break;
+      case 'layer-rename':
+        renameLayer();
+        break;
+      case 'layer-up':
+        moveLayer(1);
+        break;
+      case 'layer-down':
+        moveLayer(-1);
+        break;
+      case 'layer-flatten':
+        flattenLayers();
         break;
       case 'guide-none':
         setGuide('none');
@@ -692,6 +809,13 @@ window.PaintApp = window.PaintApp || {};
         return;
       }
 
+      const layerBtn = event.target.closest('#layerList [data-layer-action]');
+      if (layerBtn) {
+        if (layerBtn.dataset.layerAction === 'visibility') toggleLayerVisibility(layerBtn.dataset.layerId);
+        else selectLayer(layerBtn.dataset.layerId);
+        return;
+      }
+
       const guideBtn = event.target.closest('.segmented-btn[data-guide]');
       if (guideBtn) {
         setGuide(guideBtn.dataset.guide);
@@ -898,6 +1022,7 @@ window.PaintApp = window.PaintApp || {};
       stage: ui.elements.canvasStage,
       stageWrap: ui.elements.canvasStageWrap
     });
+    ui.renderLayerList();
     ui.updateCanvasInfo(state.document.width, state.document.height);
     ui.updateZoomUI();
     bindCanvas();

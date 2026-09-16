@@ -26,10 +26,199 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.selectionCtx = selectionCanvas ? selectionCanvas.getContext('2d') : null;
       this.stage = stage;
       this.stageWrap = stageWrap;
+      this.resetToSingleLayer(canvas);
       this.setDocumentSize(state.document.width, state.document.height, { clear: true });
       this.fitDocumentToViewport();
       this.renderObjects();
       this.drawGuides();
+    },
+
+    // === Растрові шари =========================================================================
+    // Кожен шар — окремий <canvas> усередині .canvas-stage, тож зображення складає сам браузер:
+    // окремого кроку compositing для екрана немає. `canvas`/`ctx` завжди вказують на активний
+    // шар, тому інструменти малюють у нього без змін. Порядок у state.layers — знизу вгору,
+    // такий самий, як порядок елементів у стопці.
+    resetToSingleLayer(baseCanvas) {
+      const base = baseCanvas || (state.layers[0] && state.layers[0].canvas) || this.canvas;
+      if (!base) return null;
+      state.layers.slice(1).forEach((layer) => layer.canvas.remove());
+      const layer = this._makeLayer(base, `${constants.DEFAULT_LAYER_NAME} 1`);
+      state.layers = [layer];
+      state.activeLayerId = layer.id;
+      this._bindActiveLayer();
+      this._syncLayerElements();
+      return layer;
+    },
+
+    _makeLayer(canvas, name, visible = true) {
+      canvas.classList.add('drawing-canvas');
+      return {
+        id: utils.uid('layer'),
+        name: this._safeLayerName(name),
+        visible: visible !== false,
+        canvas,
+        ctx: canvas.getContext('2d', { willReadFrequently: true })
+      };
+    },
+
+    _safeLayerName(name) {
+      const text = String(name == null ? '' : name).replace(/\s+/g, ' ').trim();
+      return (text || constants.DEFAULT_LAYER_NAME).slice(0, constants.MAX_LAYER_NAME);
+    },
+
+    _createLayerCanvas() {
+      const canvas = document.createElement('canvas');
+      canvas.width = state.document.width;
+      canvas.height = state.document.height;
+      canvas.setAttribute('aria-hidden', 'true');
+      return canvas;
+    },
+
+    // Порядок елементів у стопці = порядок шарів. Усі шари лежать під об'єктним шаром,
+    // щоб тимчасові фігури й рамка виділення лишалися зверху.
+    _syncLayerElements() {
+      if (!this.stage || !this.objectLayer) return;
+      state.layers.forEach((layer) => {
+        this.stage.insertBefore(layer.canvas, this.objectLayer);
+        layer.canvas.style.display = layer.visible ? '' : 'none';
+      });
+    },
+
+    _bindActiveLayer() {
+      const layer = this.activeLayer();
+      if (!layer) return;
+      state.activeLayerId = layer.id;
+      this.canvas = layer.canvas;
+      this.ctx = layer.ctx;
+    },
+
+    // Перед зміною активного шару незакінчене (плаваюче виділення, тимчасові об'єкти)
+    // має лягти в поточний шар, інакше воно перестрибне на інший.
+    _settleActiveLayer() {
+      this.flattenSelection();
+      this.flattenObjects();
+    },
+
+    activeLayer() {
+      return state.layers.find((layer) => layer.id === state.activeLayerId) || state.layers[0] || null;
+    },
+
+    activeLayerIndex() {
+      return state.layers.findIndex((layer) => layer.id === state.activeLayerId);
+    },
+
+    isBaseLayerActive() {
+      return this.activeLayerIndex() <= 0;
+    },
+
+    // Опис шарів для панелі: без посилань на canvas, згори вниз робить сама панель.
+    layerList() {
+      return state.layers.map((layer) => ({ id: layer.id, name: layer.name, visible: layer.visible }));
+    },
+
+    setActiveLayer(id) {
+      const layer = state.layers.find((item) => item.id === id);
+      if (!layer || layer.id === state.activeLayerId) return false;
+      this._settleActiveLayer();
+      state.activeLayerId = layer.id;
+      this._bindActiveLayer();
+      return true;
+    },
+
+    addLayer(name) {
+      if (state.layers.length >= constants.MAX_LAYERS) return null;
+      this._settleActiveLayer();
+      const layer = this._makeLayer(this._createLayerCanvas(), name || this._nextLayerName());
+      state.layers.splice(Math.max(0, this.activeLayerIndex()) + 1, 0, layer);
+      state.activeLayerId = layer.id;
+      this._bindActiveLayer();
+      this._syncLayerElements();
+      return layer;
+    },
+
+    _nextLayerName() {
+      const used = new Set(state.layers.map((layer) => layer.name));
+      for (let index = 1; index <= constants.MAX_LAYERS + 1; index += 1) {
+        const name = `${constants.DEFAULT_LAYER_NAME} ${index}`;
+        if (!used.has(name)) return name;
+      }
+      return constants.DEFAULT_LAYER_NAME;
+    },
+
+    removeLayer(id) {
+      if (state.layers.length <= 1) return false;
+      const index = state.layers.findIndex((layer) => layer.id === id);
+      if (index < 0) return false;
+      this._settleActiveLayer();
+      const [removed] = state.layers.splice(index, 1);
+      // Нижній шар несе фон документа: якщо пішов саме він, фон отримує новий нижній.
+      removed.canvas.remove();
+      const next = state.layers[index] || state.layers[index - 1];
+      state.activeLayerId = next.id;
+      this._bindActiveLayer();
+      this._syncLayerElements();
+      return true;
+    },
+
+    moveLayer(id, delta) {
+      const index = state.layers.findIndex((layer) => layer.id === id);
+      const target = index + (delta > 0 ? 1 : -1);
+      if (index < 0 || target < 0 || target >= state.layers.length) return false;
+      this._settleActiveLayer();
+      const [layer] = state.layers.splice(index, 1);
+      state.layers.splice(target, 0, layer);
+      this._syncLayerElements();
+      return true;
+    },
+
+    // Сховати активний шар можна, але малювати «наосліп» — ні: активним стає верхній видимий.
+    setLayerVisible(id, visible) {
+      const layer = state.layers.find((item) => item.id === id);
+      if (!layer || layer.visible === !!visible) return false;
+      this._settleActiveLayer();
+      layer.visible = !!visible;
+      layer.canvas.style.display = layer.visible ? '' : 'none';
+      if (!layer.visible && layer.id === state.activeLayerId) {
+        const fallback = [...state.layers].reverse().find((item) => item.visible);
+        if (fallback) {
+          state.activeLayerId = fallback.id;
+          this._bindActiveLayer();
+        }
+      }
+      return true;
+    },
+
+    renameLayer(id, name) {
+      const layer = state.layers.find((item) => item.id === id);
+      if (!layer) return false;
+      layer.name = this._safeLayerName(name);
+      return true;
+    },
+
+    // Зводить усі шари в нижній: один растр, решта елементів зникає зі стопки.
+    flattenLayers() {
+      if (state.layers.length <= 1) return false;
+      this._settleActiveLayer();
+      const merged = this.exportMergedCanvas({ flatten: false });
+      const base = this.resetToSingleLayer();
+      base.ctx.clearRect(0, 0, base.canvas.width, base.canvas.height);
+      base.ctx.drawImage(merged, 0, 0);
+      return true;
+    },
+
+    // Копії всіх шарів, перетворення й повернення назад: спільний шлях для повороту,
+    // віддзеркалення, обрізання та зміни розміру — інакше кожна операція чіпала б лише активний шар.
+    _transformLayers(width, height, draw) {
+      const sources = state.layers.map((layer) => {
+        const copy = utils.createCanvas(layer.canvas.width, layer.canvas.height);
+        copy.getContext('2d').drawImage(layer.canvas, 0, 0);
+        return copy;
+      });
+      const previous = { width: this.canvas.width, height: this.canvas.height };
+      this.setDocumentSize(width, height, { clear: true });
+      state.layers.forEach((layer, index) => {
+        draw(layer.ctx, sources[index], layer, previous);
+      });
     },
 
     // Розмір документа — єдине джерело правди. Backing store полотна = пікселі документа
@@ -44,8 +233,10 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       state.document.width = w;
       state.document.height = h;
 
-      this.canvas.width = w;
-      this.canvas.height = h;
+      state.layers.forEach((layer) => {
+        layer.canvas.width = w;
+        layer.canvas.height = h;
+      });
       this.guideCanvas.width = w;
       this.guideCanvas.height = h;
       this.objectLayer.style.width = `${w}px`;
@@ -65,19 +256,16 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     // Зміна розміру полотна користувачем зі збереженням наявного растру (crop або розширення).
     resizeDocument(width, height, { scale = false, smooth = true } = {}) {
       this.flattenSelection();
-      const previous = utils.createCanvas(this.canvas.width, this.canvas.height);
-      previous.getContext('2d').drawImage(this.canvas, 0, 0);
-      const prevW = this.canvas.width;
-      const prevH = this.canvas.height;
-      this.setDocumentSize(width, height, { clear: true });
-      if (scale) {
-        this.ctx.imageSmoothingEnabled = !!smooth;
-        this.ctx.imageSmoothingQuality = smooth ? 'high' : 'low';
-        this.ctx.drawImage(previous, 0, 0, prevW, prevH, 0, 0, this.canvas.width, this.canvas.height);
-        this.ctx.imageSmoothingEnabled = true;
-      } else {
-        this.ctx.drawImage(previous, 0, 0);
-      }
+      this._transformLayers(width, height, (ctx, source, layer, previous) => {
+        if (scale) {
+          ctx.imageSmoothingEnabled = !!smooth;
+          ctx.imageSmoothingQuality = smooth ? 'high' : 'low';
+          ctx.drawImage(source, 0, 0, previous.width, previous.height, 0, 0, layer.canvas.width, layer.canvas.height);
+          ctx.imageSmoothingEnabled = true;
+        } else {
+          ctx.drawImage(source, 0, 0);
+        }
+      });
       this.renderObjects();
     },
 
@@ -85,7 +273,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     pickColor(x, y) {
       const px = utils.clamp(Math.floor(x), 0, this.canvas.width - 1);
       const py = utils.clamp(Math.floor(y), 0, this.canvas.height - 1);
-      const data = this.ctx.getImageData(px, py, 1, 1).data;
+      // Учень бере колір того, що бачить, тож читаємо зведене зображення, а не активний шар.
+      const merged = this.exportMergedCanvas({ flatten: false });
+      const data = merged.getContext('2d').getImageData(px, py, 1, 1).data;
       return utils.rgbToHex(data[0], data[1], data[2]);
     },
 
@@ -103,53 +293,50 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     rotate90(direction = 'cw') {
       this.flattenSelection();
       this.flattenObjects();
-      const source = utils.createCanvas(this.canvas.width, this.canvas.height);
-      source.getContext('2d').drawImage(this.canvas, 0, 0);
       const prevW = this.canvas.width;
       const prevH = this.canvas.height;
-      this.setDocumentSize(prevH, prevW, { clear: true });
-      this.ctx.save();
-      if (direction === 'cw') {
-        this.ctx.translate(this.canvas.width, 0);
-        this.ctx.rotate(Math.PI / 2);
-      } else {
-        this.ctx.translate(0, this.canvas.height);
-        this.ctx.rotate(-Math.PI / 2);
-      }
-      this.ctx.drawImage(source, 0, 0);
-      this.ctx.restore();
+      this._transformLayers(prevH, prevW, (ctx, source, layer) => {
+        ctx.save();
+        if (direction === 'cw') {
+          ctx.translate(layer.canvas.width, 0);
+          ctx.rotate(Math.PI / 2);
+        } else {
+          ctx.translate(0, layer.canvas.height);
+          ctx.rotate(-Math.PI / 2);
+        }
+        ctx.drawImage(source, 0, 0);
+        ctx.restore();
+      });
       this.fitDocumentToViewport();
     },
 
     rotate180() {
       this.flattenSelection();
       this.flattenObjects();
-      const source = utils.createCanvas(this.canvas.width, this.canvas.height);
-      source.getContext('2d').drawImage(this.canvas, 0, 0);
-      this.fillBackground();
-      this.ctx.save();
-      this.ctx.translate(this.canvas.width, this.canvas.height);
-      this.ctx.rotate(Math.PI);
-      this.ctx.drawImage(source, 0, 0);
-      this.ctx.restore();
+      this._transformLayers(this.canvas.width, this.canvas.height, (ctx, source, layer) => {
+        ctx.save();
+        ctx.translate(layer.canvas.width, layer.canvas.height);
+        ctx.rotate(Math.PI);
+        ctx.drawImage(source, 0, 0);
+        ctx.restore();
+      });
     },
 
     flip(axis = 'horizontal') {
       this.flattenSelection();
       this.flattenObjects();
-      const source = utils.createCanvas(this.canvas.width, this.canvas.height);
-      source.getContext('2d').drawImage(this.canvas, 0, 0);
-      this.fillBackground();
-      this.ctx.save();
-      if (axis === 'horizontal') {
-        this.ctx.translate(this.canvas.width, 0);
-        this.ctx.scale(-1, 1);
-      } else {
-        this.ctx.translate(0, this.canvas.height);
-        this.ctx.scale(1, -1);
-      }
-      this.ctx.drawImage(source, 0, 0);
-      this.ctx.restore();
+      this._transformLayers(this.canvas.width, this.canvas.height, (ctx, source, layer) => {
+        ctx.save();
+        if (axis === 'horizontal') {
+          ctx.translate(layer.canvas.width, 0);
+          ctx.scale(-1, 1);
+        } else {
+          ctx.translate(0, layer.canvas.height);
+          ctx.scale(1, -1);
+        }
+        ctx.drawImage(source, 0, 0);
+        ctx.restore();
+      });
     },
 
     // === Прямокутне виділення растру ===
@@ -165,7 +352,8 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.ctx.globalCompositeOperation = 'source-over';
       this.ctx.globalAlpha = 1;
       this.ctx.clearRect(x, y, w, h);
-      if (!state.document.transparent) {
+      // Фон підмальовуємо лише в нижньому шарі: у верхньому крізь очищене має бути видно нижні.
+      if (!state.document.transparent && this.isBaseLayerActive()) {
         this.ctx.fillStyle = state.document.background || '#ffffff';
         this.ctx.fillRect(x, y, w, h);
       }
@@ -245,10 +433,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       const rect = { x: Math.round(sel.x), y: Math.round(sel.y), w: Math.round(sel.w), h: Math.round(sel.h) };
       this.flattenSelection();
       this.flattenObjects();
-      const region = utils.createCanvas(rect.w, rect.h);
-      region.getContext('2d').drawImage(this.canvas, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
-      this.setDocumentSize(rect.w, rect.h, { clear: true });
-      this.ctx.drawImage(region, 0, 0);
+      this._transformLayers(rect.w, rect.h, (ctx, source) => {
+        ctx.drawImage(source, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+      });
       this.fitDocumentToViewport();
       return true;
     },
@@ -264,16 +451,21 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.drawSelectionOverlay();
     },
 
+    // Фон документа належить нижньому шару: верхні мають лишатися прозорими, інакше вони
+    // затулять усе, що під ними.
     fillBackground() {
-      this.ctx.save();
-      this.ctx.globalCompositeOperation = 'source-over';
-      this.ctx.globalAlpha = 1;
-      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      const base = state.layers[0];
+      if (!base) return;
+      const ctx = base.ctx;
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.clearRect(0, 0, base.canvas.width, base.canvas.height);
       if (!state.document.transparent) {
-        this.ctx.fillStyle = state.document.background || '#ffffff';
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        ctx.fillStyle = state.document.background || '#ffffff';
+        ctx.fillRect(0, 0, base.canvas.width, base.canvas.height);
       }
-      this.ctx.restore();
+      ctx.restore();
     },
 
     // Розмір ПРЕДСТАВЛЕННЯ документа = пікселі документа × zoom. Backing store не чіпаємо.
@@ -375,8 +567,13 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       wrap.scrollTop = Math.max(0, (wrap.scrollHeight - wrap.clientHeight) / 2);
     },
 
+    // Очищає активний шар: нижній повертається до фону документа, верхній — до прозорого.
     clearAll() {
-      this.fillBackground();
+      if (this.isBaseLayerActive()) {
+        this.fillBackground();
+      } else {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      }
       state.objects = [];
       state.selectedObjectId = null;
       state.pendingObject = null;
@@ -386,8 +583,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     },
 
     // Єдине джерело правди для перетворення координат viewport <-> документ.
+    // Рахуємо від стопки, а не від полотна активного шару: прихований шар має нульовий rect.
     clientToDoc(clientX, clientY) {
-      const rect = this.canvas.getBoundingClientRect();
+      const rect = (this.stage || this.canvas).getBoundingClientRect();
       return {
         x: (clientX - rect.left) * (this.canvas.width / rect.width),
         y: (clientY - rect.top) * (this.canvas.height / rect.height)
@@ -395,7 +593,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     },
 
     docToClient(docX, docY) {
-      const rect = this.canvas.getBoundingClientRect();
+      const rect = (this.stage || this.canvas).getBoundingClientRect();
       return {
         x: rect.left + docX * (rect.width / this.canvas.width),
         y: rect.top + docY * (rect.height / this.canvas.height)
@@ -527,16 +725,19 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     floodFill(startX, startY) {
       if (!this.isInBounds(startX, startY)) return;
+      // Область шукаємо по видимому зображенню (як бачить учень), а кладемо фарбу в активний шар.
+      const merged = this.exportMergedCanvas({ flatten: false });
+      const source = merged.getContext('2d').getImageData(0, 0, merged.width, merged.height).data;
       const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
       const data = imageData.data;
       const width = this.canvas.width;
       const height = this.canvas.height;
       const startIndex = (startY * width + startX) * 4;
       const target = {
-        r: data[startIndex],
-        g: data[startIndex + 1],
-        b: data[startIndex + 2],
-        a: data[startIndex + 3]
+        r: source[startIndex],
+        g: source[startIndex + 1],
+        b: source[startIndex + 2],
+        a: source[startIndex + 3]
       };
       const fill = utils.hexToRgb(this.activeStrokeColor());
       if (target.r === fill.r && target.g === fill.g && target.b === fill.b && target.a === 255) return;
@@ -548,11 +749,11 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         const key = y * width + x;
         if (visited[key]) continue;
         const index = key * 4;
-        if (!this.colorMatches(data, index, target)) continue;
+        if (!this.colorMatches(source, index, target)) continue;
         let left = x;
         let right = x;
-        while (left > 0 && this.colorMatches(data, (y * width + (left - 1)) * 4, target)) left -= 1;
-        while (right < width - 1 && this.colorMatches(data, (y * width + (right + 1)) * 4, target)) right += 1;
+        while (left > 0 && this.colorMatches(source, (y * width + (left - 1)) * 4, target)) left -= 1;
+        while (right < width - 1 && this.colorMatches(source, (y * width + (right + 1)) * 4, target)) right += 1;
         for (let px = left; px <= right; px += 1) {
           const pos = y * width + px;
           const pxIndex = pos * 4;
@@ -563,11 +764,11 @@ window.ArtMalyunky = window.ArtMalyunky || {};
           visited[pos] = 1;
           if (y > 0) {
             const up = (y - 1) * width + px;
-            if (!visited[up] && this.colorMatches(data, up * 4, target)) stack.push([px, y - 1]);
+            if (!visited[up] && this.colorMatches(source, up * 4, target)) stack.push([px, y - 1]);
           }
           if (y < height - 1) {
             const down = (y + 1) * width + px;
-            if (!visited[down] && this.colorMatches(data, down * 4, target)) stack.push([px, y + 1]);
+            if (!visited[down] && this.colorMatches(source, down * 4, target)) stack.push([px, y + 1]);
           }
         }
       }
@@ -614,6 +815,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     // Робить зображення новим документом заданого розміру.
     placeImageAsDocument(image, targetW, targetH) {
+      this.resetToSingleLayer();
       this.setDocumentSize(targetW, targetH, { clear: true });
       this.ctx.drawImage(image, 0, 0, targetW, targetH);
       this.fitDocumentToViewport();
@@ -626,7 +828,9 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         ctx.fillStyle = state.document.background || '#ffffff';
         ctx.fillRect(0, 0, composite.width, composite.height);
       }
-      ctx.drawImage(this.canvas, 0, 0);
+      state.layers.forEach((layer) => {
+        if (layer.visible) ctx.drawImage(layer.canvas, 0, 0);
+      });
       this.renderObjectsToCanvas(ctx, state.objects);
       return composite;
     },
@@ -639,16 +843,21 @@ window.ArtMalyunky = window.ArtMalyunky || {};
 
     // Снапшот історії: растр як offscreen-canvas (СИНХРОННО, без PNG-кодування й async-декоду).
     snapshot() {
-      const raster = utils.createCanvas(this.canvas.width, this.canvas.height);
-      raster.getContext('2d').drawImage(this.canvas, 0, 0);
+      const layers = state.layers.map((layer) => {
+        const raster = utils.createCanvas(layer.canvas.width, layer.canvas.height);
+        raster.getContext('2d').drawImage(layer.canvas, 0, 0);
+        return { id: layer.id, name: layer.name, visible: layer.visible, raster };
+      });
       return {
         width: state.document.width,
         height: state.document.height,
         background: state.document.background,
         transparent: state.document.transparent,
-        raster,
+        layers,
+        activeLayerId: state.activeLayerId,
         objects: utils.deepClone(state.objects),
-        bytes: this.canvas.width * this.canvas.height * 4
+        // Бюджет історії рахує всі шари: два шари коштують удвічі більше за один.
+        bytes: this.canvas.width * this.canvas.height * 4 * Math.max(1, layers.length)
       };
     },
 
@@ -661,8 +870,18 @@ window.ArtMalyunky = window.ArtMalyunky || {};
           transparent: snapshot.transparent
         });
       }
-      this.fillBackground();
-      if (snapshot.raster) this.ctx.drawImage(snapshot.raster, 0, 0);
+      const layers = Array.isArray(snapshot.layers) ? snapshot.layers : null;
+      if (layers) {
+        this._rebuildLayers(layers.map((layer) => ({
+          name: layer.name,
+          visible: layer.visible,
+          draw: (ctx) => { if (layer.raster) ctx.drawImage(layer.raster, 0, 0); }
+        })), snapshot.activeLayerId);
+      } else {
+        this.resetToSingleLayer();
+        this.fillBackground();
+        if (snapshot.raster) this.ctx.drawImage(snapshot.raster, 0, 0);
+      }
       state.objects = utils.deepClone(snapshot.objects || []);
       state.pendingObject = null;
       state.selectedObjectId = null;
@@ -671,11 +890,41 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       this.drawSelectionOverlay();
     },
 
+    // Будує стопку шарів із опису: кількість елементів підганяється під опис, кожен шар
+    // отримує розмір документа, а малює його сам опис (знімок історії або dataURL файла).
+    _rebuildLayers(descriptors, activeLayerId) {
+      const list = descriptors.length ? descriptors : [{ name: constants.DEFAULT_LAYER_NAME, visible: true, draw: null }];
+      const base = this.resetToSingleLayer();
+      base.name = this._safeLayerName(list[0].name);
+      base.visible = list[0].visible !== false;
+      list.slice(1).forEach((item) => {
+        const layer = this._makeLayer(this._createLayerCanvas(), item.name, item.visible);
+        state.layers.push(layer);
+      });
+      state.layers.forEach((layer, index) => {
+        layer.canvas.width = state.document.width;
+        layer.canvas.height = state.document.height;
+        if (index === 0 && !list[0].draw) this.fillBackground();
+        if (typeof list[index].draw === 'function') list[index].draw(layer.ctx, layer);
+      });
+      const active = state.layers.find((layer) => layer.id === activeLayerId)
+        || state.layers.find((layer) => layer.visible)
+        || state.layers[0];
+      state.activeLayerId = active.id;
+      this._bindActiveLayer();
+      this._syncLayerElements();
+    },
+
     // Серіалізований стан для чернетки/проєкту (JSON-safe; растр як dataURL).
     toSerializable() {
       return {
         document: { ...state.document },
-        raster: this.canvas.toDataURL('image/png'),
+        layers: state.layers.map((layer) => ({
+          name: layer.name,
+          visible: layer.visible,
+          raster: layer.canvas.toDataURL('image/png')
+        })),
+        activeLayer: Math.max(0, this.activeLayerIndex()),
         objects: utils.deepClone(state.objects),
         settings: {
           currentTool: state.currentTool,
@@ -705,7 +954,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
           transparent: doc.transparent
         });
       }
-      await this.restoreRasterFromDataUrl(typeof data.raster === 'string' ? data.raster : null);
+      await this.restoreLayersFromData(data);
       state.objects = utils.deepClone(data.objects || []);
       const settings = data.settings || {};
       if (constants.TOOLS[settings.currentTool]) state.currentTool = settings.currentTool;
@@ -728,6 +977,32 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       state.selection = null;
       this.renderObjects();
       this.drawSelectionOverlay();
+    },
+
+    // Файли й чернетки до появи шарів несуть один `raster` — вони відкриваються як один шар.
+    async restoreLayersFromData(data) {
+      const list = Array.isArray(data.layers) && data.layers.length
+        ? data.layers
+        : [{ name: `${constants.DEFAULT_LAYER_NAME} 1`, visible: true, raster: typeof data.raster === 'string' ? data.raster : null }];
+      const images = await Promise.all(list.map((layer) => (
+        typeof layer.raster === 'string' && layer.raster
+          ? this.decodeImage(layer.raster).catch(() => null)
+          : Promise.resolve(null)
+      )));
+      this._rebuildLayers(list.map((layer, index) => ({
+        name: layer.name,
+        visible: layer.visible !== false,
+        draw: (ctx) => {
+          if (index === 0) this.fillBackground();
+          if (images[index]) ctx.drawImage(images[index], 0, 0);
+        }
+      })), null);
+      const activeIndex = Number.isInteger(data.activeLayer) ? data.activeLayer : state.layers.length - 1;
+      const active = state.layers[utils.clamp(activeIndex, 0, state.layers.length - 1)];
+      if (active) {
+        state.activeLayerId = active.id;
+        this._bindActiveLayer();
+      }
     },
 
     async restoreRasterFromDataUrl(dataUrl) {

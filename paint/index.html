@@ -150,6 +150,12 @@
         <div class="menu-sep"></div>
         <button class="menu-item" data-action="flip-h"><span><i class="fa-solid fa-arrows-left-right fa-fw"></i> Відзеркалити горизонтально</span></button>
         <button class="menu-item" data-action="flip-v"><span><i class="fa-solid fa-arrows-up-down fa-fw"></i> Відзеркалити вертикально</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="toggle-layers"><span><i class="fa-solid fa-layer-group fa-fw"></i> Панель «Шари»</span></button>
+        <button class="menu-item" data-action="layer-add"><span><i class="fa-solid fa-plus fa-fw"></i> Новий шар</span></button>
+        <button class="menu-item" data-action="layer-delete"><span><i class="fa-solid fa-trash fa-fw"></i> Видалити шар</span></button>
+        <button class="menu-item" data-action="layer-rename"><span><i class="fa-solid fa-i-cursor fa-fw"></i> Перейменувати шар…</span></button>
+        <button class="menu-item" data-action="layer-flatten"><span><i class="fa-solid fa-compress fa-fw"></i> Звести шари</span></button>
       </div>
     </div>
 
@@ -184,8 +190,10 @@
       </div>
 
       <div class="rail-group rail-panel-toggle">
+        <button id="layersToggleBtn" class="rail-btn" type="button" data-action="toggle-layers" aria-pressed="false" aria-controls="propertiesPanel" title="Шари: порядок і видимість"><i class="fa-solid fa-layer-group"></i><span>Шари</span></button>
         <button id="panelToggleBtn" class="rail-btn" type="button" data-action="toggle-panel" aria-expanded="true" aria-controls="propertiesPanel" title="Згорнути панель параметрів (Ctrl+\)"><i id="panelToggleIcon" class="fa-solid fa-chevron-left"></i><span>Панель</span></button>
       </div>
+
     </aside>
 
     <aside id="propertiesPanel" class="properties-panel" aria-label="Параметри інструмента">
@@ -239,6 +247,23 @@
         </label>
       </div>
 
+      </div>
+
+      <!-- Режим «Шари»: список іде згори вниз, як бачить учень; малювання йде в обраний рядок. -->
+      <div id="layersPanel" class="layers-panel" aria-label="Шари малюнка" hidden>
+        <div class="prop-head">
+          <div class="prop-title">Шари</div>
+          <div class="prop-head-actions">
+            <button id="layerAddBtn" class="mini-btn" type="button" data-action="layer-add" title="Додати шар" aria-label="Додати шар"><i class="fa-solid fa-plus"></i></button>
+          </div>
+        </div>
+        <ul id="layerList" class="layer-list" aria-label="Список шарів"></ul>
+        <div class="panel-actions-grid layer-actions">
+          <button id="layerUpBtn" class="panel-action" type="button" data-action="layer-up" title="Підняти шар" aria-label="Підняти шар"><i class="fa-solid fa-arrow-up"></i><span>Вище</span></button>
+          <button id="layerDownBtn" class="panel-action" type="button" data-action="layer-down" title="Опустити шар" aria-label="Опустити шар"><i class="fa-solid fa-arrow-down"></i><span>Нижче</span></button>
+          <button id="layerRenameBtn" class="panel-action" type="button" data-action="layer-rename" title="Перейменувати шар" aria-label="Перейменувати шар"><i class="fa-solid fa-i-cursor"></i><span>Назва…</span></button>
+          <button id="layerDeleteBtn" class="panel-action" type="button" data-action="layer-delete" title="Видалити шар" aria-label="Видалити шар"><i class="fa-solid fa-trash"></i><span>Видалити</span></button>
+        </div>
       </div>
 
       <div class="panel-common">
@@ -299,6 +324,7 @@
         </div>
       </div>
       </div>
+
     </aside>
 
     <main class="workspace office-workspace office-workspace-focusable" tabindex="0">

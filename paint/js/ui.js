@@ -91,6 +91,16 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         importFileInput: utils.$('importFileInput'),
         projectFileInput: utils.$('projectFileInput'),
 
+        layersPanel: utils.$('layersPanel'),
+        layersToggleBtn: utils.$('layersToggleBtn'),
+        propertiesPanel: utils.$('propertiesPanel'),
+        layerList: utils.$('layerList'),
+        layerAddBtn: utils.$('layerAddBtn'),
+        layerUpBtn: utils.$('layerUpBtn'),
+        layerDownBtn: utils.$('layerDownBtn'),
+        layerRenameBtn: utils.$('layerRenameBtn'),
+        layerDeleteBtn: utils.$('layerDeleteBtn'),
+
         drawingCanvas: utils.$('drawingCanvas'),
         guideCanvas: utils.$('guideCanvas'),
         objectLayer: utils.$('objectLayer'),
@@ -505,6 +515,88 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       });
     },
 
+    // Панель має два режими: параметри інструмента й «Шари». Список живе в тій самій
+    // панелі, тож на вузькому екрані він так само відкривається як drawer.
+    setLayersMode(on) {
+      const active = !!on;
+      document.body.classList.toggle('panel-layers', active);
+      if (this.elements.layersPanel) this.elements.layersPanel.hidden = !active;
+      this.elements.propertiesPanel?.setAttribute('aria-label', active ? 'Шари малюнка' : 'Параметри інструмента');
+      const button = this.elements.layersToggleBtn;
+      if (button) {
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+      }
+      if (active) this.renderLayerList();
+    },
+
+    layersMode() {
+      return document.body.classList.contains('panel-layers');
+    },
+
+    // Список шарів: зверху — те, що лежить зверху на малюнку. Назва йде лише в textContent,
+    // бо її може задати учень або чужий файл.
+    renderLayerList() {
+      const list = this.elements.layerList;
+      const canvasApi = window.ArtMalyunky.canvasApi;
+      if (!list || !canvasApi) return;
+      const layers = canvasApi.layerList();
+      const activeId = state.activeLayerId;
+      const focused = document.activeElement;
+      const focusId = list.contains(focused) ? focused.closest('[data-layer-id]')?.dataset.layerId : null;
+      const focusAction = focusId ? focused.dataset.layerAction : null;
+
+      const rows = [];
+      for (let index = layers.length - 1; index >= 0; index -= 1) {
+        rows.push(this.layerRow(layers[index], index, activeId));
+      }
+      list.replaceChildren(...rows);
+
+      const activeIndex = layers.findIndex((layer) => layer.id === activeId);
+      const { layerAddBtn, layerUpBtn, layerDownBtn, layerDeleteBtn } = this.elements;
+      if (layerAddBtn) layerAddBtn.disabled = layers.length >= constants.MAX_LAYERS;
+      if (layerUpBtn) layerUpBtn.disabled = activeIndex < 0 || activeIndex === layers.length - 1;
+      if (layerDownBtn) layerDownBtn.disabled = activeIndex <= 0;
+      if (layerDeleteBtn) layerDeleteBtn.disabled = layers.length <= 1;
+
+      if (focusId) {
+        rows.find((row) => row.dataset.layerId === focusId)
+          ?.querySelector(`[data-layer-action="${focusAction}"]`)?.focus();
+      }
+    },
+
+    layerRow(layer, index, activeId) {
+      const row = document.createElement('li');
+      row.className = 'layer-row';
+      row.dataset.layerId = layer.id;
+      row.classList.toggle('active', layer.id === activeId);
+      row.classList.toggle('is-hidden', !layer.visible);
+
+      const select = document.createElement('button');
+      select.type = 'button';
+      select.className = 'layer-name';
+      select.dataset.layerAction = 'select';
+      select.dataset.layerId = layer.id;
+      select.textContent = layer.name;
+      select.title = layer.id === activeId ? `${layer.name} — активний шар` : `Малювати в «${layer.name}»`;
+      select.setAttribute('aria-pressed', layer.id === activeId ? 'true' : 'false');
+
+      const visibility = document.createElement('button');
+      visibility.type = 'button';
+      visibility.className = 'layer-visibility';
+      visibility.dataset.layerAction = 'visibility';
+      visibility.dataset.layerId = layer.id;
+      visibility.setAttribute('aria-pressed', layer.visible ? 'true' : 'false');
+      visibility.title = layer.visible ? `Сховати «${layer.name}»` : `Показати «${layer.name}»`;
+      visibility.setAttribute('aria-label', visibility.title);
+      const icon = document.createElement('i');
+      icon.className = layer.visible ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+      visibility.appendChild(icon);
+
+      row.append(visibility, select);
+      return row;
+    },
+
     updateDetailStatus(selectedObject = null) {
       if (!selectedObject && state.selectedObjectId && window.ArtMalyunky.canvasApi?.getObjectById) {
         selectedObject = window.ArtMalyunky.canvasApi.getObjectById(state.selectedObjectId);
@@ -604,6 +696,45 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         };
         this.elements.modalConfirm.addEventListener('click', () => cleanup(true), { once: true });
         this.elements.modalCancel.addEventListener('click', () => cleanup(false), { once: true });
+      });
+    },
+
+    // Коротке поле для назви шару: те саме вікно, що й підтвердження, плюс один <input>.
+    showPromptModal(title, text, value = '', { confirmText = 'Застосувати', maxLength = 40 } = {}) {
+      return new Promise((resolve) => {
+        const { modalIcon, modalTitle, modalText, modalCancel, modalConfirm, modalOverlay } = this.elements;
+        modalIcon.textContent = '✏️';
+        modalTitle.textContent = title;
+        modalText.textContent = text;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'modal-input';
+        input.value = value;
+        input.maxLength = maxLength;
+        input.setAttribute('aria-label', text || title);
+        modalText.after(input);
+        modalCancel.classList.remove('hidden');
+        modalConfirm.textContent = confirmText;
+        modalOverlay.classList.remove('hidden');
+        modalOverlay.classList.add('active');
+        modalOverlay.setAttribute('aria-hidden', 'false');
+        const cleanup = (result) => {
+          input.remove();
+          modalOverlay.classList.add('hidden');
+          modalOverlay.classList.remove('active');
+          modalOverlay.setAttribute('aria-hidden', 'true');
+          resolve(result);
+        };
+        modalConfirm.addEventListener('click', () => cleanup(input.value.trim()), { once: true });
+        modalCancel.addEventListener('click', () => cleanup(null), { once: true });
+        input.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            modalConfirm.click();
+          }
+        });
+        input.focus();
+        input.select();
       });
     },
 

@@ -48,10 +48,20 @@
 
 Не дробити `canvas.js` на shape/math/render файли, доки не з'явиться реальна потреба. Для графічного редактора canvas API може залишатися більшим модулем, якщо він має цілісну відповідальність і покритий smoke-тестами.
 
+## Decisions 2026-09-16 — пілот растрових шарів
+
+- Шар — окремий `<canvas>` у стопці `.canvas-stage`. Зображення складає браузер; окремого кроку compositing для екрана немає, а `canvasApi.canvas/ctx` вказують на активний шар, тож інструменти не змінювалися.
+- Модель `.malyunok` піднялася до версії 2: `layers: [{ name, visible, raster }]` замість одного `raster`. Версія 1 приймається й відкривається як один шар; валідатор перевіряє кожен растр і сумарну довжину.
+- Фон документа живе в нижньому шарі. Це тримає прозорість верхніх шарів чесною й не потребує окремого «шару фону».
+- Перетворення документа (розмір, обрізання, поворот, віддзеркалення) йдуть через `_transformLayers`: копія кожного шару → нова геометрія → малюємо назад. Інакше поворот чіпав би лише активний шар.
+- Історія лишилася canvas-снапшотами, але тепер знімає всі шари; `bytes` множиться на кількість шарів, тож memory budget тримає ту саму межу пам'яті. Через це кількість шарів обмежена п'ятьма.
+- Панель «Шари» згортається, поки шар один: інакше панель параметрів перестає вміщатися на 768px заввишки (`tests/paint-behavior.html` це перевіряє).
+- Свідомо поза пілотом: прозорість шару, режими накладання, об'єднання з нижнім, перетягування рядків мишею, окремі шари для тимчасових об'єктів.
+
 ## Decisions 2026-06-28
 
 - `.malyunok` is the working lesson file for Paint: raster-first, but not raster-only. It stores the visible raster plus a small editable state (`objects` and current tool settings) through `canvasApi.toSerializable()`. PNG/JPG remain the flat exchange/export formats.
-- Paint does not introduce full layers at this stage. Confirmed drawing stays raster; only lightweight, not-yet-flattened objects such as active shapes/stamps are restored as editable project state.
+- Paint does not introduce full layers at this stage. Confirmed drawing stays raster; only lightweight, not-yet-flattened objects such as active shapes/stamps are restored as editable project state. **Superseded on 2026-09-16 by the raster layer pilot below**; temporary shapes/stamps still flatten into the active layer.
 - The left sidebar should prioritize drawing tools. Visible duplicates of file/export/print/clear commands stay in the main menu; the rail keeps only Save, Undo, Redo, and labeled drawing tools. Hidden standard-command proxies remain only to satisfy the shared shell command contract.
 - History remains full canvas snapshots with a memory budget for now. Region/diff history is deferred until performance evidence shows that the current model is a real classroom blocker.
 - Image scaling now has classroom-friendly options: keep aspect ratio and choose smooth scaling or crisp pixels. Plain canvas resize stays a separate command.

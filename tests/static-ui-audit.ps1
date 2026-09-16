@@ -1770,6 +1770,16 @@ foreach ($service in $services) {
   $styleAttributes = [regex]::Matches($serviceHtml, '<[^>]+\sstyle="').Count
   Assert-True ($styleAttributes -eq 0) "$($service.Path)/index.html: inline style attributes must stay out of the editor shell (found $styleAttributes)"
 }
+
+# Растрові шари Малюнків: модель, панель і перевірка мають лишатися разом.
+$paintCanvasSource = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'paint/js/canvas.js')
+Assert-True ($paintCanvasSource -match 'resetToSingleLayer') 'paint/js/canvas.js: the raster layer stack is required'
+Assert-True ($paintCanvasSource -match '_transformLayers') 'paint/js/canvas.js: document transforms must run over every layer'
+Assert-True ($paintCanvasSource -match 'restoreLayersFromData') 'paint/js/canvas.js: files without layers must still open'
+$paintShellHtml = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'paint/index.html')
+Assert-True ($paintShellHtml -match 'id="layerList"') 'paint/index.html: the layers panel is required'
+Assert-True (Test-Path (Join-Path $Root 'tests/paint-layers-behavior.html')) 'tests/paint-layers-behavior.html: the layers smoke page is required'
+Assert-True ($browserSmokeRunner -match 'paint-layers-behavior\.html') 'tests/run-browser-smoke.ps1: the layers smoke page must run'
 $officeUiSource = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'office-ui.js')
 $shellOverrides = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'shell-overrides.css')
 Assert-True ($officeUiSource -match 'bindResponsiveToolbars') 'office-ui.js: Text/Slides responsive toolbar enhancer is required'

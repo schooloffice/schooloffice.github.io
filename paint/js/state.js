@@ -48,6 +48,10 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     lastPointer: { x: 0, y: 0 },
     pointerId: null,
 
+    // Растрові шари: описи з посиланням на власний <canvas>. Знизу вгору.
+    layers: [],
+    activeLayerId: null,
+
     objects: [],
     selectedObjectId: null,
     pendingObject: null,

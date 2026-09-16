@@ -243,6 +243,31 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       };
     }
 
+    const RASTER_DATA_URL = /^data:image\/(png|jpeg|webp);base64,/;
+
+    // Повертає масив шарів, [] для файлів без шарів або null, якщо файл не можна приймати.
+    function validateProjectLayers(rawLayers) {
+      if (rawLayers === undefined || rawLayers === null) return [];
+      if (!Array.isArray(rawLayers)) return null;
+      if (rawLayers.length > constants.MAX_LAYERS) return null;
+      const layers = [];
+      let totalRaster = 0;
+      for (const raw of rawLayers) {
+        if (!raw || typeof raw !== 'object') return null;
+        const raster = typeof raw.raster === 'string' ? raw.raster : '';
+        if (raster && !RASTER_DATA_URL.test(raster)) return null;
+        totalRaster += raster.length;
+        if (totalRaster > constants.MAX_RASTER_DATAURL) return null;
+        const name = typeof raw.name === 'string' ? raw.name.replace(/[\u0000-\u001f]/g, ' ').trim() : '';
+        layers.push({
+          name: (name || constants.DEFAULT_LAYER_NAME).slice(0, constants.MAX_LAYER_NAME),
+          visible: raw.visible !== false,
+          raster: raster || null
+        });
+      }
+      return layers;
+    }
+
     function validateProjectObjects(rawObjects, width, height) {
       if (!Array.isArray(rawObjects)) return [];
       return rawObjects
@@ -254,7 +279,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
     function validateProject(obj) {
       if (!obj || typeof obj !== 'object') return null;
       if (obj.format !== constants.PROJECT_FORMAT) return null;
-      if (!Number.isInteger(obj.version) || obj.version !== constants.PROJECT_VERSION) return null;
+      if (!Number.isInteger(obj.version) || obj.version < 1 || obj.version > constants.PROJECT_VERSION) return null;
       const projectData = obj.canvas && typeof obj.canvas === 'object' ? obj.canvas : obj;
       const docData = projectData.document;
       if (!docData || typeof docData !== 'object') return null;
@@ -265,8 +290,11 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       if (height < constants.MIN_DOC_DIMENSION || height > constants.MAX_DOC_DIMENSION) return null;
       if (width * height > constants.MAX_DOC_PIXELS) return null;
       const raster = typeof projectData.raster === 'string' ? projectData.raster : '';
-      if (raster && !/^data:image\/(png|jpeg|webp);base64,/.test(raster)) return null;
+      if (raster && !RASTER_DATA_URL.test(raster)) return null;
       if (raster.length > constants.MAX_RASTER_DATAURL) return null;
+      // Шари: та сама перевірка растру для кожного, плюс межа кількості й сумарної довжини.
+      const layers = validateProjectLayers(projectData.layers);
+      if (layers === null) return null;
       const documentData = {
         width,
         height,
@@ -276,6 +304,10 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       return {
         canvas: {
           document: documentData,
+          layers,
+          activeLayer: Number.isInteger(projectData.activeLayer)
+            ? utils.clamp(projectData.activeLayer, 0, Math.max(0, (layers ? layers.length : 1) - 1))
+            : null,
           raster: raster || null,
           objects: validateProjectObjects(projectData.objects, width, height),
           settings: validateProjectSettings(projectData.settings)
@@ -332,6 +364,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         canvasApi.drawSelectionOverlay();
         canvasApi.fitDocumentToViewport();
         ui.updateFileNameUI();
+        ui.renderLayerList();
         ui.updateCanvasInfo(state.document.width, state.document.height);
         ui.updateToolUI();
         ui.updateShapeUI();
