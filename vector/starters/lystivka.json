@@ -1,0 +1,24 @@
+{
+  "format": "art-vector-project",
+  "version": 2,
+  "fileName": "Листівка",
+  "canvasWidth": 1200,
+  "canvasHeight": 700,
+  "guideMode": "none",
+  "snapToGrid": true,
+  "currentTool": "select",
+  "currentStroke": "#1f2937",
+  "currentFill": "none",
+  "currentStrokeWidth": 3,
+  "currentOpacity": 100,
+  "currentFontSize": 32,
+  "objects": [
+    { "id": "card", "type": "rect", "x": 80, "y": 60, "w": 1040, "h": 580, "stroke": "#0f766e", "fill": "#f0fdfa", "strokeWidth": 8, "opacity": 100, "name": "Листівка" },
+    { "id": "star_big", "type": "star", "x": 150, "y": 120, "w": 180, "h": 180, "stroke": "#b45309", "fill": "#fbbf24", "strokeWidth": 4, "opacity": 100, "name": "Велика зірка" },
+    { "id": "star_small", "type": "star", "x": 180, "y": 430, "w": 110, "h": 110, "stroke": "#be185d", "fill": "#f9a8d4", "strokeWidth": 4, "opacity": 100, "name": "Мала зірка" },
+    { "id": "balloon", "type": "ellipse", "x": 910, "y": 110, "w": 120, "h": 150, "stroke": "#1d4ed8", "fill": "#93c5fd", "strokeWidth": 4, "opacity": 100, "name": "Кулька" },
+    { "id": "balloon_string", "type": "line", "x1": 970, "y1": 260, "x2": 950, "y2": 400, "stroke": "#1d4ed8", "fill": "none", "strokeWidth": 3, "opacity": 100, "name": "Нитка" },
+    { "id": "title", "type": "text", "x": 380, "y": 250, "fontSize": 88, "text": "Вітаємо!", "stroke": "#0f172a", "fill": "#0f172a", "strokeWidth": 1, "opacity": 100, "name": "Заголовок" },
+    { "id": "subtitle", "type": "text", "x": 380, "y": 400, "fontSize": 36, "text": "Змініть текст, кольори й фігури", "stroke": "#334155", "fill": "#334155", "strokeWidth": 0.5, "opacity": 100, "name": "Підпис" }
+  ]
+}

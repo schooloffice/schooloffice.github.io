@@ -52,6 +52,7 @@
       exportSvg,
       selectAllShapes,
       arrangeSelected,
+      openStarter,
     } = options || {};
 
     function triggerShapeButton(type) {
@@ -135,6 +136,9 @@
           break;
         case 'fit-diagram':
           fitDiagram?.();
+          break;
+        case 'open-starter':
+          openStarter?.();
           break;
         case 'open-templates':
           openTemplates?.();

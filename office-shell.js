@@ -23,10 +23,21 @@
     return typeof boot === 'function' ? boot() : undefined;
   }
 
+  // Стартовий документ (E2): локальний файл редактора з прекешу sw.js. Повертає File, який редактор
+  // відкриває тим самим шляхом, що й файл користувача, — з тими самими перевірками, лімітами й
+  // підтвердженням заміни. Помилка мережі чи відсутній кеш — виняток для повідомлення учневі.
+  async function loadStarterFile(path, fileName, type = '') {
+    const response = await fetch(path);
+    if (!response.ok) throw new Error(`Приклад недоступний (HTTP ${response.status})`);
+    const blob = await response.blob();
+    return new File([blob], fileName, { type: type || blob.type });
+  }
+
   window.OfficeShell = {
     runCommand,
     openFilePicker,
     registerCommands,
-    bootEditor
+    bootEditor,
+    loadStarterFile
   };
 }());

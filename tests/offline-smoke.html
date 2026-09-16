@@ -13,6 +13,14 @@
     const DATASETS = { partial: 'offlinePartial', prime: 'offlinePrime', update: 'offlineUpdate', offline: 'offlineSmoke' };
     const editors = ['text', 'tables', 'slides', 'paint', 'vector', 'flowcharts'];
     const pages = ['../index.html', '../text/index.html', '../tables/index.html', '../slides/index.html', '../paint/index.html', '../vector/index.html', '../flowcharts/index.html'];
+    const STARTERS = [
+      '../text/starters/zvit-pro-sposterezhennia.docx',
+      '../tables/starters/vytraty-na-poizdku.json',
+      '../slides/starters/moia-prezentatsiia.artslides.json',
+      '../paint/starters/malyunok-z-fihur.malyunok.json',
+      '../vector/starters/lystivka.json',
+      '../flowcharts/starters/chy-braty-parasolku.json'
+    ];
     // Файл, який сервер у фазах partial і update віддає як 404 (run-offline-smoke.ps1).
     const FAILED_ASSET = './vector/js/app.js';
 
@@ -122,6 +130,13 @@
         cache: 'no-store'
       })));
       if (responses.some(response => !response.ok)) throw new Error('one or more editor pages are unavailable');
+      // Стартові документи (E2) мають відкриватися й без мережі.
+      if (phase === 'offline') {
+        const starterResponses = await Promise.all(STARTERS.map(path => fetch(path).catch(() => null)));
+        const missingStarters = STARTERS.filter((path, index) => !starterResponses[index]?.ok);
+        if (missingStarters.length) throw new Error(`starter documents are unavailable offline: ${missingStarters.join(', ')}`);
+        return 'core, all six editors and their starter documents are offline-ready';
+      }
       return 'core and all six editors are offline-ready';
     }
 

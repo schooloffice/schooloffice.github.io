@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office PLUS Starter Documents Smoke A</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+    iframe { position: fixed; left: 0; top: 0; width: 1366px; height: 768px; border: 0; opacity: .01; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <h1>Office PLUS Starter Documents Smoke A</h1>
+  <pre id="result">Running...</pre>
+  <script>
+    // E2: стартові документи Тексту, Таблиць і Слайдів. Для кожного: пункт «Файл → Відкрити приклад»,
+    // відкриття на чистому документі без питань, підтвердження й скасування при незбережених змінах,
+    // збереження в рідному форматі з вмістом прикладу. Малюнки, Вектор і Схеми — у starters-b-behavior.html.
+    const result = document.getElementById('result');
+    const lines = [];
+    const failures = [];
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const expect = (name, ok, detail = '') => {
+      const line = `${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` (${detail})` : ''}`;
+      lines.push(line);
+      if (!ok) failures.push(line);
+    };
+
+    async function waitUntil(predicate, timeout = 6000) {
+      const start = performance.now();
+      while (performance.now() - start < timeout) {
+        let ok = false;
+        try { ok = !!predicate(); } catch { ok = false; }
+        if (ok) return true;
+        await wait(50);
+      }
+      try { return !!predicate(); } catch { return false; }
+    }
+
+    async function loadEditor(service) {
+      const frame = document.createElement('iframe');
+      document.body.appendChild(frame);
+      const loaded = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${service}: load timeout`)), 10000);
+        frame.addEventListener('load', () => { clearTimeout(timer); resolve(); }, { once: true });
+      });
+      frame.src = `../${service}/index.html?starter-smoke=1`;
+      await loaded;
+      await waitUntil(() => frame.contentDocument?.body?.classList.contains('office-app') && frame.contentWindow.OfficeShell?.loadStarterFile);
+      // Кадри в прихованому iframe під --virtual-time-budget ненадійні: rAF підставляє таймер.
+      frame.contentWindow.requestAnimationFrame = callback => frame.contentWindow.setTimeout(() => callback(performance.now()), 16);
+      return frame;
+    }
+
+    function captureDownloads(win) {
+      const downloads = [];
+      const blobs = new Map();
+      const originalCreate = win.URL.createObjectURL;
+      const originalClick = win.HTMLAnchorElement.prototype.click;
+      win.URL.createObjectURL = function captureUrl(blob) {
+        const url = originalCreate.call(win.URL, blob);
+        blobs.set(url, blob);
+        return url;
+      };
+      win.HTMLAnchorElement.prototype.click = function captureClick() {
+        if (this.download) {
+          downloads.push({ name: this.download, blob: blobs.get(this.href) || null });
+          return undefined;
+        }
+        return originalClick.call(this);
+      };
+      return {
+        downloads,
+        restore() {
+          win.URL.createObjectURL = originalCreate;
+          win.HTMLAnchorElement.prototype.click = originalClick;
+        }
+      };
+    }
+
+    const fileMenuHasStarter = doc => !!doc.querySelector('.menu-dropdown[data-menu="file"] .menu-item[data-action="open-starter"]');
+    const menu = (doc, action) => doc.querySelector(`.menu-item[data-action="${action}"]`).click();
+    const active = element => !!element && element.classList.contains('active');
+
+    async function checkText() {
+      const frame = await loadEditor('text');
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      const capture = captureDownloads(win);
+      try {
+        await Promise.race([win.TextApp?.ready, wait(4000)]);
+        await waitUntil(() => doc.querySelector('#editor .page-content'));
+        expect('text: File menu offers «Відкрити приклад»', fileMenuHasStarter(doc));
+        const editor = () => doc.getElementById('editor');
+        const confirmModal = doc.getElementById('modalConfirm');
+
+        menu(doc, 'open-starter');
+        // Розбір .docx (mammoth) у першому завантаженні займає кілька секунд, особливо поки service worker
+        // паралельно кешує пакет.
+        const opened = await waitUntil(() => editor().querySelector('h1')?.textContent.trim() === 'Звіт про спостереження за погодою'
+          && editor().querySelectorAll('table tr').length === 6 && editor().querySelectorAll('ol li').length === 3, 15000);
+        expect('text: starter .docx opens on a clean document without a question',
+          opened && !active(confirmModal) && doc.getElementById('fileName')?.textContent.trim() === 'Звіт про спостереження',
+          `h1=${editor().querySelector('h1')?.textContent.trim()} file=${doc.getElementById('fileName')?.textContent.trim()}`);
+
+        const paragraph = [...editor().querySelectorAll('p')].find(node => node.textContent.includes('Протягом тижня'));
+        const range = doc.createRange();
+        range.selectNodeContents(paragraph);
+        range.collapse(false);
+        win.getSelection().removeAllRanges();
+        win.getSelection().addRange(range);
+        editor().focus();
+        doc.execCommand('insertText', false, ' Моя правка.');
+        editor().dispatchEvent(new win.Event('input', { bubbles: true }));
+        await wait(700);
+        menu(doc, 'open-starter');
+        const asked = await waitUntil(() => active(confirmModal), 3000);
+        expect('text: unsaved changes ask before the starter replaces the document',
+          asked && /приклад/i.test(confirmModal.textContent), confirmModal.textContent.trim().slice(0, 80));
+        confirmModal.querySelector('[data-confirm-choice="no"]')?.click();
+        await wait(300);
+        expect('text: cancelling keeps the edited document', editor().textContent.includes('Моя правка.') && !active(confirmModal));
+
+        capture.downloads.length = 0;
+        menu(doc, 'save-docx');
+        await waitUntil(() => active(confirmModal) || capture.downloads.length > 0, 4000);
+        if (active(confirmModal)) confirmModal.querySelector('[data-confirm-choice="yes"]')?.click();
+        const saved = await waitUntil(() => capture.downloads.length > 0, 6000);
+        const file = capture.downloads[0];
+        expect('text: the starter saves as an ordinary .docx', saved && file.name === 'Звіт про спостереження.docx' && file.blob?.size > 1000,
+          file ? `${file.name} ${file.blob?.size}B` : 'no download');
+      } finally {
+        capture.restore();
+        frame.remove();
+      }
+    }
+
+    async function checkTables() {
+      const frame = await loadEditor('tables');
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      const capture = captureDownloads(win);
+      try {
+        await waitUntil(() => doc.getElementById('inp_A1'));
+        const cell = id => doc.getElementById(`inp_${id}`);
+        const confirmModal = doc.getElementById('confirmModal');
+        expect('tables: File menu offers «Відкрити приклад» and the old Help example is gone',
+          fileMenuHasStarter(doc) && !doc.querySelector('[data-action="example"]'));
+
+        menu(doc, 'open-starter');
+        const opened = await waitUntil(() => cell('D9')?.value === '6375' && cell('D10')?.value === '255');
+        expect('tables: starter workbook opens with working formulas',
+          opened && !active(confirmModal) && doc.getElementById('fileName')?.textContent.trim() === 'Витрати на поїздку' && cell('A1').value === 'Витрати класу на поїздку до музею',
+          `D9=${cell('D9')?.value} D10=${cell('D10')?.value}`);
+
+        menu(doc, 'open-starter');
+        const asked = await waitUntil(() => active(confirmModal), 3000);
+        expect('tables: a workbook with data asks before it is replaced', asked && /Витрати на поїздку/.test(doc.getElementById('confirmText')?.textContent || ''));
+        confirmModal.querySelector('[data-close-modal="confirmModal"]')?.click();
+        await wait(200);
+        expect('tables: cancelling keeps the workbook', !active(confirmModal) && cell('D9')?.value === '6375');
+
+        capture.downloads.length = 0;
+        menu(doc, 'save-workbook');
+        const saved = await waitUntil(() => capture.downloads.length > 0, 4000);
+        const file = capture.downloads[0];
+        let payload = null;
+        try { payload = file?.blob ? JSON.parse(await file.blob.text()) : null; } catch { payload = null; }
+        expect('tables: the starter saves as .arttab with its formulas',
+          saved && file.name === 'Витрати на поїздку.arttab' && payload?.sheets?.[0]?.cellData?.D9 === '=SUM(D4:D7)',
+          file ? file.name : 'no download');
+      } finally {
+        capture.restore();
+        frame.remove();
+      }
+    }
+
+    async function checkSlides() {
+      const frame = await loadEditor('slides');
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      const capture = captureDownloads(win);
+      try {
+        await waitUntil(() => doc.querySelectorAll('[data-slide-id]').length > 0, 8000);
+        const slides = () => doc.querySelectorAll('.slide-list [data-slide-id], #slideList [data-slide-id]').length || doc.querySelectorAll('[data-slide-id]').length;
+        const overlay = doc.getElementById('modalOverlay');
+        expect('slides: File menu offers «Відкрити приклад»', fileMenuHasStarter(doc));
+
+        menu(doc, 'open-starter');
+        const opened = await waitUntil(() => slides() === 3 && doc.body.textContent.includes('Назва теми презентації'));
+        expect('slides: starter presentation opens on a clean document without a question', opened && !active(overlay), `slides=${slides()}`);
+
+        doc.querySelector('[data-action="new-slide"]')?.click();
+        await waitUntil(() => slides() === 4, 3000);
+        menu(doc, 'open-starter');
+        const asked = await waitUntil(() => active(overlay) && doc.getElementById('modalTitle')?.textContent.trim() === 'Відкрити приклад', 3000);
+        expect('slides: unsaved changes ask before the starter replaces the presentation', asked, doc.getElementById('modalTitle')?.textContent.trim());
+        doc.getElementById('modalCancel')?.click();
+        await wait(300);
+        expect('slides: cancelling keeps the edited presentation', !active(overlay) && slides() === 4, `slides=${slides()}`);
+        menu(doc, 'open-starter');
+        await waitUntil(() => active(overlay), 3000);
+        doc.getElementById('modalConfirm')?.click();
+        expect('slides: confirming replaces it with the starter', await waitUntil(() => slides() === 3, 4000), `slides=${slides()}`);
+
+        capture.downloads.length = 0;
+        menu(doc, 'save-project');
+        const saved = await waitUntil(() => capture.downloads.length > 0, 4000);
+        const file = capture.downloads[0];
+        let payload = null;
+        try { payload = file?.blob ? JSON.parse(await file.blob.text()) : null; } catch { payload = null; }
+        expect('slides: the starter saves as .artslides.json with three slides',
+          saved && /\.artslides\.json$/.test(file.name) && payload?.slides?.length === 3 && payload.fileName === 'Моя презентація',
+          file ? file.name : 'no download');
+      } finally {
+        capture.restore();
+        frame.remove();
+      }
+    }
+
+    async function run() {
+      for (const check of [checkText, checkTables, checkSlides]) {
+        try {
+          await check();
+        } catch (error) {
+          expect(`${check.name} completed without an exception`, false, String(error?.stack || error).slice(0, 300));
+        }
+      }
+      result.className = failures.length ? 'fail' : 'pass';
+      result.textContent = `${lines.join('\n')}\n\n${failures.length ? 'FAILED' : 'PASSED'}`;
+      document.body.dataset.startersA = failures.length ? 'failed' : 'passed';
+    }
+
+    run().catch(error => {
+      result.className = 'fail';
+      result.textContent = `${String(error?.stack || error)}\n\n${lines.join('\n')}`;
+      document.body.dataset.startersA = 'failed';
+    });
+  </script>
+</body>
+</html>

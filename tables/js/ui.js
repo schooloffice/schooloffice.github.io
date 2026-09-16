@@ -307,7 +307,7 @@ function dispatchUiAction(action) {
     case 'zoom-100': setZoom(100); break;
     case 'zoom-115': setZoom(115); break;
     case 'zoom-130': setZoom(130); break;
-    case 'example': askConfirm('Завантажити навчальний приклад? Поточні дані буде перезаписано.', loadExample, 'Завантажити'); break;
+    case 'open-starter': TablesWorkbookFile.openStarterWorkbook(); break;
     case 'shortcuts': showInfoModal('Клавіатурні скорочення', `Ctrl+S — зберегти .arttab
 Ctrl+O — відкрити .arttab
 Ctrl+N — нова таблиця

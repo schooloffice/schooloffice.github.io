@@ -1522,6 +1522,7 @@ function dispatchAction(action, trigger = null) {
   switch (action) {
     case 'new-project': runOfficeCommand('new') || confirmNewProject(); break;
     case 'open-project': runOfficeCommand('open') || openProjectPicker(); break;
+    case 'open-starter': openStarterPresentation(); break;
     case 'import-pptx': openPptxPicker(); break;
     case 'save-project': runOfficeCommand('save') || saveProjectFile(); break;
     case 'export-pdf': handleExportPdf(); break;
@@ -1665,6 +1666,34 @@ function confirmClearDraft() {
       const ok = await clearDraft();
       setStatusRight(ok ? 'Чернетку очищено' : 'Не вдалося очистити чернетку');
     }
+  });
+}
+
+// Стартовий документ (E2): файл презентації з прекешу проходить ті самі межі й нормалізацію, що й файл
+// користувача. Незбережену презентацію спершу підтверджуємо.
+function openStarterPresentation() {
+  const open = async () => {
+    cancelDraftHydration();
+    let parsed = null;
+    try {
+      const file = await window.OfficeShell.loadStarterFile('starters/moia-prezentatsiia.artslides.json', 'Моя презентація.artslides.json', 'application/json');
+      if (file.size <= LIMITS.MAX_PROJECT_FILE_BYTES) parsed = parsePresentationText(await readFileAsText(file));
+    } catch {
+      parsed = null;
+    }
+    if (!parsed || !replacePresentation(parsed, { statusText: 'Приклад відкрито' })) {
+      showInfoModal('Не вдалося відкрити приклад', 'Перевірте мережу або дочекайтеся статусу «Працює офлайн».');
+    }
+  };
+  if (!state.unsavedChanges) {
+    open();
+    return;
+  }
+  showConfirmModal({
+    title: 'Відкрити приклад',
+    text: 'Поточну презентацію буде замінено прикладом «Моя презентація». Незбережені зміни буде втрачено. Продовжити?',
+    confirmText: 'Відкрити приклад',
+    onConfirm: open
   });
 }
 

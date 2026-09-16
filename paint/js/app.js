@@ -390,6 +390,9 @@ window.PaintApp = window.PaintApp || {};
       case 'open-project':
         runOfficeCommand('open') || paintDocument.openProject();
         break;
+      case 'open-starter':
+        paintDocument.openStarter();
+        break;
       case 'import-image':
         paintDocument.importImage();
         break;

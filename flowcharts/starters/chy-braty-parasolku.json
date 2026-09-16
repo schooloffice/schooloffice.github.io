@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "diagramTitle": "Чи брати парасольку?",
+  "shapeCounter": 6,
+  "lastShapeType": "process",
+  "snapEnabled": true,
+  "shapes": [
+    { "id": "shape-1", "type": "start-end", "textRaw": "Початок", "left": 460, "top": 40 },
+    { "id": "shape-2", "type": "input-output", "textRaw": "Подивитися прогноз погоди", "left": 440, "top": 170 },
+    { "id": "shape-3", "type": "decision", "textRaw": "Буде дощ?", "left": 460, "top": 320 },
+    { "id": "shape-4", "type": "process", "textRaw": "Взяти парасольку", "left": 140, "top": 520 },
+    { "id": "shape-5", "type": "process", "textRaw": "Залишити парасольку вдома", "left": 780, "top": 520 },
+    { "id": "shape-6", "type": "start-end", "textRaw": "Кінець", "left": 460, "top": 700 }
+  ],
+  "connections": [
+    { "id": "conn-shape-1-shape-2", "from": "shape-1", "to": "shape-2", "type": null, "routeMode": "auto", "label": null },
+    { "id": "conn-shape-2-shape-3", "from": "shape-2", "to": "shape-3", "type": null, "routeMode": "auto", "label": null },
+    { "id": "conn-shape-3-shape-4-yes", "from": "shape-3", "to": "shape-4", "type": "yes", "routeMode": "auto", "label": null },
+    { "id": "conn-shape-3-shape-5-no", "from": "shape-3", "to": "shape-5", "type": "no", "routeMode": "auto", "label": null },
+    { "id": "conn-shape-4-shape-6", "from": "shape-4", "to": "shape-6", "type": null, "routeMode": "auto", "label": null },
+    { "id": "conn-shape-5-shape-6", "from": "shape-5", "to": "shape-6", "type": null, "routeMode": "auto", "label": null }
+  ]
+}

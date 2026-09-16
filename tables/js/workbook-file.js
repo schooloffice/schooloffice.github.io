@@ -193,6 +193,26 @@ function importWorkbookText(text) {
   }
 }
 
+// Стартовий документ (E2): файл .arttab із прекешу проходить ту саму перевірку, що й файл користувача,
+// і замінює книгу одним кроком історії (Ctrl+Z повертає попередню). Непорожню книгу спершу підтверджуємо.
+function openStarterWorkbook() {
+  syncActiveSheetFromGlobals();
+  const hasContent = sheets.some(sheet => Object.keys(sheet.cellData || {}).length > 0);
+  const open = async () => {
+    let text;
+    try {
+      const file = await window.OfficeShell.loadStarterFile('starters/vytraty-na-poizdku.json', 'Витрати на поїздку.arttab', 'application/json');
+      text = await file.text();
+    } catch {
+      showInfoModal('Не вдалося відкрити приклад. Перевірте мережу або дочекайтеся статусу «Працює офлайн».');
+      return;
+    }
+    importWorkbookText(text);
+  };
+  if (hasContent) askConfirm('Відкрити приклад «Витрати на поїздку»? Поточну таблицю буде замінено (Ctrl+Z поверне її).', open, 'Відкрити приклад');
+  else open();
+}
+
 function applyWorkbookPayload(rawPayload) {
   const payload = validateWorkbookPayload(rawPayload);
   saveToHistory();
@@ -217,6 +237,7 @@ window.TablesWorkbookFile = {
   exportWorkbook,
   applyWorkbookPayload,
   importWorkbookText,
+  openStarterWorkbook,
   triggerWorkbookImport,
   validateWorkbookPayload
 };

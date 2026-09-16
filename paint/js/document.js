@@ -286,7 +286,19 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       };
     }
 
-    async function handleProjectFile(file) {
+    // Стартовий документ (E2): .malyunok із прекешу проходить ту саму перевірку й підтвердження заміни.
+    async function openStarter() {
+      let file;
+      try {
+        file = await window.OfficeShell.loadStarterFile('starters/malyunok-z-fihur.malyunok.json', 'Малюнок із фігур.malyunok', 'application/json');
+      } catch {
+        ui.showInfoModal('Приклад недоступний', 'Не вдалося відкрити приклад. Перевірте мережу або дочекайтеся статусу «Працює офлайн».', '⚠️');
+        return;
+      }
+      await handleProjectFile(file, { confirmTitle: 'Відкрити приклад?', confirmText: 'Відкрити приклад' });
+    }
+
+    async function handleProjectFile(file, { confirmTitle = 'Відкрити проєкт?', confirmText = 'Відкрити' } = {}) {
       if (!file) return;
       if (file.size > constants.MAX_PROJECT_BYTES) {
         ui.showInfoModal('Завеликий файл', 'Project-файл перевищує допустимий розмір.', '⚠️');
@@ -304,7 +316,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
         ui.showInfoModal('Несумісний файл', 'Це не коректний project-файл ПЛЮС Малюнки або він пошкоджений.', '⚠️');
         return;
       }
-      const proceed = await confirmReplaceDocument('Відкрити проєкт?', 'Відкрити');
+      const proceed = await confirmReplaceDocument(confirmTitle, confirmText);
       if (!proceed) return;
       try {
         if (discardActiveText) discardActiveText();
@@ -347,6 +359,7 @@ window.ArtMalyunky = window.ArtMalyunky || {};
       handleProjectFile,
       importImage,
       openProject,
+      openStarter,
       printImage,
       restoreDraftIfAny,
       saveImage,

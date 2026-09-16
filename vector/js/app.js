@@ -308,6 +308,22 @@ window.VectorApp = window.VectorApp || {};
     window.OfficeShell?.openFilePicker?.(ui.elements.projectFileInput) || ui.elements.projectFileInput.click();
   }
 
+  // Стартовий документ (E2): файл проєкту з прекешу проходить ту саму перевірку, що й файл користувача.
+  async function openStarter() {
+    if (state.unsavedChanges) {
+      const okay = await ui.showConfirmModal('Відкрити приклад?', 'Поточний малюнок буде замінено прикладом «Листівка». Незбережені зміни буде втрачено.', '🧩', 'Відкрити приклад');
+      if (!okay) return;
+    }
+    let file;
+    try {
+      file = await window.OfficeShell.loadStarterFile('starters/lystivka.json', 'Листівка.json', 'application/json');
+    } catch {
+      ui.showInfoModal('Приклад недоступний', 'Не вдалося відкрити приклад. Перевірте мережу або дочекайтеся статусу «Працює офлайн».', '⚠️');
+      return;
+    }
+    await handleProjectFile(file);
+  }
+
   const IMPORT_ERRORS = {
     'too-large': 'Файл проєкту завеликий. Максимальний розмір — 8 МБ.',
     'not-json': 'Не вдалося прочитати файл проєкту. Перевірте, чи це коректний JSON-файл редактора.',
@@ -881,6 +897,7 @@ window.VectorApp = window.VectorApp || {};
     switch (action) {
       case 'new-project': runOfficeCommand('new') || newProject(); break;
       case 'open-project': runOfficeCommand('open') || openProject(); break;
+      case 'open-starter': openStarter(); break;
       case 'import-svg': importSvg(); break;
       case 'save-project': runOfficeCommand('save') || saveProject(); break;
       case 'export-svg': exportSvg(); break;

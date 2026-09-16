@@ -52,6 +52,13 @@ const ArtMenu = (() => {
         if (ArtState.isDirty()) ArtModals.confirm('Є незбережені зміни. Відкрити інший файл?', openFile);
         else openFile();
         break;
+      case 'open-starter':
+        if (ArtState.isDirty()) {
+          ArtModals.confirm('Є незбережені зміни. Відкрити приклад замість поточного документа?', ArtEditor.openStarter, null, { yesText: 'Відкрити приклад' });
+        } else {
+          ArtEditor.openStarter();
+        }
+        break;
       case 'save-txt': return ArtEditor.saveAs('txt');
       case 'save-rtf': return ArtEditor.saveAs('rtf');
       case 'save-docx': return ArtEditor.saveAs('docx');

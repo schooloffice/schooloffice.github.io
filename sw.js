@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'office-plus-v82';
+const CACHE_VERSION = 'office-plus-v83';
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_STATUS_CACHE = `${CACHE_VERSION}-offline-status`;
 const OFFLINE_STATUS_URL = new URL('./__offline_status__', self.registration.scope).href;
@@ -10,6 +10,7 @@ const ALL_LOCAL_ASSETS = [
   './favicon.ico',
   './favicon.svg',
   './flowcharts/index.html',
+  './flowcharts/starters/chy-braty-parasolku.json',
   './flowcharts/js/app.js',
   './flowcharts/js/autosave.js',
   './flowcharts/js/colors.js',
@@ -56,6 +57,7 @@ const ALL_LOCAL_ASSETS = [
   './shell-overrides.css',
   './site.webmanifest',
   './paint/index.html',
+  './paint/starters/malyunok-z-fihur.malyunok.json',
   './paint/js/app.js',
   './paint/js/canvas.js',
   './paint/js/constants.js',
@@ -71,6 +73,7 @@ const ALL_LOCAL_ASSETS = [
   './paint/style.css',
   './SERVICE_THEME_MAP.json',
   './slides/index.html',
+  './slides/starters/moia-prezentatsiia.artslides.json',
   './slides/js/app.js',
   './slides/js/chart-controller.js',
   './slides/js/chart-element.js',
@@ -98,6 +101,7 @@ const ALL_LOCAL_ASSETS = [
   './slides/js/utils.js',
   './slides/style.css',
   './tables/index.html',
+  './tables/starters/vytraty-na-poizdku.json',
   './tables/js/addressing.js',
   './tables/js/app.js',
   './tables/js/calculation.js',
@@ -135,6 +139,7 @@ const ALL_LOCAL_ASSETS = [
   './tables/js/xlsx-file.js',
   './tables/style.css',
   './text/core/document-model.js',
+  './text/starters/zvit-pro-sposterezhennia.docx',
   './text/core/history.js',
   './text/core/sanitize.js',
   './text/core/selection.js',
@@ -158,6 +163,7 @@ const ALL_LOCAL_ASSETS = [
   './web-app-manifest-192x192.png',
   './web-app-manifest-512x512.png',
   './vector/index.html',
+  './vector/starters/lystivka.json',
   './vector/js/app.js',
   './vector/js/constants.js',
   './vector/js/editor.js',
@@ -224,7 +230,8 @@ const GROUP_CACHE_NAMES = Object.fromEntries(
   Object.keys(CACHE_GROUPS).map(group => [group, `${CACHE_VERSION}-${group}`])
 );
 
-const ASSET_EXTENSIONS = /\.(?:css|js|json|png|jpg|jpeg|svg|woff2|ico|webmanifest)$/i;
+// docx — стартовий документ Тексту: без цього розширення запит ішов би повз кеш і не відкривався офлайн.
+const ASSET_EXTENSIONS = /\.(?:css|js|json|png|jpg|jpeg|svg|woff2|ico|webmanifest|docx)$/i;
 
 const EDITORS = ['text', 'tables', 'slides', 'paint', 'vector', 'flowcharts'];
 const OFFLINE_STATUS_SUFFIX = '-offline-status';

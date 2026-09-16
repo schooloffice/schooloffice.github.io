@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office PLUS Starter Documents Smoke B</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #162033; }
+    pre { white-space: pre-wrap; padding: 16px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+    .pass { color: #15803d; }
+    .fail { color: #dc2626; }
+    iframe { position: fixed; left: 0; top: 0; width: 1366px; height: 768px; border: 0; opacity: .01; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <h1>Office PLUS Starter Documents Smoke B</h1>
+  <pre id="result">Running...</pre>
+  <script>
+    // E2: стартові документи Малюнків, Вектора й Схем. Для кожного: пункт «Файл → Відкрити приклад»,
+    // відкриття на чистому документі без питань, підтвердження й скасування при незбережених змінах,
+    // збереження в рідному форматі з вмістом прикладу. У Схемах ще й підтвердження для шаблонів.
+    const result = document.getElementById('result');
+    const lines = [];
+    const failures = [];
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const expect = (name, ok, detail = '') => {
+      const line = `${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` (${detail})` : ''}`;
+      lines.push(line);
+      if (!ok) failures.push(line);
+    };
+
+    async function waitUntil(predicate, timeout = 6000) {
+      const start = performance.now();
+      while (performance.now() - start < timeout) {
+        let ok = false;
+        try { ok = !!predicate(); } catch { ok = false; }
+        if (ok) return true;
+        await wait(50);
+      }
+      try { return !!predicate(); } catch { return false; }
+    }
+
+    async function loadEditor(service) {
+      const frame = document.createElement('iframe');
+      document.body.appendChild(frame);
+      const loaded = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${service}: load timeout`)), 10000);
+        frame.addEventListener('load', () => { clearTimeout(timer); resolve(); }, { once: true });
+      });
+      frame.src = `../${service}/index.html?starter-smoke=1`;
+      await loaded;
+      await waitUntil(() => frame.contentDocument?.body?.classList.contains('office-app') && frame.contentWindow.OfficeShell?.loadStarterFile);
+      // Кадри в прихованому iframe під --virtual-time-budget ненадійні: rAF підставляє таймер.
+      frame.contentWindow.requestAnimationFrame = callback => frame.contentWindow.setTimeout(() => callback(performance.now()), 16);
+      await wait(300);
+      return frame;
+    }
+
+    function captureDownloads(win) {
+      const downloads = [];
+      const blobs = new Map();
+      const originalCreate = win.URL.createObjectURL;
+      const originalClick = win.HTMLAnchorElement.prototype.click;
+      win.URL.createObjectURL = function captureUrl(blob) {
+        const url = originalCreate.call(win.URL, blob);
+        blobs.set(url, blob);
+        return url;
+      };
+      win.HTMLAnchorElement.prototype.click = function captureClick() {
+        if (this.download) {
+          downloads.push({ name: this.download, blob: blobs.get(this.href) || null });
+          return undefined;
+        }
+        return originalClick.call(this);
+      };
+      return {
+        downloads,
+        restore() {
+          win.URL.createObjectURL = originalCreate;
+          win.HTMLAnchorElement.prototype.click = originalClick;
+        }
+      };
+    }
+
+    async function readJson(file) {
+      try { return file?.blob ? JSON.parse(await file.blob.text()) : null; } catch { return null; }
+    }
+
+    const fileMenuHasStarter = doc => !!doc.querySelector('.menu-dropdown[data-menu="file"] .menu-item[data-action="open-starter"]');
+    const menu = (doc, action) => doc.querySelector(`.menu-item[data-action="${action}"]`).click();
+    const active = element => !!element && element.classList.contains('active');
+
+    async function checkPaint() {
+      const frame = await loadEditor('paint');
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      const capture = captureDownloads(win);
+      try {
+        const overlay = doc.getElementById('modalOverlay');
+        const canvasInfo = () => doc.getElementById('statusCanvas')?.textContent.trim();
+        expect('paint: File menu offers «Відкрити приклад»', fileMenuHasStarter(doc));
+
+        menu(doc, 'open-starter');
+        const opened = await waitUntil(() => doc.getElementById('fileName')?.textContent.trim() === 'Малюнок із фігур' && canvasInfo() === 'Полотно: 800 × 600');
+        expect('paint: starter drawing opens on a clean document without a question', opened && !active(overlay), `${doc.getElementById('fileName')?.textContent.trim()} ${canvasInfo()}`);
+
+        menu(doc, 'rotate-cw');
+        await waitUntil(() => canvasInfo() === 'Полотно: 600 × 800', 3000);
+        menu(doc, 'open-starter');
+        const asked = await waitUntil(() => active(overlay) && doc.getElementById('modalTitle')?.textContent.trim() === 'Відкрити приклад?', 3000);
+        expect('paint: unsaved changes ask before the starter replaces the drawing', asked, doc.getElementById('modalTitle')?.textContent.trim());
+        doc.getElementById('modalCancel')?.click();
+        await wait(300);
+        expect('paint: cancelling keeps the edited drawing', !active(overlay) && canvasInfo() === 'Полотно: 600 × 800', canvasInfo());
+        menu(doc, 'open-starter');
+        await waitUntil(() => active(overlay), 3000);
+        doc.getElementById('modalConfirm')?.click();
+        expect('paint: confirming replaces it with the starter', await waitUntil(() => canvasInfo() === 'Полотно: 800 × 600', 4000), canvasInfo());
+
+        capture.downloads.length = 0;
+        menu(doc, 'save-project');
+        await waitUntil(() => capture.downloads.length > 0, 4000);
+        const file = capture.downloads[0];
+        const payload = await readJson(file);
+        expect('paint: the starter saves as .malyunok with its shapes and stamps',
+          file?.name === 'Малюнок із фігур.malyunok' && payload?.format === 'office-plus-paint' && payload.objects?.length === 8,
+          file ? `${file.name} objects=${payload?.objects?.length}` : 'no download');
+      } finally {
+        capture.restore();
+        frame.remove();
+      }
+    }
+
+    async function checkVector() {
+      const frame = await loadEditor('vector');
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      const capture = captureDownloads(win);
+      try {
+        const overlay = doc.getElementById('modalOverlay');
+        const svgText = () => doc.getElementById('drawingSvg')?.textContent || '';
+        expect('vector: File menu offers «Відкрити приклад»', fileMenuHasStarter(doc));
+
+        menu(doc, 'open-starter');
+        const opened = await waitUntil(() => doc.getElementById('fileName')?.textContent.trim() === 'Листівка' && svgText().includes('Вітаємо!'));
+        expect('vector: starter postcard opens on a clean document without a question', opened && !active(overlay));
+
+        doc.getElementById('objectsToggleBtn')?.click();
+        await waitUntil(() => doc.querySelector('.object-row[data-object-id="title"] .object-name'), 3000);
+        doc.querySelector('.object-row[data-object-id="title"] .object-name')?.click();
+        await wait(150);
+        doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+        await waitUntil(() => !svgText().includes('Вітаємо!'), 3000);
+        menu(doc, 'open-starter');
+        const asked = await waitUntil(() => active(overlay) && doc.getElementById('modalTitle')?.textContent.trim() === 'Відкрити приклад?', 3000);
+        expect('vector: unsaved changes ask before the starter replaces the drawing', asked && !svgText().includes('Вітаємо!'), doc.getElementById('modalTitle')?.textContent.trim());
+        doc.getElementById('modalCancel')?.click();
+        await wait(300);
+        expect('vector: cancelling keeps the edited drawing', !active(overlay) && !svgText().includes('Вітаємо!'));
+        menu(doc, 'open-starter');
+        await waitUntil(() => active(overlay), 3000);
+        doc.getElementById('modalConfirm')?.click();
+        expect('vector: confirming replaces it with the starter', await waitUntil(() => svgText().includes('Вітаємо!'), 4000));
+
+        capture.downloads.length = 0;
+        menu(doc, 'save-project');
+        await waitUntil(() => capture.downloads.length > 0, 4000);
+        const file = capture.downloads[0];
+        const payload = await readJson(file);
+        expect('vector: the starter saves as a project .json with its objects',
+          file?.name === 'Листівка.json' && payload?.format === 'art-vector-project' && payload.objects?.length === 7,
+          file ? `${file.name} objects=${payload?.objects?.length}` : 'no download');
+      } finally {
+        capture.restore();
+        frame.remove();
+      }
+    }
+
+    async function checkFlowcharts() {
+      const frame = await loadEditor('flowcharts');
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      const capture = captureDownloads(win);
+      try {
+        const modal = doc.getElementById('message-modal');
+        const shapes = () => doc.querySelectorAll('.shape').length;
+        const closeMessage = () => modal?.querySelector('.ok-btn')?.click();
+        const pressKey = init => doc.dispatchEvent(new win.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
+        expect('flowcharts: File menu offers «Відкрити приклад»', fileMenuHasStarter(doc));
+
+        menu(doc, 'open-starter');
+        const opened = await waitUntil(() => shapes() === 6 && doc.querySelectorAll('#connectors-layer path[id^="conn-"]').length >= 6);
+        expect('flowcharts: starter algorithm opens on a clean canvas without a question',
+          opened && /Проєкт завантажено/.test(doc.getElementById('message-modal-text')?.textContent || ''), `shapes=${shapes()}`);
+        closeMessage();
+
+        doc.querySelector('.shape-button[data-shape="process"]')?.click();
+        await waitUntil(() => shapes() === 7, 3000);
+        menu(doc, 'open-starter');
+        const asked = await waitUntil(() => active(modal) && /Відкрити приклад/.test(doc.getElementById('message-modal-text')?.textContent || ''), 3000);
+        expect('flowcharts: a diagram with blocks asks before the starter replaces it', asked);
+        modal.querySelector('.cancel-btn')?.click();
+        await wait(200);
+        expect('flowcharts: cancelling keeps the diagram', !active(modal) && shapes() === 7, `shapes=${shapes()}`);
+
+        menu(doc, 'open-templates');
+        await waitUntil(() => doc.querySelector('#templates-grid .template-card'), 3000);
+        doc.querySelector('#templates-grid .template-card[data-template-id="linear"]')?.click();
+        const templateAsked = await waitUntil(() => active(modal) && /Відкрити шаблон/.test(doc.getElementById('message-modal-text')?.textContent || ''), 3000);
+        modal.querySelector('.cancel-btn')?.click();
+        await wait(200);
+        expect('flowcharts: a template also asks before replacing the diagram', templateAsked && shapes() === 7, `shapes=${shapes()}`);
+
+        menu(doc, 'open-starter');
+        await waitUntil(() => active(modal), 3000);
+        modal.querySelector('.no-btn')?.click();
+        expect('flowcharts: confirming replaces it with the starter', await waitUntil(() => shapes() === 6, 4000), `shapes=${shapes()}`);
+        closeMessage();
+        pressKey({ key: 'z', ctrlKey: true });
+        expect('flowcharts: one Ctrl+Z brings the previous diagram back', await waitUntil(() => shapes() === 7, 4000), `shapes=${shapes()}`);
+        pressKey({ key: 'y', ctrlKey: true });
+        // restoreSnapshot відновлює стрілки після кадрів, тож до збереження чекаємо і блоки, і стрілки.
+        await waitUntil(() => shapes() === 6 && doc.querySelectorAll('#connectors-layer path[id^="conn-"]').length >= 6, 4000);
+
+        capture.downloads.length = 0;
+        pressKey({ key: 's', ctrlKey: true });
+        await waitUntil(() => capture.downloads.length > 0, 4000);
+        doc.getElementById('save-title-modal')?.classList.remove('active');
+        const file = capture.downloads[0];
+        let project = null;
+        try { project = file?.blob ? win.FlowchartCore.parseProject(await file.blob.text()) : null; } catch { project = null; }
+        expect('flowcharts: the starter saves as a project .json with its blocks and arrows',
+          !!file && project?.shapes?.length === 6 && project.connections.length === 6 && project.diagramTitle === 'Чи брати парасольку?',
+          file ? `${file.name} shapes=${project?.shapes?.length}` : 'no download');
+      } finally {
+        capture.restore();
+        frame.remove();
+      }
+    }
+
+    async function run() {
+      for (const check of [checkPaint, checkVector, checkFlowcharts]) {
+        try {
+          await check();
+        } catch (error) {
+          expect(`${check.name} completed without an exception`, false, String(error?.stack || error).slice(0, 300));
+        }
+      }
+      result.className = failures.length ? 'fail' : 'pass';
+      result.textContent = `${lines.join('\n')}\n\n${failures.length ? 'FAILED' : 'PASSED'}`;
+      document.body.dataset.startersB = failures.length ? 'failed' : 'passed';
+    }
+
+    run().catch(error => {
+      result.className = 'fail';
+      result.textContent = `${String(error?.stack || error)}\n\n${lines.join('\n')}`;
+      document.body.dataset.startersB = 'failed';
+    });
+  </script>
+</body>
+</html>

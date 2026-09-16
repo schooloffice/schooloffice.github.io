@@ -915,6 +915,30 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
   };
   projectBridge?.bindProjectControls?.();
 
+  // Стартовий документ (E2): JSON-проєкт із прекешу проходить ті самі межі й parseProject, що й файл
+  // користувача, і замінює схему одним кроком undo. Непорожню схему спершу підтверджуємо.
+  function openStarter() {
+    const open = async () => {
+      let text;
+      try {
+        const file = await window.OfficeShell.loadStarterFile('starters/chy-braty-parasolku.json', 'Чи брати парасольку.json', 'application/json');
+        text = await file.text();
+      } catch {
+        showMessageModal('Не вдалося відкрити приклад. Перевірте мережу або дочекайтеся статусу «Працює офлайн».');
+        return;
+      }
+      try {
+        importProjectData(text);
+        fitDiagram();
+      } catch (error) {
+        console.error(error);
+        showMessageModal(getImportErrorMessage(error));
+      }
+    };
+    if (state.shapes.length) showConfirmModal('Відкрити приклад «Чи брати парасольку?»? Поточну схему буде замінено (Ctrl+Z поверне її).', open, 'Відкрити приклад');
+    else open();
+  }
+
   // ================= VALIDATION =================
   const validationApi = window.FlowchartsValidation || {};
   const validation = validationApi.createValidationController?.({
@@ -942,18 +966,23 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     openModal,
     closeModal,
     loadTemplate: (data) => {
-      try {
-        // A template is a fresh, unsaved document — not an opened file, so it is
-        // marked dirty (no "saved"/"opened" toast) and snapshotted for undo.
-        const parsed = core?.parseProject ? core.parseProject(data) : data;
-        saveSnapshot();
-        restoreSnapshot(parsed);
-        setDirty(true);
-        fitDiagram();
-      } catch (error) {
-        console.error(error);
-        showMessageModal(getImportErrorMessage(error));
-      }
+      const apply = () => {
+        try {
+          // A template is a fresh, unsaved document — not an opened file, so it is
+          // marked dirty (no "saved"/"opened" toast) and snapshotted for undo.
+          const parsed = core?.parseProject ? core.parseProject(data) : data;
+          saveSnapshot();
+          restoreSnapshot(parsed);
+          setDirty(true);
+          fitDiagram();
+        } catch (error) {
+          console.error(error);
+          showMessageModal(getImportErrorMessage(error));
+        }
+      };
+      // Шаблон не замінює непорожню схему без вибору користувача (E2).
+      if (state.shapes.length) showConfirmModal('Відкрити шаблон? Поточну схему буде замінено (Ctrl+Z поверне її).', apply, 'Відкрити шаблон');
+      else apply();
     },
   }) || {};
   templates.bind?.();
@@ -984,6 +1013,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     exportSvg,
     selectAllShapes,
     arrangeSelected,
+    openStarter,
   }) || {};
   const toggleHelp = menuActions.toggleHelp || (() => {});
   const menuApi = menuActions.bind?.() || null;

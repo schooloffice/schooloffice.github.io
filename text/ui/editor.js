@@ -131,6 +131,23 @@ const ArtEditor = (() => {
     const file = e.target.files[0];
     if (!file) return;
     e.target.value = '';
+    await openDocumentFile(file);
+  }
+
+  // Стартовий документ (E2): .docx із прекешу відкривається тим самим шляхом, що й файл користувача.
+  // Підтвердження заміни документа з незбереженими змінами робить меню (ArtMenu, 'open-starter').
+  async function openStarter() {
+    let file;
+    try {
+      file = await window.OfficeShell.loadStarterFile('starters/zvit-pro-sposterezhennia.docx', 'Звіт про спостереження.docx',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    } catch {
+      return ArtModals.info('Приклад недоступний', 'Не вдалося відкрити приклад. Перевірте мережу або дочекайтеся статусу «Працює офлайн».');
+    }
+    return openDocumentFile(file);
+  }
+
+  async function openDocumentFile(file) {
     const ext = file.name.split('.').pop().toLowerCase();
     _documentRevision += 1;
     try {
@@ -2444,7 +2461,7 @@ const ArtEditor = (() => {
   }
 
   return {
-    init, newDoc, saveAs, setOrientation, setZoom, hasSelectedImage, setSelectedImageLayout,
+    init, newDoc, saveAs, openStarter, openDocumentFile, setOrientation, setZoom, hasSelectedImage, setSelectedImageLayout,
     insertTable, insertPageBreak, insertSectionBreak, insertToc, updateToc, removeToc, tableAction,
     sectionAtCaret, setSectionSettings, previewSectionSettings, commitSectionChange, toggleTableMenu, hideTableMenu, refreshLayout, openImageDialog, clearFindHighlights, editFileName,
     getDraftPayload, restoreDraft, clearDocument, getDocumentRevision, setSpellcheck, toggleSpellcheck,

@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "textModelVersion": 3,
+  "fileName": "Моя презентація",
+  "theme": "classic",
+  "currentSlideId": "slide_title",
+  "slides": [
+    {
+      "id": "slide_title",
+      "background": "#eff6ff",
+      "layout": "blank",
+      "transition": { "type": "none", "duration": "normal" },
+      "notes": "Титульний слайд: впишіть тему, своє ім'я та клас.",
+      "elements": [
+        {
+          "id": "title_heading",
+          "type": "text",
+          "x": 80,
+          "y": 160,
+          "w": 800,
+          "h": 110,
+          "z": 1,
+          "content": "Назва теми презентації",
+          "style": { "fontSize": 48, "bold": true, "align": "center", "color": "#1e3a8a" }
+        },
+        {
+          "id": "title_bar",
+          "type": "shape",
+          "shape": "rect",
+          "x": 330,
+          "y": 284,
+          "w": 300,
+          "h": 8,
+          "z": 2,
+          "style": { "fill": "#3b82f6", "stroke": "#3b82f6" }
+        },
+        {
+          "id": "title_author",
+          "type": "text",
+          "x": 180,
+          "y": 310,
+          "w": 600,
+          "h": 60,
+          "z": 3,
+          "content": "Ім'я та прізвище, клас",
+          "style": { "fontSize": 24, "align": "center", "color": "#334155" }
+        }
+      ]
+    },
+    {
+      "id": "slide_plan",
+      "background": "#ffffff",
+      "layout": "blank",
+      "transition": { "type": "none", "duration": "normal" },
+      "notes": "Розкажіть, про що буде презентація.",
+      "elements": [
+        {
+          "id": "plan_heading",
+          "type": "text",
+          "x": 80,
+          "y": 50,
+          "w": 800,
+          "h": 80,
+          "z": 1,
+          "content": "План",
+          "style": { "fontSize": 40, "bold": true, "color": "#1e3a8a" }
+        },
+        {
+          "id": "plan_body",
+          "type": "text",
+          "x": 80,
+          "y": 150,
+          "w": 800,
+          "h": 300,
+          "z": 2,
+          "content": "1. Вступ: чому ця тема цікава\n2. Основна частина: головні факти\n3. Висновки: що ми дізналися",
+          "style": { "fontSize": 28, "color": "#1f2937", "lineHeight": 1.5 }
+        }
+      ]
+    },
+    {
+      "id": "slide_end",
+      "background": "#eff6ff",
+      "layout": "blank",
+      "transition": { "type": "none", "duration": "normal" },
+      "notes": "Подякуйте слухачам і запросіть запитання.",
+      "elements": [
+        {
+          "id": "end_circle",
+          "type": "shape",
+          "shape": "circle",
+          "x": 400,
+          "y": 90,
+          "w": 160,
+          "h": 160,
+          "z": 1,
+          "style": { "fill": "#bfdbfe", "stroke": "#3b82f6" }
+        },
+        {
+          "id": "end_heading",
+          "type": "text",
+          "x": 80,
+          "y": 280,
+          "w": 800,
+          "h": 90,
+          "z": 2,
+          "content": "Дякую за увагу!",
+          "style": { "fontSize": 44, "bold": true, "align": "center", "color": "#1e3a8a" }
+        },
+        {
+          "id": "end_questions",
+          "type": "text",
+          "x": 180,
+          "y": 380,
+          "w": 600,
+          "h": 60,
+          "z": 3,
+          "content": "Ваші запитання?",
+          "style": { "fontSize": 26, "align": "center", "color": "#334155" }
+        }
+      ]
+    }
+  ]
+}

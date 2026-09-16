@@ -185,31 +185,6 @@ function importCSVText(text) {
 }
 
 // ---- Data utilities ----
-function loadExample() {
-  cellData = {
-    'A1': 'Товар', 'B1': 'Ціна', 'C1': 'Кількість', 'D1': 'Разом',
-    'A2': 'Ручка', 'B2': '15', 'C2': '2', 'D2': '=B2*C2',
-    'A3': 'Зошит', 'B3': '10', 'C3': '5', 'D3': '=B3*C3',
-    'A4': 'Гумка', 'B4': '5', 'C4': '1', 'D4': '=B4*C4',
-    'A5': 'Олівець', 'B5': '8', 'C5': '3', 'D5': '=B5*C5',
-    'C6': 'СУМА:', 'D6': '=SUM(D2:D5)',
-    'C7': 'СЕРЕДНЄ:', 'D7': '=AVERAGE(D2:D5)'
-  };
-
-  cellStyles = {};
-  sheetMerges = [];
-  ensureGridSize(60, 30);
-  rebuildGrid();
-  recalculateAll();
-  persistStateToStorage();
-  initFileNameUi();
-  initMenusAndToolbar();
-  restoreUiState();
-  setSaveBadge();
-  saveToHistory();
-  showInfoModal('Приклад завантажено! Спробуйте змінити кількість або додати нові товари.');
-}
-
 function clearAll() {
   sheets = [makeSheet('Аркуш1')];
   workbookNames = [];

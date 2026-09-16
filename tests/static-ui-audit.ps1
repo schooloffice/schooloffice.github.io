@@ -942,6 +942,33 @@ foreach ($largeToolsService in @('paint', 'vector')) {
   Assert-True ($largeToolsCss -match ':root\[data-office-tools="large"\] \.rail-btn') "${largeToolsService}/style.css: large mode must enlarge the rail tools"
 }
 Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')) -match 'large-tools-behavior\.html') 'run-browser-smoke.ps1: large labeled tools behavior must run as its own smoke page'
+
+# E2: стартові документи — локальні файли редакторів у прекеші, що відкриваються тим самим шляхом, що й файли користувача.
+$officeShellStarters = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'office-shell.js')
+Assert-True ($officeShellStarters -match 'async function loadStarterFile\(') 'office-shell.js: starter documents must load through OfficeShell.loadStarterFile'
+$swStarters = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'sw.js')
+Assert-True ($swStarters -match 'webmanifest\|docx\)') 'sw.js: the Text starter .docx must be served from the cache offline'
+$offlineSmokeStarters = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/offline-smoke.html')
+$starterFiles = [ordered]@{
+  'text' = 'text/starters/zvit-pro-sposterezhennia.docx'
+  'tables' = 'tables/starters/vytraty-na-poizdku.json'
+  'slides' = 'slides/starters/moia-prezentatsiia.artslides.json'
+  'paint' = 'paint/starters/malyunok-z-fihur.malyunok.json'
+  'vector' = 'vector/starters/lystivka.json'
+  'flowcharts' = 'flowcharts/starters/chy-braty-parasolku.json'
+}
+foreach ($starterService in $starterFiles.Keys) {
+  $starterPath = $starterFiles[$starterService]
+  $starterHtml = Get-Content -Raw -Encoding UTF8 (Join-Path $Root "$starterService/index.html")
+  $starterFileMenu = [regex]::Match($starterHtml, 'data-menu="file" role="menu">[\s\S]*?</div>').Value
+  Assert-True (Test-Path (Join-Path $Root $starterPath)) "${starterPath}: starter document must exist"
+  Assert-True ($swStarters -match [regex]::Escape("'./$starterPath'")) "sw.js: starter document must be precached: $starterPath"
+  Assert-True ($offlineSmokeStarters -match [regex]::Escape("../$starterPath")) "offline-smoke.html: starter document must be checked offline: $starterPath"
+  Assert-True ($starterFileMenu -match 'data-action="open-starter"') "${starterService}/index.html: File menu must offer the starter document"
+}
+Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tables/js/workbook.js')) -notmatch 'function loadExample') 'tables/js/workbook.js: the built-in example is replaced by the starter file'
+$browserSmokeStarters = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')
+Assert-True ($browserSmokeStarters -match 'starters-a-behavior\.html' -and $browserSmokeStarters -match 'starters-b-behavior\.html') 'run-browser-smoke.ps1: starter documents behavior must run as smoke pages'
 Assert-True ($vectorApp -match 'pushUndo\(\);\s*restorePayload\(parsed\.payload\);') 'vector/js/app.js: imported SVG must replace the drawing as one undoable step after confirmation'
 Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'sw.js')) -match "'\./vector/js/svg-import\.js'") 'sw.js: svg-import.js must be cached for offline use'
 Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')) -match 'vector-svg-import-behavior\.html') 'tests/run-browser-smoke.ps1: Vector SVG import smoke page must run'

@@ -1,0 +1,22 @@
+{
+  "format": "office-plus-paint",
+  "version": 1,
+  "fileName": "Малюнок із фігур",
+  "document": {
+    "width": 800,
+    "height": 600,
+    "background": "#e0f2fe",
+    "transparent": false
+  },
+  "raster": null,
+  "objects": [
+    { "id": "grass", "kind": "shape", "shape": "rect-filled", "x": 0, "y": 440, "w": 800, "h": 160, "opacity": 100, "color": "#15803d", "strokeColor": "#15803d", "fillColor": "#4ade80", "strokeWidth": 2 },
+    { "id": "sun", "kind": "shape", "shape": "circle-filled", "x": 600, "y": 50, "w": 130, "h": 130, "opacity": 100, "color": "#f59e0b", "strokeColor": "#f59e0b", "fillColor": "#fde047", "strokeWidth": 4 },
+    { "id": "house", "kind": "shape", "shape": "rect-filled", "x": 180, "y": 290, "w": 220, "h": 170, "opacity": 100, "color": "#7c2d12", "strokeColor": "#7c2d12", "fillColor": "#fdba74", "strokeWidth": 4 },
+    { "id": "roof", "kind": "shape", "shape": "triangle", "x": 160, "y": 180, "w": 260, "h": 115, "opacity": 100, "color": "#b91c1c", "strokeColor": "#b91c1c", "fillColor": "#f87171", "strokeWidth": 5 },
+    { "id": "window", "kind": "shape", "shape": "rect-filled", "x": 250, "y": 330, "w": 80, "h": 70, "opacity": 100, "color": "#1e3a8a", "strokeColor": "#1e3a8a", "fillColor": "#bfdbfe", "strokeWidth": 3 },
+    { "id": "flower_left", "kind": "stamp", "stamp": "🌻", "x": 470, "y": 380, "w": 90, "h": 90, "opacity": 100 },
+    { "id": "flower_right", "kind": "stamp", "stamp": "🌸", "x": 590, "y": 400, "w": 80, "h": 80, "opacity": 100 },
+    { "id": "butterfly", "kind": "stamp", "stamp": "🦋", "x": 500, "y": 240, "w": 70, "h": 70, "opacity": 100 }
+  ]
+}
