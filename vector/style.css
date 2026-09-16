@@ -19,6 +19,9 @@
      Полотно обмежене висотою вікна, тому горизонтальних смуг над ним не тримаємо. */
   --rail-w: 72px;
   --panel-w: 232px;
+  /* Висота горизонтальної смуги інструментів до 760px. До неї прив'язаний drawer
+     параметрів, тому висота рядка стану на його розташування не впливає. */
+  --rail-h-mobile: 64px;
 }
 
 * { box-sizing: border-box; }
@@ -288,11 +291,9 @@ body.panel-collapsed .properties-panel {
   :root[data-office-tools="large"] .rail-tool { min-height: 64px; }
 }
 @media (max-width: 760px) {
-  :root[data-office-tools="large"] .editor-body,
-  :root[data-office-tools="large"] body.panel-collapsed .editor-body { grid-template-rows: minmax(0, 1fr) 88px; }
+  :root[data-office-tools="large"] { --rail-h-mobile: 88px; }
   :root[data-office-tools="large"] .rail-btn,
   :root[data-office-tools="large"] .rail-tool { width: 80px; min-width: 80px; min-height: 76px; }
-  :root[data-office-tools="large"] .properties-panel { bottom: calc(var(--status-h) + 94px); }
 }
 
 .properties-panel {
@@ -851,7 +852,8 @@ button:focus-visible,
   .editor-body,
   body.panel-collapsed .editor-body {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) 64px;
+    grid-template-rows: minmax(0, 1fr) var(--rail-h-mobile);
+    position: relative;
   }
 
   .workspace {
@@ -894,15 +896,17 @@ button:focus-visible,
   }
 
   .properties-panel {
-    position: fixed;
+    /* Drawer прив'язаний до смуги інструментів усередині .editor-body, а не до низу
+       вікна: на телефоні рядок стану переноситься і його висота не фіксована. */
+    position: absolute;
     z-index: 60;
     left: 8px;
     right: 8px;
-    bottom: calc(var(--status-h) + 70px);
+    bottom: calc(var(--rail-h-mobile) + 8px);
     grid-column: auto;
     grid-row: auto;
     width: auto;
-    max-height: min(62vh, 520px);
+    max-height: min(62vh, 520px, calc(100% - var(--rail-h-mobile) - 16px));
     border: 1px solid var(--line-strong);
     border-radius: 14px;
     box-shadow: 0 18px 45px rgba(15, 23, 42, .28);

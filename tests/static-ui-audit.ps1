@@ -1742,7 +1742,10 @@ foreach ($service in @('paint', 'vector')) {
   $serviceUi = Get-Content -Raw -Encoding UTF8 (Join-Path $Root "$service/js/ui.js")
   $serviceCss = Get-Content -Raw -Encoding UTF8 (Join-Path $Root "$service/style.css")
   Assert-True ($serviceUi -match "matchMedia\('\(max-width: 760px\)'\)") "$service/js/ui.js: mobile properties panel must start collapsed"
-  Assert-True ($serviceCss -match '@media \(max-width: 760px\)[\s\S]*?\.properties-panel\s*\{[\s\S]*?position:\s*fixed') "$service/style.css: mobile properties panel must be an overlay"
+  Assert-True ($serviceCss -match '@media \(max-width: 760px\)[\s\S]*?\.properties-panel\s*\{[\s\S]*?position:\s*absolute[\s\S]*?bottom:\s*calc\(var\(--rail-h-mobile\)') "$service/style.css: mobile properties panel must be an overlay anchored to the tool rail"
+  Assert-True ($serviceCss -match '@media \(max-width: 760px\)[\s\S]*?grid-template-rows:\s*minmax\(0, 1fr\) var\(--rail-h-mobile\);\s*position:\s*relative') "$service/style.css: mobile tool rail row and drawer must share --rail-h-mobile"
+  Assert-True ($serviceCss -match ':root\[data-office-tools="large"\]\s*\{\s*--rail-h-mobile:\s*88px') "$service/style.css: large labeled tools must raise --rail-h-mobile"
+  Assert-True ($serviceCss -notmatch '\.properties-panel[\s\S]{0,400}?bottom:\s*calc\(var\(--status-h\)') "$service/style.css: mobile drawer must not be offset from the statusbar height"
   Assert-True ($serviceCss -match '@media \(max-width: 760px\)[\s\S]*?\.tool-rail\s*\{[\s\S]*?flex-direction:\s*row') "$service/style.css: mobile tool rail must be horizontal"
 }
 $flowchartsCss = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'flowcharts/style.css')
