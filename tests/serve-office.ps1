@@ -11,7 +11,14 @@ param(
   # Лише для офлайн-smoke: шляхи через кому, які сервер віддає як 404, і підмінена CACHE_VERSION
   # у sw.js. Так перевіряються часткова помилка кешу й неповне оновлення без копії репозиторію.
   [string]$FailPaths = '',
-  [string]$CacheVersionOverride = ''
+  [string]$CacheVersionOverride = '',
+  # Лише для browser smoke: sw.js віддається як 404, тож сторінки працюють без service worker.
+  # Інакше встановлення SW посеред завантаження редактора перебирає на себе запити скриптів
+  # (skipWaiting + clients.claim), паралельно тягне весь прекеш через цей однопотоковий сервер,
+  # і невдалий запит усередині SW («Asset unavailable») пропускає скрипт сторінки — у CI це
+  # проявлялося як «ArtModals is not defined» чи «FORMULA_ERRORS is not defined».
+  # Офлайн-поведінку перевіряє run-offline-smoke.ps1 зі своїм сервером без цього прапорця.
+  [switch]$DisableServiceWorker
 )
 
 $ErrorActionPreference = 'Stop'
@@ -83,6 +90,10 @@ function Invoke-Request {
   $urlPath = ($matches[1] -split '\?')[0]
   $requestPath = [Uri]::UnescapeDataString($urlPath.TrimStart('/'))
   if ([string]::IsNullOrWhiteSpace($requestPath)) { $requestPath = 'index.html' }
+  if ($DisableServiceWorker -and $requestPath -eq 'sw.js') {
+    Send-Text $Socket 404 'Not Found'
+    return
+  }
   if ($failPathList -contains $requestPath) {
     Write-RequestLog "404 (simulated) GET $urlPath"
     Send-Text $Socket 404 'Not Found'

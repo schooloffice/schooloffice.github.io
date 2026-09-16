@@ -414,7 +414,7 @@
           'Diagnostics:',
           `logical model: ${JSON.stringify(logicalModel.diagnostics)}`,
           `page break: ${JSON.stringify(pageBreak.diagnostics)}`,
-          // Під --virtual-time-budget це віртуальний час сторінки: бюджет раннера — 35000 мс.
+          // Під --virtual-time-budget це віртуальний час сторінки: бюджет раннера — -VirtualTimeBudgetMs у run-browser-smoke.ps1 (типово 90000 мс).
           `virtual time ms: ${Math.round(performance.now())}`
         ])
         .concat(failed.length ? [`FAILED: ${failed.map(item => item.label).join('; ')}`] : ['PASSED'])

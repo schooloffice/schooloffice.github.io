@@ -5,6 +5,18 @@ param(
   # віртуальним часом сторінки і не завершує завислий процес.
   [ValidateRange(1, 3600)]
   [int]$PageTimeoutSeconds = 120,
+  # Бюджет віртуального часу сторінки. Коли його вичерпано, Chrome знімає DOM як є, і
+  # незавершена сторінка падає з «Running...». Виміряно 2026-09-16: text-behavior уже бере
+  # ~21,4 с, text-toc і text-sections — до ~12 с, тож старі 35 с лишали запас у 1,6 раза.
+  # Віртуальний час іде швидко, тож більший бюджет майже не додає стінного часу; справжні
+  # зависання ловлять тайм-аути самих сторінок і PageTimeoutSeconds.
+  [ValidateRange(1000, 600000)]
+  [int]$VirtualTimeBudgetMs = 90000,
+  # Регулярний вираз за назвою сторінки: запускає лише збіги (наприклад, -Only 'Text sections').
+  [string]$Only = '',
+  # Скільки разів поспіль запускати кожну вибрану сторінку — щоб відтворити рідкісне падіння.
+  [ValidateRange(1, 500)]
+  [int]$Repeat = 1,
   # Порожнє значення — стандартне розташування Chrome.
   [string]$ChromePath = ''
 )
@@ -235,7 +247,27 @@ function Invoke-ChromeRun {
   }
 }
 
+function Test-SmokeSelected {
+  param([string]$Name)
+  return (-not $Only) -or ($Name -match $Only)
+}
+
 function Invoke-SmokePage {
+  param(
+    [string]$Url,
+    [string]$PassPattern,
+    [string]$Name,
+    [string[]]$ExtraArguments = @()
+  )
+
+  if (-not (Test-SmokeSelected $Name)) { return }
+  for ($attempt = 1; $attempt -le $Repeat; $attempt += 1) {
+    $label = if ($Repeat -gt 1) { "$Name [$attempt/$Repeat]" } else { $Name }
+    Invoke-SmokePageOnce $Url $PassPattern $label $ExtraArguments
+  }
+}
+
+function Invoke-SmokePageOnce {
   param(
     [string]$Url,
     [string]$PassPattern,
@@ -259,7 +291,7 @@ function Invoke-SmokePage {
       '--no-first-run',
       "--user-data-dir=$pageProfile",
       "--disk-cache-dir=$pageCache",
-      '--virtual-time-budget=35000',
+      "--virtual-time-budget=$VirtualTimeBudgetMs",
       # Console сторінки йде в stderr — так ловимо необроблені винятки, які
       # не валять сам тест (див. Assert-NoUncaughtPageErrors).
       '--enable-logging=stderr',
@@ -284,7 +316,7 @@ function Invoke-SmokePage {
         '--disable-gpu-sandbox',
         "--user-data-dir=$fallbackProfile",
         "--disk-cache-dir=$fallbackCache",
-        '--virtual-time-budget=35000',
+        "--virtual-time-budget=$VirtualTimeBudgetMs",
         '--enable-logging=stderr',
         '--log-level=0',
         '--dump-dom'
@@ -339,6 +371,20 @@ function Invoke-SmokePage {
 # поки запис триває, віртуальний годинник «доскакує» до тайм-аутів сховища й вичерпує бюджет. Така сторінка
 # йде наживо: Chrome без віртуального часу, результат читається через DevTools, межа — той самий PageTimeoutSeconds.
 function Invoke-LiveSmokePage {
+  param(
+    [string]$Url,
+    [string]$PassPattern,
+    [string]$Name
+  )
+
+  if (-not (Test-SmokeSelected $Name)) { return }
+  for ($attempt = 1; $attempt -le $Repeat; $attempt += 1) {
+    $label = if ($Repeat -gt 1) { "$Name [$attempt/$Repeat]" } else { $Name }
+    Invoke-LiveSmokePageOnce $Url $PassPattern $label
+  }
+}
+
+function Invoke-LiveSmokePageOnce {
   param(
     [string]$Url,
     [string]$PassPattern,
@@ -422,7 +468,8 @@ try {
     '-File', (Join-Path $PSScriptRoot 'serve-office.ps1'),
     '-Port', $Port,
     '-Root', $Root,
-    '-LogPath', $serverLogPath
+    '-LogPath', $serverLogPath,
+    '-DisableServiceWorker'
   )
   $server = $serverCapture.Process
 
@@ -440,7 +487,10 @@ try {
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-columns-behavior.html" 'data-text-columns="passed"' 'Text columns smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-formats-behavior.html" 'data-text-formats="passed"' 'Text formats smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-docx-details-behavior.html" 'data-text-docx-details="passed"' 'Text DOCX details smoke'
-  Invoke-SmokePage "http://127.0.0.1:$Port/tests/text-storage-behavior.html" 'data-text-storage="passed"' 'Text storage smoke'
+  # Під віртуальним часом таймери сховища (1-1,5 с) «доскакують» раніше, ніж завершується запис IndexedDB:
+  # виміряно 2026-09-16 — тайм-аут IndexedDB майже в кожному віртуальному прогоні, наживо жодного.
+  # Сторінки, що перевіряють чернетки, тому йдуть наживо.
+  Invoke-LiveSmokePage "http://127.0.0.1:$Port/tests/text-storage-behavior.html" 'data-text-storage="passed"' 'Text storage smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/flowcharts-behavior.html" 'data-flowcharts="passed"' 'Flowcharts behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/flowcharts-svg-behavior.html" 'data-flowcharts-svg="passed"' 'Flowcharts SVG behavior smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/flowcharts-arrange-behavior.html" 'data-flowcharts-arrange="passed"' 'Flowcharts arrange behavior smoke'
@@ -453,7 +503,7 @@ try {
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-storage-viewport-behavior.html" 'data-tables-storage-viewport="passed"' 'Tables storage and viewport smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-formula-behavior.html" 'data-tables-formula="passed"' 'Tables formula smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/xlsx-behavior.html" 'data-xlsx="passed"' 'Tables XLSX behavior smoke'
-  Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-named-ranges-behavior.html" 'data-tables-named-ranges="passed"' 'Tables named ranges smoke'
+  Invoke-LiveSmokePage "http://127.0.0.1:$Port/tests/tables-named-ranges-behavior.html" 'data-tables-named-ranges="passed"' 'Tables named ranges smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-charts-behavior.html" 'data-tables-charts="passed"' 'Tables charts smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/tables-merge-behavior.html" 'data-tables-merge="passed"' 'Tables merged cells smoke'
   Invoke-SmokePage "http://127.0.0.1:$Port/tests/vector-behavior.html" 'data-vector-behavior="passed"' 'Vector behavior smoke'

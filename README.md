@@ -103,7 +103,15 @@ powershell -ExecutionPolicy Bypass -File tests\run-tests.ps1
 powershell -ExecutionPolicy Bypass -File tests\run-browser-smoke.ps1
 ```
 
-Сторінки browser smoke йдуть під `--virtual-time-budget=35000`, крім тих, чий сценарій спирається на IndexedDB у реальному часі: `tests/storage-ui-behavior.html` (спільний ПК) `Invoke-LiveSmokePage` запускає наживо й читає результат через DevTools. Кожен запуск Chrome у browser/offline smoke обмежений wall-clock тайм-аутом `-PageTimeoutSeconds` (типово 120 с), незалежним від `--virtual-time-budget`. Після тайм-ауту раннер зупиняє лише дерево процесів і профіль цього запуску, прибирає сервер і повідомляє назву перевірки та stderr; помилка запуску браузера, падіння перевірки й тайм-аут мають різні повідомлення.
+Сторінки browser smoke йдуть під `--virtual-time-budget` (типово 90 с віртуального часу, параметр `-VirtualTimeBudgetMs`). Віртуальний час біжить швидко, тож більший бюджет майже не додає стінного часу, а справжнє зависання ловлять тайм-аути самих сторінок. Коли бюджет вичерпано, Chrome знімає DOM незавершеної сторінки, і вона падає з «Running...».
+
+Наживо, без віртуального часу, йдуть сторінки, чий сценарій спирається на IndexedDB: `tests/storage-ui-behavior.html` (спільний ПК), `tests/text-storage-behavior.html` і `tests/tables-named-ranges-behavior.html`. Під віртуальним часом таймери сховища (1–1,5 с) спрацьовують раніше, ніж завершується запис IndexedDB, тож шлях «IndexedDB чи localStorage» обирає гонка. `Invoke-LiveSmokePage` запускає такі сторінки звичайним Chrome і читає результат через DevTools.
+
+Сервер browser smoke запускається з `-DisableServiceWorker`: `sw.js` віддається як 404, і сторінки працюють без service worker. Інакше встановлення SW посеред завантаження редактора перебирає на себе запити скриптів і паралельно тягне весь прекеш через однопотоковий тестовий сервер; невдалий запит усередині SW пропускав скрипт сторінки (у CI — «ArtModals is not defined», «FORMULA_ERRORS is not defined»). Офлайн-поведінку перевіряє `tests/run-offline-smoke.ps1` зі своїм сервером.
+
+Щоб відтворити рідкісне падіння, раннер приймає фільтр і повтор: `tests\run-browser-smoke.ps1 -Only "Text sections|Slides domain" -Repeat 20` запускає лише збіги за назвою потрібну кількість разів і зупиняється на першому падінні.
+
+Кожен запуск Chrome у browser/offline smoke обмежений wall-clock тайм-аутом `-PageTimeoutSeconds` (типово 120 с), незалежним від `--virtual-time-budget`. Після тайм-ауту раннер зупиняє лише дерево процесів і профіль цього запуску, прибирає сервер і повідомляє назву перевірки та stderr; помилка запуску браузера, падіння перевірки й тайм-аут мають різні повідомлення.
 
 Повна перевірка готовності до контрольованого пілота:
 

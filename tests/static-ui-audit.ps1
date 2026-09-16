@@ -1642,6 +1642,15 @@ Assert-True ($processHelpers -notmatch '(?i)taskkill[^\r\n]*/IM|Get-Process\s+(-
 # E2, спільний ПК: сценарій з IndexedDB у реальному часі йде наживо, без --virtual-time-budget.
 $browserRunnerSource = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/run-browser-smoke.ps1')
 Assert-True ($browserRunnerSource -match 'function Invoke-LiveSmokePage' -and $browserRunnerSource -match 'Invoke-LiveSmokePage "[^"]*/tests/storage-ui-behavior\.html"') "run-browser-smoke.ps1: shared-PC storage smoke must run live, without virtual time"
+# Нестабільні smoke (2026-09-16): чернетки під віртуальним часом обирають сховище гонкою таймерів,
+# а service worker посеред завантаження редактора пропускав скрипти сторінки. Контракт раннера:
+foreach ($livePage in @('text-storage-behavior', 'tables-named-ranges-behavior')) {
+  Assert-True ($browserRunnerSource -match ("Invoke-LiveSmokePage " + '"[^"]*/tests/' + [regex]::Escape($livePage) + '\.html"')) "run-browser-smoke.ps1: $livePage checks drafts in IndexedDB and must run live"
+}
+Assert-True ($browserRunnerSource -match "'-DisableServiceWorker'") 'run-browser-smoke.ps1: the browser smoke server must run without the service worker'
+$serveOfficeSource = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/serve-office.ps1')
+Assert-True ($serveOfficeSource -match '\[switch\]\$DisableServiceWorker' -and $serveOfficeSource -match "requestPath -eq 'sw\.js'") 'serve-office.ps1: -DisableServiceWorker must answer sw.js with 404'
+Assert-True ($browserRunnerSource -notmatch "virtual-time-budget=35000" -and $browserRunnerSource -match 'VirtualTimeBudgetMs = 90000') 'run-browser-smoke.ps1: the virtual time budget must keep its measured headroom'
 Assert-True ($processHelpers -match 'function Invoke-CdpPageEvaluation') "test-process-helpers.ps1: live smoke pages need the shared DevTools evaluation helper"
 foreach ($runnerName in @('run-browser-smoke.ps1', 'run-offline-smoke.ps1')) {
   $runner = Get-Content -Raw -Encoding UTF8 (Join-Path $Root "tests/$runnerName")

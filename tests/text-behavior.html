@@ -1078,7 +1078,7 @@
         `ruler: ${JSON.stringify(rulerDiagnostics)}`,
         `find/replace: ${JSON.stringify(findReplace.diagnostics)}`,
         `spellcheck: ${JSON.stringify(spellcheck.diagnostics)}`,
-        // Під --virtual-time-budget це віртуальний час сторінки: бюджет раннера — 35000 мс.
+        // Під --virtual-time-budget це віртуальний час сторінки: бюджет раннера — -VirtualTimeBudgetMs у run-browser-smoke.ps1 (типово 90000 мс).
         `virtual time ms: ${Math.round(performance.now())}`
       ];
 
