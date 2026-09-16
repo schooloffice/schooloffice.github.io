@@ -1644,7 +1644,7 @@ $browserRunnerSource = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'tests/r
 Assert-True ($browserRunnerSource -match 'function Invoke-LiveSmokePage' -and $browserRunnerSource -match 'Invoke-LiveSmokePage "[^"]*/tests/storage-ui-behavior\.html"') "run-browser-smoke.ps1: shared-PC storage smoke must run live, without virtual time"
 # Нестабільні smoke (2026-09-16): чернетки під віртуальним часом обирають сховище гонкою таймерів,
 # а service worker посеред завантаження редактора пропускав скрипти сторінки. Контракт раннера:
-foreach ($livePage in @('text-storage-behavior', 'tables-named-ranges-behavior')) {
+foreach ($livePage in @('text-storage-behavior', 'tables-named-ranges-behavior', 'slides-behavior')) {
   Assert-True ($browserRunnerSource -match ("Invoke-LiveSmokePage " + '"[^"]*/tests/' + [regex]::Escape($livePage) + '\.html"')) "run-browser-smoke.ps1: $livePage checks drafts in IndexedDB and must run live"
 }
 Assert-True ($browserRunnerSource -match "'-DisableServiceWorker'") 'run-browser-smoke.ps1: the browser smoke server must run without the service worker'
