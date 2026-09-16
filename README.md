@@ -79,6 +79,8 @@
 5. Уніфікувати поведінку keyboard shortcuts, dropdown, modal і workspace focus.
 6. Після цього полірувати редактори по одному за локальними `UI_MIGRATION_TO_STANDARD.md`.
 
+Кроки 1-5 виконано; поточна робота - крок 6. Усі сторонні бандли лежать у `vendor/`, їхні версії, ліцензії та SHA-256 перелічено в `THIRD_PARTY_NOTICES.md`.
+
 ### Поточний технічний висновок
 
 `tables/` уже пройшов великий етап декомпозиції: `core.js` став фасадом, формульне ядро розділене на parser/references/functions/engine, а UI, clipboard, formatting, structure, charts, sorting, workbook file і calculation винесені в окремі модулі.
@@ -131,7 +133,7 @@ powershell -ExecutionPolicy Bypass -File tests\cleanup-test-artifacts.ps1
 - modal/dropdown/statusbar контракти.
 - `sw.js` precache-контракт: іменовані core/editor-групи не мають мертвих шляхів і містять локальні asset-и, які підключають HTML-файли редакторів.
 
-`tests/browser-smoke.html` можна відкрити в браузері як додатковий smoke-тест DOM-структури, а `tests/run-browser-smoke.ps1` автоматизує цей сценарій через headless Chrome і додатково запускає поведінкові перевірки для Flowcharts, Slides і Tables. Для `slides/` `slides/js/runtime.js` лишається тонкою module-entry обгорткою для стабільного підключення в HTML, а `tests/slides-behavior.html` перевіряє, що `SlidesApp.boot`, список слайдів, сцена і project helpers справді працюють у браузері. Зовнішні CDN-ресурси поки лише позначаються warning-ами: їх винесення в локальний `vendor/` є окремим наступним кроком. Директорії `tests/.browser-profile*` і файли `.browser-smoke.*` є локальними артефактами запуску; вони ігноруються git і чистяться через `tests\cleanup-test-artifacts.ps1`.
+`tests/browser-smoke.html` можна відкрити в браузері як додатковий smoke-тест DOM-структури, а `tests/run-browser-smoke.ps1` автоматизує цей сценарій через headless Chrome і додатково запускає поведінкові перевірки всіх шести редакторів та спільні сценарії: адаптивність, контраст і 200% масштаб, великі інструменти з підписами, стартові документи й готовність до пілоту. Для `slides/` `slides/js/runtime.js` лишається тонкою module-entry обгорткою для стабільного підключення в HTML, а `tests/slides-behavior.html` перевіряє, що `SlidesApp.boot`, список слайдів, сцена і project helpers справді працюють у браузері. Зовнішні залежності лежать у локальному `vendor/`; статичний аудит перевіряє, що HTML редакторів не підключає скриптів і стилів із зовнішніх адрес. Директорії `tests/.browser-profile*` і файли `.browser-smoke.*` є локальними артефактами запуску; вони ігноруються git і чистяться через `tests\cleanup-test-artifacts.ps1`.
 
 Реальну готовність пакета без мережі перевіряє `tests/run-offline-smoke.ps1` на динамічному порту з одним тимчасовим профілем Chrome у чотири фази:
 
@@ -144,7 +146,7 @@ powershell -ExecutionPolicy Bypass -File tests\cleanup-test-artifacts.ps1
 
 Історію Слайдів на важкій презентації вимірює `tests/slides-history-benchmark.html?scenario=text|photos|camera&edits=80`. Сторінка не входить у smoke; запускати її треба без `--virtual-time-budget`, а точний heap дає Chrome із `--enable-precise-memory-info --js-flags=--expose-gc`.
 
-Адаптивну розкладку перевіряє `tests/responsive-smoke.html` на `390×844`, `768×1024` і `1366×768`: горизонтальні toolbar-и Text/Slides, мобільні drawer-панелі Paint/Vector та компактну палітру Flowcharts із canvas у першому екрані.
+Адаптивну розкладку перевіряє `tests/responsive-smoke.html` на `390×844`, `768×1024` і `1366×768`: горизонтальні toolbar-и Text/Slides, мобільні drawer-панелі Paint/Vector та компактну палітру Flowcharts із canvas у першому екрані. Для Paint і Vector сторінка також стежить, щоб відкритий drawer лишався над горизонтальною смугою інструментів і не накривав рядок стану - у звичайному режимі й у режимі великих інструментів.
 
 `tests/accessibility-smoke.html` перевіряє три речі:
 - головна сторінка не блокує масштабування;

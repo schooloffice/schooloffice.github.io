@@ -314,6 +314,20 @@ function Assert-LocalHtmlAssetsExist {
   }
 }
 
+# Офлайн-обіцянка пакета тримається лише поки сторінки не тягнуть скриптів чи стилів із мережі:
+# сторонні бандли мають лежати у vendor/ і потрапляти в прекеш sw.js.
+function Assert-NoExternalHtmlAssets {
+  param(
+    [string]$Html,
+    [string]$Label
+  )
+
+  $externalMatches = [regex]::Matches($Html, '<(?:script|link)\b[^>]*(?:src|href)="((?:https?:)?//[^"]+)"')
+  foreach ($match in $externalMatches) {
+    Assert-True $false "${Label}: external script/style must be vendored locally: $($match.Groups[1].Value)"
+  }
+}
+
 function Get-LocalHtmlAssetPaths {
   param(
     [string]$Html,
@@ -481,6 +495,7 @@ $rootIndexPath = Join-Path $Root 'index.html'
 if (Test-Path $rootIndexPath) {
   $rootHtml = Get-Content -Raw -Encoding UTF8 $rootIndexPath
   Assert-ProductionHtmlSecurityBaseline $rootHtml 'index.html'
+  Assert-NoExternalHtmlAssets $rootHtml 'index.html'
   Assert-True ($rootHtml -notmatch '/office/art-') "Root index still contains old /office/art-* links"
   Assert-True ($rootHtml -notmatch '/office/office-') "Root index contains invalid /office/office-* links"
   Assert-True ($rootHtml -notmatch "pathname\.endsWith\('/office'\)") "Standalone root index should not contain the old /office redirect"
@@ -538,6 +553,7 @@ foreach ($service in $services) {
   $html = Get-Content -Raw -Encoding UTF8 $indexPath
   Assert-ProductionHtmlSecurityBaseline $html "$($service.Path)/index.html"
   Assert-LocalHtmlAssetsExist $html $indexPath $service.Path
+  Assert-NoExternalHtmlAssets $html "$($service.Path)/index.html"
   Assert-StaticIdReferencesExist $html $serviceRoot $service.Path $service.OptionalIds
   Assert-StylesheetOrder $html $service.Path
 
