@@ -2,6 +2,7 @@ tests/.browser-profile*/
 tests/.offline-profile*/
 tests/.browser-smoke.*.stdout.txt
 tests/.browser-smoke.*.stderr.txt
+.wrangler/
 
 # Local Claude Code state (machine-specific)
 .claude/settings.local.json
