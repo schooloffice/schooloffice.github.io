@@ -37,6 +37,13 @@ function makeSheet(name) {
   };
 }
 
+function normalizeSheetFeature(value, rows, cols, namespace, methodName) {
+  const normalize = namespace?.[methodName];
+  if (typeof normalize === 'function') return normalize(value, rows, cols);
+  // Keep workbook data intact if an optional feature module has not loaded yet.
+  return Array.isArray(value) ? value : [];
+}
+
 function normalizeSheet(s) {
   const rows = Math.max(1, Math.min(500, Number(s?.rows) || DEFAULT_ROWS));
   const cols = Math.max(1, Math.min(200, Number(s?.cols) || DEFAULT_COL_COUNT));
@@ -46,8 +53,8 @@ function normalizeSheet(s) {
     cellStyles: s?.cellStyles && typeof s.cellStyles === 'object' ? s.cellStyles : {},
     colWidths: s?.colWidths && typeof s.colWidths === 'object' ? s.colWidths : {},
     condRules: Array.isArray(s?.condRules) ? s.condRules : [],
-    charts: normalizeSheetCharts(s?.charts, rows, cols),
-    merges: normalizeSheetMerges(s?.merges, rows, cols),
+    charts: normalizeSheetFeature(s?.charts, rows, cols, window.TablesChartModel, 'normalizeSheetCharts'),
+    merges: normalizeSheetFeature(s?.merges, rows, cols, window.TablesMergeModel, 'normalizeSheetMerges'),
     rows,
     cols
   };

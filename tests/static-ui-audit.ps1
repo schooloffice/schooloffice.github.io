@@ -1132,6 +1132,7 @@ if (Test-Path $tablesModelPath) {
     Assert-True ($tablesModel -match "\b$modelBinding\b") "tables/js/model.js: should own shared model binding $modelBinding"
   }
   Assert-True ($tablesModel -match 'function setGridSize\(') "tables/js/model.js: should own setGridSize"
+  Assert-True ($tablesModel -match "window\.TablesChartModel,\s*'normalizeSheetCharts'" -and $tablesModel -match "window\.TablesMergeModel,\s*'normalizeSheetMerges'") "tables/js/model.js: sheet features should use explicit module namespaces instead of implicit globals"
 }
 
 $tablesStoragePath = Join-Path $Root 'tables/js/storage.js'
