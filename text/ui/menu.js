@@ -41,6 +41,12 @@ const ArtMenu = (() => {
     _openMenu = null;
   }
 
+  // Браузер дає сторінці доступ до буфера обміну лише з дозволу користувача. Без нього
+  // команда мовчки нічого не робила б — пояснюємо, де цей дозвіл увімкнути.
+  function _clipboardBlocked() {
+    ArtModals.info('Буфер обміну недоступний', 'Браузер не дозволив ПЛЮС Текст працювати з буфером обміну. Дозвольте доступ до буфера обміну для цього сайту (значок ліворуч в адресному рядку) і спробуйте ще раз.');
+  }
+
   async function dispatch(action) {
     const openFile = () => window.OfficeUI?.openFilePicker?.('fileInput') || document.getElementById('fileInput')?.click();
     switch (action) {
@@ -66,9 +72,29 @@ const ArtMenu = (() => {
       case 'print': window.print(); break;
       case 'undo': ArtHistory.undo(); ArtToolbar.updateState(); break;
       case 'redo': ArtHistory.redo(); ArtToolbar.updateState(); break;
-      case 'cut': { const editor = document.getElementById('editor'); await ArtSelection.cut(editor); editor.dispatchEvent(new Event('input', { bubbles: true })); requestAnimationFrame(() => ArtHistory.pushNow()); break; }
-      case 'copy': await ArtSelection.copy(document.getElementById('editor')); break;
-      case 'paste': { const editor = document.getElementById('editor'); await ArtSelection.pastePlainText(editor); editor.dispatchEvent(new Event('input', { bubbles: true })); requestAnimationFrame(() => ArtHistory.pushNow()); break; }
+      case 'cut': {
+        const editor = document.getElementById('editor');
+        if (!ArtSelection.getRange(editor) || ArtSelection.getRange(editor).collapsed) break;
+        const ok = await ArtSelection.cut(editor);
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        requestAnimationFrame(() => ArtHistory.pushNow());
+        if (!ok) _clipboardBlocked();
+        break;
+      }
+      case 'copy': {
+        const editor = document.getElementById('editor');
+        if (!ArtSelection.getRange(editor) || ArtSelection.getRange(editor).collapsed) break;
+        if (!(await ArtSelection.copy(editor))) _clipboardBlocked();
+        break;
+      }
+      case 'paste': {
+        const editor = document.getElementById('editor');
+        const ok = await ArtSelection.pastePlainText(editor);
+        if (!ok) { _clipboardBlocked(); break; }
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        requestAnimationFrame(() => ArtHistory.pushNow());
+        break;
+      }
       case 'select-all': ArtSelection.selectAll(document.getElementById('editor')); break;
       case 'find': ArtFind.open('find'); break;
       case 'replace': ArtFind.open('replace'); break;

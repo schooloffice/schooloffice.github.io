@@ -230,6 +230,39 @@
       win.TablesWorkbookFile.applyWorkbookPayload(excel.payload);
       check('Excel fixture: PLUS draws the merged header and day cell', cellOf('A1')?.colSpan === 4 && cellOf('A3')?.rowSpan === 2
         && value('A1') === 'Розклад уроків' && !input('A4'), `A1 span=${cellOf('A1')?.colSpan} A3 span=${cellOf('A3')?.rowSpan}`);
+
+      // Власне контекстне меню клітинок.
+      win.TablesWorkbookFile.applyWorkbookPayload({
+        type: 'art-tables-workbook', version: 4, name: 'Меню', activeSheet: 0,
+        sheets: [sheet('Меню', { A1: 'a', A2: 'b', B1: 'c' })]
+      });
+      const ctxMenu = doc.getElementById('cellContextMenu');
+      const ctx = (id, init = {}) => {
+        const event = new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 120, clientY: 140, ...init });
+        cellOf(id).dispatchEvent(event);
+        return event;
+      };
+      const shiftEvent = ctx('B2', { shiftKey: true });
+      check('context menu: Shift+right-click leaves the browser menu', !shiftEvent.defaultPrevented && ctxMenu.hidden);
+      const cellEvent = ctx('B2');
+      check('context menu: right-click on a cell opens our menu and prevents the browser one', cellEvent.defaultPrevented && !ctxMenu.hidden
+        && bounds() === json({ cMin: 1, cMax: 1, rMin: 2, rMax: 2 }), bounds());
+      const itemOf = action => ctxMenu.querySelector('[data-context-action="' + action + '"]');
+      check('context menu: single cell hides merge and sort items', itemOf('merge-toggle').hidden && itemOf('sort-asc').hidden && !itemOf('insert-row-above').hidden);
+      ctxMenu.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      check('context menu: Escape closes it', ctxMenu.hidden);
+      selectRange('A1', 'B2');
+      ctx('B2');
+      check('context menu: right-click inside a multi-cell selection keeps it and shows merge/sort', !ctxMenu.hidden
+        && bounds() === json({ cMin: 0, cMax: 1, rMin: 1, rMax: 2 }) && !itemOf('merge-toggle').hidden && !itemOf('sort-asc').hidden, bounds());
+      itemOf('insert-row-above').click();
+      check('context menu: insert row above works from the menu and closes it', ctxMenu.hidden && value('A1') === '' && value('A2') === 'a' && value('A3') === 'b',
+        `${value('A1')}|${value('A2')}|${value('A3')}`);
+      input('A2').focus();
+      input('A2').setSelectionRange(0, 1);
+      const editEvent = ctx('A2');
+      check('context menu: selected text inside a cell keeps the browser menu', !editEvent.defaultPrevented && ctxMenu.hidden);
     }
 
     run().then(() => {

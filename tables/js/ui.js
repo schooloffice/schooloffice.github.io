@@ -55,6 +55,69 @@ function closeHeaderContextMenu() {
   document.querySelectorAll('.header-context-menu').forEach(menu => menu.classList.add('hidden'));
 }
 
+// ---- Контекстне меню клітинок ----
+function pasteFromContextMenu() {
+  const hint = 'Браузер не дозволив вставлення з меню. Натисни Ctrl+V.';
+  if (!navigator.clipboard?.readText) { announce(hint); return; }
+  navigator.clipboard.readText()
+    .then(text => { if (text) pasteToGrid(text, active.c, active.r); })
+    .catch(() => announce(hint));
+}
+
+function initCellContextMenu() {
+  const surface = document.getElementById('gridWrap');
+  const menu = document.getElementById('cellContextMenu');
+  if (!surface || !menu || !window.OfficeUI?.bindContextMenu) return;
+  const inSelection = (c, r) => {
+    const b = getBounds();
+    return c >= b.cMin && c <= b.cMax && r >= b.rMin && r <= b.rMax;
+  };
+  // Права кнопка всередині виділеного діапазону не фокусує клітинку і не скидає виділення.
+  surface.addEventListener('mousedown', (e) => {
+    if (e.button !== 2) return;
+    const td = e.target.closest?.('td[data-id]');
+    if (td && inSelection(Number(td.dataset.c), Number(td.dataset.r))) e.preventDefault();
+  }, true);
+  window.TablesCellContextMenu = window.OfficeUI.bindContextMenu({
+    surface,
+    menu,
+    resolve(event) {
+      const td = event.target.closest?.('td[data-id]');
+      if (!td || !surface.contains(td)) return null;
+      // Редагування тексту в клітинці (виділено частину тексту) лишає меню браузера.
+      const input = td.querySelector('.cell-input');
+      if (input && document.activeElement === input && input.selectionStart !== input.selectionEnd) return null;
+      const c = Number(td.dataset.c);
+      const r = Number(td.dataset.r);
+      if (!inSelection(c, r)) {
+        selStart = selEnd = { c, r };
+        setActive(c, r, td.dataset.id);
+      }
+      return { c, r };
+    },
+    prepare(el) {
+      const b = getBounds();
+      const range = [b.cMin, b.rMin, b.cMax, b.rMax];
+      const multi = b.cMin !== b.cMax || b.rMin !== b.rMax;
+      const exact = sheetMerges.some(m => m[0] === b.cMin && m[1] === b.rMin && m[2] === b.cMax && m[3] === b.rMax);
+      const hasMerge = sheetMerges.some(m => mergesIntersect(m, range));
+      const hide = (action, hidden) => { const item = el.querySelector(`[data-context-action="${action}"]`); if (item) item.hidden = hidden; };
+      hide('merge-toggle', !multi || exact);
+      hide('unmerge-cells', !hasMerge);
+      hide('sort-asc', b.rMin === b.rMax);
+      hide('sort-desc', b.rMin === b.rMax);
+    },
+    anchor() {
+      const rect = cellTd[active.r]?.[active.c]?.getBoundingClientRect();
+      return rect ? { x: rect.left + 8, y: rect.bottom - 4 } : null;
+    },
+    onAction(action) {
+      if (action === 'paste') pasteFromContextMenu();
+      else dispatchUiAction(action);
+    }
+  });
+}
+
 // ---- Themes ----
 const themes = {
   blue: { headerCls: 'bg-blue-600', th: '#e2e8f0', text: '#334155' },
@@ -162,6 +225,7 @@ function initMenusAndToolbar() {
       btn.addEventListener('click', () => closeModal(btn.dataset.closeModal));
     });
 
+    initCellContextMenu();
     menusInitialized = true;
   }
   updateToolbarState();

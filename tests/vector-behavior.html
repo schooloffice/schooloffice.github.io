@@ -527,6 +527,46 @@
 
       // Drawer на вузькому екрані перевіряє responsive-smoke.html (iframe 390×844).
 
+      // --- Власне контекстне меню полотна ---
+      state.objects = [rectObject({ id: 'cm1' }), rectObject({ id: 'cm2', x: 300, y: 300 })];
+      state.selectedObjectId = null;
+      state.clipboard = null;
+      editor.renderAll();
+      const ctxMenu = doc.getElementById('canvasContextMenu');
+      const ctxSvg = doc.getElementById('drawingSvg');
+      const ctxNode = contentLayer.querySelector('.vector-object[data-id="cm1"]');
+      const ctxRect = ctxNode.getBoundingClientRect();
+      const fireCtx = (target, opts) => {
+        const ev = new win.MouseEvent('contextmenu', Object.assign({
+          bubbles: true, cancelable: true, button: 2,
+          clientX: ctxRect.left + 20, clientY: ctxRect.top + 20
+        }, opts));
+        target.dispatchEvent(ev);
+        return ev;
+      };
+      const shiftEv = fireCtx(ctxNode, { shiftKey: true });
+      const shiftIgnored = !shiftEv.defaultPrevented && ctxMenu.hidden;
+      const ctxEv = fireCtx(ctxNode, {});
+      const menuOpens = ctxEv.defaultPrevented && !ctxMenu.hidden && state.selectedObjectId === 'cm1';
+      const shownActions = () => Array.from(ctxMenu.querySelectorAll('[data-context-action]'))
+        .filter(i => !i.hidden).map(i => i.dataset.contextAction);
+      const objectItemsShown = shownActions().includes('duplicate') && shownActions().includes('delete-selected');
+      ctxMenu.querySelector('[data-context-action="duplicate"]').click();
+      const duplicateWorks = state.objects.length === 3 && ctxMenu.hidden;
+      fireCtx(contentLayer.querySelector('.vector-object[data-id="cm2"]'), { clientX: 400, clientY: 400 });
+      const ctxReopened = !ctxMenu.hidden && state.selectedObjectId === 'cm2';
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await wait(50);
+      const escapeCloses = ctxReopened && ctxMenu.hidden;
+      const emptyEv = fireCtx(ctxSvg, { clientX: 5, clientY: 5 });
+      const emptyActions = shownActions();
+            const emptyMenuOk = emptyEv.defaultPrevented && !ctxMenu.hidden && !state.selectedObjectId &&
+        emptyActions.length === 1 && emptyActions[0] === 'paste';
+      win.OfficeUI.closeContextMenus();
+      state.objects = [];
+      state.selectedObjectId = null;
+      editor.renderAll();
+
       const checks = [
         check('Escape cancels file rename without saving the name', escapeCancelsRename),
         check('VectorApp boot exported', typeof win.VectorApp?.boot === 'function'),
@@ -585,7 +625,12 @@
         check('locked object has no handles and cannot be deleted or moved from the canvas', lockedStays),
         check('SVG export matches the visible result', svgMatchesVisible),
         check('undo and redo restore names, order, hidden and locked', undoRestoresObjects && redoRestoresObjects),
-        check('save and open keep names, order, hidden and locked', saveOpenKeepsObjects)
+        check('save and open keep names, order, hidden and locked', saveOpenKeepsObjects),
+        check('right-click on a shape opens our menu, selects it and prevents the browser menu', menuOpens && objectItemsShown),
+        check('Shift+right-click leaves the browser menu', shiftIgnored),
+        check('context menu action runs the existing command', duplicateWorks),
+        check('Escape closes the context menu', escapeCloses),
+        check('empty-canvas menu hides selection-only items and clears selection', emptyMenuOk)
       ];
 
       result.className = 'pass';

@@ -399,6 +399,36 @@
   <!-- ════════════════════════════════════════
      КОНТЕКСТНЕ МЕНЮ ТАБЛИЦІ
 ════════════════════════════════════════ -->
+  <div class="office-context-menu" id="textContextMenu" aria-label="Дії з текстом" hidden>
+    <button class="menu-item" type="button" data-context-action="cut">
+      <span><i class="fa-solid fa-scissors fa-fw" aria-hidden="true"></i> Вирізати</span><span class="shortcut">Ctrl+X</span>
+    </button>
+    <button class="menu-item" type="button" data-context-action="copy">
+      <span><i class="fa-regular fa-copy fa-fw" aria-hidden="true"></i> Копіювати</span><span class="shortcut">Ctrl+C</span>
+    </button>
+    <button class="menu-item" type="button" data-context-action="paste">
+      <span><i class="fa-solid fa-paste fa-fw" aria-hidden="true"></i> Вставити</span><span class="shortcut">Ctrl+V</span>
+    </button>
+    <button class="menu-item" type="button" data-context-action="select-all">
+      <span><i class="fa-solid fa-i-cursor fa-fw" aria-hidden="true"></i> Виділити все</span><span class="shortcut">Ctrl+A</span>
+    </button>
+    <div class="menu-sep" role="separator"></div>
+    <button class="menu-item" type="button" data-context-action="insert-table">
+      <span><i class="fa-solid fa-table fa-fw" aria-hidden="true"></i> Вставити таблицю…</span>
+    </button>
+    <button class="menu-item" type="button" data-context-action="insert-image">
+      <span><i class="fa-regular fa-image fa-fw" aria-hidden="true"></i> Вставити зображення…</span>
+    </button>
+    <button class="menu-item" type="button" data-context-action="insert-page-break">
+      <span><i class="fa-solid fa-file-circle-plus fa-fw" aria-hidden="true"></i> Розрив сторінки</span><span class="shortcut">Ctrl+Enter</span>
+    </button>
+    <div class="menu-sep" role="separator"></div>
+    <button class="menu-item" type="button" data-context-action="find">
+      <span><i class="fa-solid fa-magnifying-glass fa-fw" aria-hidden="true"></i> Знайти…</span><span class="shortcut">Ctrl+F</span>
+    </button>
+    <div class="context-hint" role="note">Shift + правий клік — меню браузера з виправленнями правопису</div>
+  </div>
+
   <div class="table-context-menu" id="tableContextMenu" role="menu" aria-label="Дії з таблицею" hidden>
     <div class="table-context-title" role="presentation">Рядок</div>
     <button class="menu-item" type="button" data-table-action="row-above" role="menuitem">
