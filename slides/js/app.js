@@ -1000,36 +1000,107 @@ function bindMenus() {
   document.addEventListener('pointerdown', event => {
     if (!event.target.closest('.menu-item-wrap')) closeMenus();
     if (!event.target.closest('.color-popover') && !event.target.closest('#colorPanelBtn')) closeColorPopover();
-    if (!event.target.closest('.context-menu')) hideContextMenu();
   });
 }
 
 function bindToolbar() {
   $$('[data-action]').forEach(button => {
-    if (button.closest('.menu-dropdown') || button.closest('.context-menu')) return;
+    if (button.closest('.menu-dropdown')) return;
     button.addEventListener('click', event => dispatchAction(button.dataset.action, event.currentTarget));
   });
 }
 
 function bindContextMenu() {
-  dom.stage.addEventListener('contextmenu', onStageContextMenu);
-  $$('.menu-item', dom.contextMenu).forEach(button => {
-    button.addEventListener('click', () => {
-      dispatchAction(button.dataset.action, button);
-      // Якщо команда не перевела фокус у modal/інший control, повертаємо його
-      // з прихованого пункту меню до безпечної робочої області.
-      hideContextMenu({ restoreFocus: dom.contextMenu.contains(document.activeElement) });
-    });
+  if (!window.OfficeUI?.bindContextMenu) return;
+  const keyboardEvent = event => event.button !== 2 && event.pointerType !== 'touch' && event.pointerType !== 'pen';
+  const runItem = action => {
+    dispatchAction(action, null);
+  };
+
+  // Меню об'єкта на полотні. Мишею — об'єкт під курсором, з клавіатури
+  // (клавіша меню, Shift+F10) — головний вибраний об'єкт.
+  window.OfficeUI.bindContextMenu({
+    surface: dom.workspace,
+    menu: dom.contextMenu,
+    resolve(event) {
+      if (event.target.closest('.office-context-menu')) return null;
+      if (keyboardEvent(event)) {
+        return getSelectedElement() ? { kind: 'object' } : null;
+      }
+      const wrap = event.target.closest('.stage-element');
+      if (!wrap) return null;
+      if (wrap.dataset.id) makePrimary(wrap.dataset.id);
+      const cell = event.target.closest('.slide-table-cell');
+      if (cell && wrap.dataset.id) tableController.selectCell(wrap.dataset.id, Number(cell.dataset.row), Number(cell.dataset.col), event.shiftKey);
+      return { kind: 'object' };
+    },
+    prepare(menu) {
+      const element = getSelectedElement();
+      const tableCellActive = tableController.isActiveForElement(element);
+      $$('[data-context-kind]', menu).forEach(item => {
+        const kind = item.dataset.contextKind;
+        item.hidden =
+          (kind === 'table-object' && element?.type !== 'table') ||
+          (kind === 'table-cell' && !tableCellActive) ||
+          (kind === 'chart' && element?.type !== 'chart') ||
+          (kind === 'image' && element?.type !== 'image');
+      });
+    },
+    anchor() {
+      const element = getSelectedElement();
+      const node = element ? elementDomMap.get(element.id) : null;
+      const rect = (node || dom.stage).getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    },
+    onAction: runItem
   });
-  // Клавіатурна навігація всередині контекст-меню.
-  dom.contextMenu.addEventListener('keydown', event => {
-    const items = $$('.menu-item:not(.hidden)', dom.contextMenu);
-    const index = items.indexOf(document.activeElement);
-    if (event.key === 'ArrowDown') { event.preventDefault(); items[(index + 1) % items.length]?.focus(); }
-    else if (event.key === 'ArrowUp') { event.preventDefault(); items[(index - 1 + items.length) % items.length]?.focus(); }
-    else if (event.key === 'Home') { event.preventDefault(); items[0]?.focus(); }
-    else if (event.key === 'End') { event.preventDefault(); items[items.length - 1]?.focus(); }
-    else if (event.key === 'Escape') { event.preventDefault(); hideContextMenu({ restoreFocus: true }); }
+
+  // Меню порожньої ділянки слайда (тло): знімає виділення об'єктів.
+  window.OfficeUI.bindContextMenu({
+    surface: dom.workspace,
+    menu: $('#slideAreaMenu'),
+    resolve(event) {
+      if (event.target.closest('.office-context-menu')) return null;
+      if (keyboardEvent(event)) return getSelectedElement() ? null : { kind: 'slide' };
+      const onSlide = event.target === dom.workspace || event.target.closest('.stage-wrap');
+      if (!onSlide || event.target.closest('.stage-element')) return null;
+      clearSelection();
+      return { kind: 'slide' };
+    },
+    prepare(menu) {
+      const paste = menu.querySelector('[data-context-action="paste"]');
+      if (paste) paste.disabled = !(Array.isArray(state.clipboard) ? state.clipboard.length : state.clipboard);
+    },
+    anchor() {
+      const rect = dom.stage.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    },
+    onAction: runItem
+  });
+
+  // Меню мініатюри слайда у списку ліворуч.
+  window.OfficeUI.bindContextMenu({
+    surface: dom.slideList,
+    menu: $('#slideListMenu'),
+    resolve(event) {
+      const card = event.target.closest('.slide-card');
+      if (!card) return null;
+      if (card.dataset.slideId !== state.currentSlideId) card.click();
+      return { slideId: card.dataset.slideId };
+    },
+    prepare(menu) {
+      const index = getCurrentSlideIndex();
+      const up = menu.querySelector('[data-context-action="move-slide-up"]');
+      const down = menu.querySelector('[data-context-action="move-slide-down"]');
+      if (up) up.disabled = index <= 0;
+      if (down) down.disabled = index >= state.slides.length - 1;
+    },
+    anchor(context) {
+      const card = $$('.slide-card', dom.slideList).find(node => node.dataset.slideId === context?.slideId) || dom.slideList;
+      const rect = card.getBoundingClientRect();
+      return { x: rect.left + Math.min(rect.width / 2, 120), y: rect.top + Math.min(rect.height / 2, 60) };
+    },
+    onAction: runItem
   });
 }
 
@@ -1041,54 +1112,6 @@ function makePrimary(id) {
   } else {
     setSelection([...state.selectedElementIds.filter(x => x !== id), id]);
   }
-}
-
-function onStageContextMenu(event) {
-  const wrap = event.target.closest('.stage-element');
-  if (!wrap) { hideContextMenu(); return; }
-  event.preventDefault();
-  if (wrap.dataset.id) makePrimary(wrap.dataset.id);
-  const cell = event.target.closest('.slide-table-cell');
-  if (cell && wrap.dataset.id) tableController.selectCell(wrap.dataset.id, Number(cell.dataset.row), Number(cell.dataset.col), event.shiftKey);
-  showContextMenu(event.clientX, event.clientY);
-}
-
-// Відкриття контекст-меню з клавіатури (Shift+F10 / клавіша меню) біля головного
-// вибраного об'єкта.
-function openContextMenuForSelection() {
-  const element = getSelectedElement();
-  if (!element) return;
-  const node = elementDomMap.get(element.id);
-  const rect = (node || dom.stage).getBoundingClientRect();
-  showContextMenu(rect.left + rect.width / 2, rect.top + rect.height / 2, true);
-}
-
-function showContextMenu(clientX, clientY, focusFirst = false) {
-  const menu = dom.contextMenu;
-  const element = getSelectedElement();
-  const tableCellActive = tableController.isActiveForElement(element);
-  $$('[data-context-kind]', menu).forEach(item => {
-    const kind = item.dataset.contextKind;
-    item.classList.toggle('hidden',
-      (kind === 'table-object' && element?.type !== 'table') ||
-      (kind === 'table-cell' && !tableCellActive) ||
-      (kind === 'chart' && element?.type !== 'chart') ||
-      (kind === 'image' && element?.type !== 'image'));
-  });
-  menu.classList.remove('hidden');
-  // Тримаємо меню в межах вікна.
-  const width = menu.offsetWidth || 200;
-  const height = menu.offsetHeight || 220;
-  const left = Math.min(clientX, window.innerWidth - width - 8);
-  const top = Math.min(clientY, window.innerHeight - height - 8);
-  menu.style.left = `${Math.max(8, left)}px`;
-  menu.style.top = `${Math.max(8, top)}px`;
-  if (focusFirst) menu.querySelector('.menu-item:not(.hidden)')?.focus();
-}
-
-function hideContextMenu({ restoreFocus = false } = {}) {
-  dom.contextMenu?.classList.add('hidden');
-  if (restoreFocus) dom.workspace?.focus();
 }
 
 function bindInputs() {
@@ -1162,7 +1185,6 @@ function bindInputs() {
     event.preventDefault();
     setZoom(stageZoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
   }, { passive: false });
-  dom.workspace.addEventListener('scroll', hideContextMenu);
 }
 
 
@@ -1355,7 +1377,7 @@ function handleKeyboardShortcuts(event) {
   }
 
   // Коли фокус у відкритому контекст-меню — воно саме обробляє клавіатуру.
-  if (dom.contextMenu && !dom.contextMenu.classList.contains('hidden') && dom.contextMenu.contains(activeElement)) return;
+  if (activeElement?.closest?.('.office-context-menu')) return;
 
   // У режимі кадрування Esc/Enter завершують його (поза полями введення).
   if (state.cropElementId && !isTypingInText && !isTypingInInput && (event.key === 'Escape' || event.key === 'Enter')) {
@@ -1363,8 +1385,6 @@ function handleKeyboardShortcuts(event) {
     exitCropMode();
     return;
   }
-
-  if (event.key === 'Escape') hideContextMenu();
 
   if (tableCellFocused && !ctrlOrMeta && (event.key === 'Delete' || event.key === 'Backspace') && tableController.getActiveRange()?.count > 1) {
     event.preventDefault();
@@ -1461,15 +1481,6 @@ function handleKeyboardShortcuts(event) {
       event.preventDefault();
       moveSlideFocus(event.key === 'ArrowDown' ? 1 : -1);
       return;
-    }
-
-    // Shift+F10 або клавіша меню — контекст-меню для вибраного об'єкта.
-    if ((event.key === 'F10' && event.shiftKey) || event.key === 'ContextMenu') {
-      if (getSelectedElement()) {
-        event.preventDefault();
-        openContextMenuForSelection();
-        return;
-      }
     }
 
     // Tab — циклічний вибір об'єктів, лише коли фокус БЕЗПОСЕРЕДНЬО на полотні
