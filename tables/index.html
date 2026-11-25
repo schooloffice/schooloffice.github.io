@@ -54,6 +54,7 @@
         <button class="menu-item" data-action="undo" id="menuUndo"><span><i class="fa-solid fa-rotate-left fa-fw"></i> Скасувати</span><span class="shortcut">Ctrl+Z</span></button>
         <button class="menu-item" data-action="redo" id="menuRedo"><span><i class="fa-solid fa-rotate-right fa-fw"></i> Повернути</span><span class="shortcut">Ctrl+Y</span></button>
         <div class="menu-sep"></div>
+        <button class="menu-item" data-action="cut"><span><i class="fa-solid fa-scissors fa-fw"></i> Вирізати</span><span class="shortcut">Ctrl+X</span></button>
         <button class="menu-item" data-action="copy"><span><i class="fa-regular fa-copy fa-fw"></i> Копіювати</span><span class="shortcut">Ctrl+C</span></button>
         <button class="menu-item" data-action="paste"><span><i class="fa-solid fa-paste fa-fw"></i> Вставити</span><span class="shortcut">Ctrl+V</span></button>
         <button class="menu-item" data-action="clear-selection"><span><i class="fa-solid fa-eraser fa-fw"></i> Очистити виділене</span><span class="shortcut">Del</span></button>
@@ -375,21 +376,22 @@
 
   <div id="ariaAnnouncer" aria-live="polite" aria-atomic="true" class="sr-only"></div>
 
-  <div id="rowHeaderMenu" class="header-context-menu hidden">
-    <button class="menu-item" data-action="insert-row-above"><span><i class="fa-solid fa-grip-lines fa-fw"></i> Вставити рядок зверху</span></button>
-    <button class="menu-item" data-action="insert-row-below"><span><i class="fa-solid fa-grip-lines fa-fw"></i> Вставити рядок знизу</span></button>
+  <div id="rowHeaderMenu" class="office-context-menu" hidden aria-label="Дії з рядком">
+    <button class="menu-item" data-context-action="insert-row-above"><span><i class="fa-solid fa-grip-lines fa-fw"></i> Вставити рядок зверху</span></button>
+    <button class="menu-item" data-context-action="insert-row-below"><span><i class="fa-solid fa-grip-lines fa-fw"></i> Вставити рядок знизу</span></button>
     <div class="menu-sep"></div>
-    <button class="menu-item danger" data-action="delete-row"><span><i class="fa-solid fa-trash-can fa-fw"></i> Видалити рядок</span></button>
+    <button class="menu-item danger" data-context-action="delete-row"><span><i class="fa-solid fa-trash-can fa-fw"></i> Видалити рядок</span></button>
   </div>
 
-  <div id="colHeaderMenu" class="header-context-menu hidden">
-    <button class="menu-item" data-action="insert-col-left"><span><i class="fa-solid fa-table-columns fa-fw"></i> Вставити колонку ліворуч</span></button>
-    <button class="menu-item" data-action="insert-col-right"><span><i class="fa-solid fa-table-columns fa-fw"></i> Вставити колонку праворуч</span></button>
+  <div id="colHeaderMenu" class="office-context-menu" hidden aria-label="Дії з колонкою">
+    <button class="menu-item" data-context-action="insert-col-left"><span><i class="fa-solid fa-table-columns fa-fw"></i> Вставити колонку ліворуч</span></button>
+    <button class="menu-item" data-context-action="insert-col-right"><span><i class="fa-solid fa-table-columns fa-fw"></i> Вставити колонку праворуч</span></button>
     <div class="menu-sep"></div>
-    <button class="menu-item danger" data-action="delete-col"><span><i class="fa-solid fa-trash-can fa-fw"></i> Видалити колонку</span></button>
+    <button class="menu-item danger" data-context-action="delete-col"><span><i class="fa-solid fa-trash-can fa-fw"></i> Видалити колонку</span></button>
   </div>
 
   <div id="cellContextMenu" class="office-context-menu" hidden aria-label="Дії з клітинками">
+    <button class="menu-item" data-context-action="cut"><span><i class="fa-solid fa-scissors fa-fw" aria-hidden="true"></i> Вирізати</span><span class="shortcut">Ctrl+X</span></button>
     <button class="menu-item" data-context-action="copy"><span><i class="fa-regular fa-copy fa-fw" aria-hidden="true"></i> Копіювати</span><span class="shortcut">Ctrl+C</span></button>
     <button class="menu-item" data-context-action="paste"><span><i class="fa-solid fa-paste fa-fw" aria-hidden="true"></i> Вставити</span><span class="shortcut">Ctrl+V</span></button>
     <button class="menu-item" data-context-action="clear-selection"><span><i class="fa-solid fa-eraser fa-fw" aria-hidden="true"></i> Очистити вміст</span><span class="shortcut">Del</span></button>
