@@ -1014,6 +1014,10 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     selectAllShapes,
     arrangeSelected,
     openStarter,
+    copyBlocks: copySelectedBlocks,
+    cutBlocks: cutSelectedBlocks,
+    pasteBlocks: pasteClipboardBlocks,
+    duplicateBlocks: duplicateSelectedBlocks,
   }) || {};
   const toggleHelp = menuActions.toggleHelp || (() => {});
   const menuApi = menuActions.bind?.() || null;
@@ -1045,7 +1049,169 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     closeValidationPanel: () => validation.close?.(),
     templatesModal,
     selectAllShapes,
+    duplicateBlocks: duplicateSelectedBlocks,
   })?.bind?.();
+
+  // ================= CLIPBOARD (copy / cut / paste / duplicate) =================
+  // Внутрішній буфер лише в пам'яті: navigator.clipboard не потрібен. Блоки зберігаються за індексами,
+  // тож вставка дає нові id; стрілки беруться лише ті, обидва кінці яких у наборі.
+  const PASTE_OFFSET = 24;
+  const CLIPBOARD_MAX_SHAPES = 500;
+  let blockClipboard = null; // { shapes, connections, nextOffset }
+
+  function buildClipboardData(shapeEls) {
+    const records = shapeEls.map((el) => state.shapes.find((shape) => shape.id === el.id)).filter(Boolean);
+    if (!records.length) return null;
+    const known = records.map((shape) => shape.id);
+    const shapes = records.map((shape) => {
+      const el = document.getElementById(shape.id);
+      return { type: shape.type, color: shape.color, textRaw: shape.textRaw, left: el ? el.offsetLeft : 0, top: el ? el.offsetTop : 0 };
+    });
+    const connections = state.connections
+      .filter((conn) => known.includes(conn.from) && known.includes(conn.to))
+      .map((conn) => ({
+        from: known.indexOf(conn.from),
+        to: known.indexOf(conn.to),
+        type: conn.type || null,
+        routeMode: conn.routeMode || 'auto',
+        label: conn.label ?? null,
+        isCustom: !!conn.isCustom,
+        waypoints: Array.isArray(conn.waypoints) ? conn.waypoints.map((point) => ({ x: point.x, y: point.y })) : [],
+      }));
+    return { shapes, connections, nextOffset: PASTE_OFFSET };
+  }
+
+  function clipboardSelection() {
+    return state.selectedConnId ? [] : getSelectedShapes();
+  }
+
+  function clipboardPlainText(data) {
+    return (data?.shapes || []).map((shape) => String(shape.textRaw || '').replace(/\s*\n\s*/g, ' ').trim()).join('\n');
+  }
+
+  function pasteBlocks(data, offset) {
+    if (!data || !Array.isArray(data.shapes) || !data.shapes.length) return [];
+    if (state.shapes.length + data.shapes.length > CLIPBOARD_MAX_SHAPES) {
+      showMessageModal('Забагато блоків: вставка перевищила б ліміт схеми.');
+      return [];
+    }
+    const ids = [];
+    let counter = state.shapeCounter;
+    data.shapes.forEach(() => {
+      do { counter++; } while (document.getElementById(`shape-${counter}`) || state.shapes.some((s) => s.id === `shape-${counter}`));
+      ids.push(`shape-${counter}`);
+    });
+    // Той самий розбір і обмеження (типи, кольори, довжини, координати), що й під час відкриття проєкту.
+    let parsed;
+    try {
+      parsed = core.parseProject({
+        shapes: data.shapes.map((shape, index) => ({
+          id: ids[index],
+          type: shape.type,
+          color: shape.color,
+          textRaw: shape.textRaw,
+          left: Number(shape.left) + offset,
+          top: Number(shape.top) + offset,
+        })),
+        connections: (data.connections || []).filter((c) => ids[c.from] && ids[c.to] && c.from !== c.to).map((conn) => ({
+          id: `conn-${ids[conn.from]}-${ids[conn.to]}${conn.type === 'yes' || conn.type === 'no' ? `-${conn.type}` : ''}`,
+          from: ids[conn.from],
+          to: ids[conn.to],
+          type: conn.type,
+          routeMode: conn.routeMode,
+          label: conn.label,
+          isCustom: conn.isCustom,
+          waypoints: (conn.waypoints || []).map((point) => ({ x: Number(point.x) + offset, y: Number(point.y) + offset })),
+        })),
+      });
+    } catch (error) {
+      showMessageModal('Не вдалося вставити блоки.');
+      return [];
+    }
+    if (!parsed.shapes.length) return [];
+
+    saveSnapshot();
+    state.shapeCounter = counter;
+    const created = parsed.shapes.map((shape) => createShape(shape.type, shape.color, shape.textRaw, shape.left, shape.top, shape.id)).filter(Boolean);
+    parsed.connections.forEach((conn) => {
+      const fromEl = document.getElementById(conn.from);
+      const toEl = document.getElementById(conn.to);
+      if (!fromEl || !toEl) return;
+      connectShapes(fromEl, toEl, conn.type, undefined, true, conn.routeMode);
+      const added = state.connections.find((item) => item.id === conn.id);
+      if (!added) return;
+      added.label = conn.label;
+      added.isCustom = conn.isCustom;
+      added.waypoints = conn.waypoints;
+      updateConnection(added.id);
+    });
+    clearConnectionSelection(false);
+    selectShapes(created);
+    scheduleRefresh();
+    return created;
+  }
+
+  function copySelectedBlocks() {
+    const data = buildClipboardData(clipboardSelection());
+    if (!data) return null;
+    blockClipboard = data;
+    window.OfficeUI?.updateStatus?.(`Скопійовано блоків: ${data.shapes.length}.`, 'secondary');
+    return data;
+  }
+
+  function cutSelectedBlocks() {
+    const els = clipboardSelection();
+    const data = copySelectedBlocks();
+    if (!data) return null;
+    blockClipboard.nextOffset = 0; // вставка після «Вирізати» повертає блоки на місце
+    // Без підтвердження: блоки лишаються в буфері, а один Ctrl+Z повертає їх.
+    shapeDeletion.performShapesDeletion(els);
+    return data;
+  }
+
+  function pasteClipboardBlocks() {
+    if (!blockClipboard) return [];
+    const offset = blockClipboard.nextOffset;
+    const created = pasteBlocks(blockClipboard, offset);
+    if (created.length) blockClipboard.nextOffset = offset + PASTE_OFFSET;
+    return created;
+  }
+
+  function duplicateSelectedBlocks() {
+    const data = buildClipboardData(clipboardSelection());
+    return data ? pasteBlocks(data, PASTE_OFFSET) : [];
+  }
+
+  function clipboardEventBlocked(event) {
+    const active = document.activeElement;
+    if (active && /^(input|textarea|select)$/i.test(active.tagName || '')) return true;
+    if (active?.isContentEditable) return true;
+    if (document.querySelector('.modal.active')) return true;
+    const target = event.target instanceof Element ? event.target : null;
+    return !!target?.closest('input, textarea, select, [contenteditable="true"]');
+  }
+
+  function writeClipboardText(event, data) {
+    if (!event.clipboardData) return;
+    event.clipboardData.setData('text/plain', clipboardPlainText(data));
+    event.preventDefault();
+  }
+
+  document.addEventListener('copy', (event) => {
+    if (clipboardEventBlocked(event)) return;
+    const data = copySelectedBlocks();
+    if (data) writeClipboardText(event, data);
+  });
+  document.addEventListener('cut', (event) => {
+    if (clipboardEventBlocked(event)) return;
+    const data = cutSelectedBlocks();
+    if (data) writeClipboardText(event, data);
+  });
+  document.addEventListener('paste', (event) => {
+    if (clipboardEventBlocked(event) || !blockClipboard) return;
+    event.preventDefault();
+    pasteClipboardBlocks();
+  });
 
   // ================= CONTEXT MENU =================
   // Ті самі дії, що в головному меню, на панелі вибору й гарячих клавішах: нової логіки редагування тут немає.
@@ -1084,6 +1250,10 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
         'edit-text': context.kind === 'shape' && count === 1,
         'edit-label': context.kind === 'connection',
         route: context.kind === 'connection',
+        cut: context.kind === 'shape',
+        copy: context.kind === 'shape',
+        duplicate: context.kind === 'shape',
+        paste: context.kind === 'canvas',
         delete: context.kind !== 'canvas',
         'select-all': context.kind === 'canvas',
         fit: context.kind === 'canvas',
@@ -1092,9 +1262,23 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
         const action = item.dataset.contextAction;
         item.hidden = action in visible ? !visible[action] : !(context.kind === 'shape' && count >= 2);
       });
+      const pasteItem = menu.querySelector('[data-context-action="paste"]');
+      if (pasteItem) pasteItem.disabled = !blockClipboard;
     },
     onAction(action) {
       switch (action) {
+        case 'cut':
+          cutSelectedBlocks();
+          break;
+        case 'copy':
+          copySelectedBlocks();
+          break;
+        case 'paste':
+          pasteClipboardBlocks();
+          break;
+        case 'duplicate':
+          duplicateSelectedBlocks();
+          break;
         case 'edit-text':
           if (state.selectedShape) openTextModal(state.selectedShape);
           break;
