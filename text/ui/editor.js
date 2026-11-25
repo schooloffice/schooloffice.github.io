@@ -41,7 +41,6 @@ const ArtEditor = (() => {
     _editor.addEventListener('cut', _handleCut);
     _editor.addEventListener('keydown', _handleKeydown);
     _editor.addEventListener('click', _handleClick);
-    _editor.addEventListener('contextmenu', _handleTableContextMenu);
     _editor.addEventListener('pointerdown', _handlePointerDown);
     _editor.addEventListener('mouseup', () => {
       ArtToolbar.updateState();
@@ -73,13 +72,10 @@ const ArtEditor = (() => {
     });
     document.addEventListener('pointermove', _handlePointerMove);
     document.addEventListener('pointerup', _handlePointerUp);
-    document.addEventListener('pointerdown', e => {
-      if (!e.target.closest('.table-context-menu, #tableMenuButton')) hideTableMenu();
-    });
     document.addEventListener('click', e => {
       if (!e.target.closest('.art-image-block')) clearSelectedImage();
     });
-    document.getElementById('tableContextMenu')?.addEventListener('keydown', _handleTableMenuKeydown);
+    _bindTableMenu();
 
     ArtState.on('change:dirty', dirty => {
       const dot = document.getElementById('dirtyDot');
@@ -923,8 +919,7 @@ const ArtEditor = (() => {
       const cell = _caretCell();
       if (cell) {
         e.preventDefault();
-        const rect = cell.getBoundingClientRect();
-        _showTableMenu(rect.left + Math.min(32, rect.width / 2), rect.bottom + 4, true);
+        _tableMenu?.openForKeyboard({ cell });
         return;
       }
     }
@@ -1169,9 +1164,9 @@ const ArtEditor = (() => {
     entry.hidden = !cell;
     if (!cell) hideTableMenu();
     const merged = cell ? _logicalTableHasMergedCells(_logicalTableParts(cell.closest('table'))) : false;
-    menu.querySelectorAll('[data-table-action]').forEach(button => {
+    menu.querySelectorAll('[data-context-action]').forEach(button => {
       if (!button.dataset.defaultTitle) button.dataset.defaultTitle = button.title || '';
-      const unavailable = merged && button.dataset.tableAction !== 'table-delete';
+      const unavailable = merged && button.dataset.contextAction !== 'table-delete';
       button.disabled = unavailable;
       button.setAttribute('aria-disabled', String(unavailable));
       button.title = unavailable
@@ -1180,88 +1175,59 @@ const ArtEditor = (() => {
     });
   }
 
+  // Меню таблиці — спільне контекстне меню OfficeUI: правий клік у клітинці, Shift+F10
+  // або клавіша меню в клітинці, кнопка «Таблиця» на панелі. Позиціювання, клавіатуру,
+  // закриття й повернення фокуса веде OfficeUI.
+  let _tableMenu = null;
+
+  function _cellMenuPoint(cell) {
+    const rect = cell.getBoundingClientRect();
+    return { x: rect.left + Math.min(32, rect.width / 2), y: rect.bottom + 4 };
+  }
+
+  function _bindTableMenu() {
+    const button = document.getElementById('tableMenuButton');
+    _tableMenu = window.OfficeUI?.bindContextMenu?.({
+      surface: _editor,
+      menu: 'tableContextMenu',
+      resolve: e => {
+        const cell = e.target.closest?.('th,td');
+        if (!cell || !_editor.contains(cell)) return null;
+        if (_caretCell() !== cell) _placeCaretInCell(cell);
+        ArtSelection.remember(_editor);
+        return { cell };
+      },
+      prepare: () => {
+        _updateTableContext();
+        button?.setAttribute('aria-expanded', 'true');
+      },
+      anchor: () => {
+        const cell = _caretCell();
+        return cell ? _cellMenuPoint(cell) : null;
+      },
+      onAction: action => tableAction(action),
+      onClose: () => button?.setAttribute('aria-expanded', 'false')
+    }) || null;
+  }
+
   function toggleTableMenu(anchor, { focusFirst = false } = {}) {
-    const menu = document.getElementById('tableContextMenu');
-    if (!menu) return false;
-    if (!menu.hidden) {
-      hideTableMenu();
+    if (!_tableMenu) return false;
+    if (_tableMenu.isOpen()) {
+      _tableMenu.close();
       return true;
     }
 
     ArtSelection.restoreLast(_editor);
-    if (!_caretCell()) return false;
-    _updateTableContext();
+    const cell = _caretCell();
+    if (!cell) return false;
     const rect = anchor?.getBoundingClientRect?.();
     if (!rect) return false;
-    _showTableMenu(rect.left, rect.bottom + 6, focusFirst);
-    return true;
-  }
-
-  function _handleTableContextMenu(e) {
-    const cell = e.target.closest?.('th,td');
-    if (!cell || !_editor.contains(cell)) {
-      hideTableMenu();
-      return;
-    }
-
-    e.preventDefault();
-    if (_caretCell() !== cell) _placeCaretInCell(cell);
-    ArtSelection.remember(_editor);
-    _updateTableContext();
-    _showTableMenu(e.clientX, e.clientY, false);
-  }
-
-  function _showTableMenu(clientX, clientY, focusFirst) {
-    const menu = document.getElementById('tableContextMenu');
-    const button = document.getElementById('tableMenuButton');
-    if (!menu || !_caretCell()) return false;
-
-    menu.hidden = false;
-    button?.setAttribute('aria-expanded', 'true');
-    const width = menu.offsetWidth || 238;
-    const height = menu.offsetHeight || 420;
-    const left = Math.min(clientX, window.innerWidth - width - 8);
-    const top = Math.min(clientY, window.innerHeight - height - 8);
-    menu.style.left = `${Math.max(8, left)}px`;
-    menu.style.top = `${Math.max(8, top)}px`;
-    if (focusFirst) _tableMenuItems(menu)[0]?.focus();
-    return true;
+    return _tableMenu.open({ cell }, rect.left, rect.bottom + 6, { focusFirst });
   }
 
   function hideTableMenu({ restoreEditorFocus = false } = {}) {
-    const menu = document.getElementById('tableContextMenu');
-    const button = document.getElementById('tableMenuButton');
-    if (menu) menu.hidden = true;
-    button?.setAttribute('aria-expanded', 'false');
+    _tableMenu?.close();
     if (restoreEditorFocus) ArtSelection.focusEditor(_editor);
-  }
-
-  function _tableMenuItems(menu) {
-    return [...menu.querySelectorAll('[role="menuitem"]:not([disabled])')];
-  }
-
-  function _handleTableMenuKeydown(e) {
-    const menu = e.currentTarget;
-    const items = _tableMenuItems(menu);
-    const index = items.indexOf(document.activeElement);
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      items[(index + 1) % items.length]?.focus();
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      items[(index - 1 + items.length) % items.length]?.focus();
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      items[0]?.focus();
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      items[items.length - 1]?.focus();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      hideTableMenu({ restoreEditorFocus: true });
-    } else if (e.key === 'Tab') {
-      hideTableMenu();
-    }
   }
 
   function _caretCell() {

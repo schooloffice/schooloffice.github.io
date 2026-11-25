@@ -47,6 +47,21 @@ const ArtMenu = (() => {
     ArtModals.info('Буфер обміну недоступний', 'Браузер не дозволив ПЛЮС Текст працювати з буфером обміну. Дозвольте доступ до буфера обміну для цього сайту (значок ліворуч в адресному рядку) і спробуйте ще раз.');
   }
 
+  // «Копіювати» і «Вирізати» з меню запускають ту саму подію copy/cut, що й Ctrl+C/X:
+  // її обробляє ArtEditor, і дозвіл на буфер обміну не потрібен. Фокус і виділення
+  // повертаються в документ, бо пункт меню міг їх забрати.
+  function _nativeClipboardCommand(editor, command) {
+    if (!ArtSelection.getRange(editor)) ArtSelection.restoreLast(editor);
+    const range = ArtSelection.getRange(editor);
+    if (!range || range.collapsed) return null;
+    if (document.activeElement !== editor) {
+      const saved = range.cloneRange();
+      editor.focus({ preventScroll: true });
+      ArtSelection.restore(saved);
+    }
+    try { return document.execCommand(command); } catch { return false; }
+  }
+
   async function dispatch(action) {
     const openFile = () => window.OfficeUI?.openFilePicker?.('fileInput') || document.getElementById('fileInput')?.click();
     switch (action) {
@@ -74,7 +89,8 @@ const ArtMenu = (() => {
       case 'redo': ArtHistory.redo(); ArtToolbar.updateState(); break;
       case 'cut': {
         const editor = document.getElementById('editor');
-        if (!ArtSelection.getRange(editor) || ArtSelection.getRange(editor).collapsed) break;
+        const native = _nativeClipboardCommand(editor, 'cut');
+        if (native !== false) break;
         const ok = await ArtSelection.cut(editor);
         editor.dispatchEvent(new Event('input', { bubbles: true }));
         requestAnimationFrame(() => ArtHistory.pushNow());
@@ -83,7 +99,8 @@ const ArtMenu = (() => {
       }
       case 'copy': {
         const editor = document.getElementById('editor');
-        if (!ArtSelection.getRange(editor) || ArtSelection.getRange(editor).collapsed) break;
+        const native = _nativeClipboardCommand(editor, 'copy');
+        if (native !== false) break;
         if (!(await ArtSelection.copy(editor))) _clipboardBlocked();
         break;
       }

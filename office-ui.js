@@ -325,7 +325,7 @@
 
     menu.addEventListener('click', event => {
       const item = event.target.closest('.menu-item');
-      if (!item || !menu.contains(item) || item.disabled || item.hidden) return;
+      if (!item || !menu.contains(item) || item.disabled || item.hidden || item.getAttribute('aria-disabled') === 'true') return;
       event.preventDefault();
       event.stopPropagation();
       const state = openContextMenu;
@@ -467,7 +467,7 @@
 
     document.addEventListener('pointerdown', event => {
       if (getActiveModal()?.contains(event.target)) return;
-      if (event.target.closest('.office-context-menu, .menu-item-wrap, .menu-title, .menu-dropdown, .picker-wrap, .tool-picker, .palette-wrap, .palette-popover')) return;
+      if (event.target.closest('.office-context-menu, [data-office-context-trigger], .menu-item-wrap, .menu-title, .menu-dropdown, .picker-wrap, .tool-picker, .palette-wrap, .palette-popover')) return;
       closeTopOverlay();
     }, true);
 
