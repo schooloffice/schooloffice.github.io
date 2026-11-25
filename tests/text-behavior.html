@@ -566,6 +566,29 @@
         && !!doc.querySelector('#editor table');
       win.art.modals.confirmNo();
 
+      // ── Вставка через подію paste, без дозволу на читання буфера ─────────
+      const pasteParagraph = pageContents(doc)[0].querySelector('p') || pageContents(doc)[0];
+      editor.focus();
+      setCaretAtStart(win, pasteParagraph);
+      const ctrlVPassesThrough = editor.dispatchEvent(new win.KeyboardEvent('keydown', {
+        key: 'v', ctrlKey: true, bubbles: true, cancelable: true
+      }));
+      const pasteData = new win.DataTransfer();
+      pasteData.setData('text/plain', 'Вставлений рядок\nДругий рядок');
+      pasteData.setData('text/html', '<b id="pastedBold">Вставлений рядок</b><img src="x" onerror="window.__pasteXss=1">');
+      const pasteHandled = !editor.dispatchEvent(new win.ClipboardEvent('paste', {
+        clipboardData: pasteData, bubbles: true, cancelable: true
+      }));
+      await wait(300);
+      const pastedText = editor.textContent || '';
+      const pasteInsertsPlainText = pasteHandled
+        && pastedText.includes('Вставлений рядок')
+        && pastedText.includes('Другий рядок')
+        && !doc.getElementById('pastedBold')
+        && !editor.querySelector('img[src="x"]')
+        && !win.__pasteXss;
+      const pasteMarksDirty = win.art.state.isDirty();
+
       // ── Велика таблиця ділиться між сторінками ──────────────────────────
       await resetDocument(win, doc);
       editor.focus();
@@ -1003,6 +1026,9 @@
         check('table menu opens on right click', tableMenuOpensFromRightClick),
         check('Shift+F10 opens the table menu', tableMenuOpensFromKeyboard),
         check('Escape closes the table menu and restores editor focus', tableMenuEscapeRestoresEditor),
+        check('Ctrl+V is left to the browser paste event', ctrlVPassesThrough),
+        check('paste inserts plain text only, without foreign HTML', pasteInsertsPlainText),
+        check('paste marks the document as changed', pasteMarksDirty),
         check('column action applies to every row', columnAddedEverywhere),
         check('row action removes a row', rowDeleted),
         check('deleting a table requires confirmation', tableDeletionNeedsConfirmation),

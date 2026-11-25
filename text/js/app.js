@@ -159,12 +159,9 @@ window.TextApp.boot = async () => {
         await ArtSelection.cut(editor);
         editor.dispatchEvent(new Event('input', { bubbles: true }));
         requestAnimationFrame(() => ArtHistory.pushNow());
-      },
-      v: async () => {
-        await ArtSelection.pastePlainText(editor);
-        editor.dispatchEvent(new Event('input', { bubbles: true }));
-        requestAnimationFrame(() => ArtHistory.pushNow());
       }
+      // Ctrl+V тут не перехоплюється: браузер сам надсилає подію paste, і її обробляє
+      // ArtEditor. Читання буфера через navigator.clipboard потребувало б дозволу.
     };
 
     if (!map[key]) return;
