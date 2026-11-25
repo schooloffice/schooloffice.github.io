@@ -200,6 +200,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
   const flashSavedBadge = statusController.flashSavedBadge || (() => {});
   let saveSnapshot = () => {};
   let restoreSnapshot = () => {};
+  let flushPendingRestore = () => {};
   let undo = () => {};
   let redo = () => {};
   let updateHistoryButtons = () => {};
@@ -519,6 +520,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
   }) || {};
   saveSnapshot = history.saveSnapshot || saveSnapshot;
   restoreSnapshot = history.restoreSnapshot || restoreSnapshot;
+  flushPendingRestore = history.flushPendingRestore || flushPendingRestore;
   undo = history.undo || undo;
   redo = history.redo || redo;
   updateHistoryButtons = history.updateHistoryButtons || updateHistoryButtons;
@@ -805,6 +807,7 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
   }
 
   function collectProjectData() {
+    flushPendingRestore();
     const positionsById = {};
     state.shapes.forEach((shape) => {
       const el = document.getElementById(shape.id);

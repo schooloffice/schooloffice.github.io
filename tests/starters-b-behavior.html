@@ -218,9 +218,12 @@
         closeMessage();
         pressKey({ key: 'z', ctrlKey: true });
         expect('flowcharts: one Ctrl+Z brings the previous diagram back', await waitUntil(() => shapes() === 7, 4000), `shapes=${shapes()}`);
+        // Швидкі Ctrl+Y, Ctrl+Z, Ctrl+Y і Ctrl+S без пауз (7 → 6 → 7 → 6 блоків): стрілки
+        // малюються через кадри, але знімок історії й збереження мають завершити їх
+        // відновлення, а не втратити стрілки чи підмішати стрілки іншої версії схеми.
         pressKey({ key: 'y', ctrlKey: true });
-        // restoreSnapshot відновлює стрілки після кадрів, тож до збереження чекаємо і блоки, і стрілки.
-        await waitUntil(() => shapes() === 6 && doc.querySelectorAll('#connectors-layer path[id^="conn-"]').length >= 6, 4000);
+        pressKey({ key: 'z', ctrlKey: true });
+        pressKey({ key: 'y', ctrlKey: true });
 
         capture.downloads.length = 0;
         pressKey({ key: 's', ctrlKey: true });

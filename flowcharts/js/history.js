@@ -24,7 +24,20 @@
 
     const defaults = defaultBaseColors || {};
 
+    // Стрілки після скасування/повтору малюються через два кадри: блоки мають спершу
+    // отримати розміри. Доти state.connections порожній, тож будь-яке читання стану
+    // (новий знімок історії, збереження) спершу завершує відкладене відновлення.
+    let pendingConnectionRestore = null;
+
+    function flushPendingRestore() {
+      const restore = pendingConnectionRestore;
+      if (!restore) return;
+      pendingConnectionRestore = null;
+      restore();
+    }
+
     function captureSnapshot() {
+      flushPendingRestore();
       const shapeSnap = state.shapes.map((shape) => {
         const el = document.getElementById(shape.id);
         return {
@@ -66,6 +79,9 @@
     }
 
     function restoreSnapshot(snap) {
+      // Відкладене відновлення попереднього кроку більше не актуальне: його стрілки
+      // належать іншій версії схеми.
+      pendingConnectionRestore = null;
       state.shapes.forEach((shape) => {
         document.getElementById(shape.id)?.remove();
         removeHandleGroup?.(shape.id);
@@ -101,8 +117,7 @@
         if (!Number.isNaN(num)) state.shapeCounter = Math.max(state.shapeCounter, num);
       });
 
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+      const restoreConnections = () => {
           (snap.connections || []).forEach((conn) => {
             const fromEl = document.getElementById(conn.from);
             const toEl = document.getElementById(conn.to);
@@ -120,6 +135,11 @@
           scheduleRefresh?.();
           updateConnectionBar?.();
           syncColorPickerToCurrent?.();
+      };
+      pendingConnectionRestore = restoreConnections;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (pendingConnectionRestore === restoreConnections) flushPendingRestore();
         });
       });
 
@@ -149,6 +169,7 @@
 
     return {
       captureSnapshot,
+      flushPendingRestore,
       updateHistoryButtons,
       saveSnapshot,
       restoreSnapshot,
