@@ -259,7 +259,7 @@
       const formula = firstChild(cell, 'f')?.textContent;
       const raw = firstChild(cell, 'v')?.textContent ?? '';
       let value = raw;
-      if (formula != null) value = `=${formula}`;
+      if (formula != null) value = `=${fromFileFormula(formula)}`;
       else if (type === 's') value = shared[Number(raw)] ?? '';
       else if (type === 'inlineStr') value = Array.from(cell.getElementsByTagNameNS('*', 't')).map(t => t.textContent || '').join('');
       else if (type === 'b') value = raw === '1' ? 'TRUE' : 'FALSE';
@@ -473,10 +473,26 @@
     return time / 86400000 + 25569;
   }
 
+  // Функції, які Excel зберігає у файлі з префіксом _xlfn. (додані після Excel 2007).
+  // Без префікса Excel показує #NAME? до повторного введення формули.
+  const XLFN_FUNCTIONS = /(^|[^A-Za-z0-9_.])(IFNA|CONCAT|TEXTJOIN|MAXIFS|MINIFS|RANK\.EQ)(?=\s*\()/gi;
+
+  function mapOutsideStrings(formula, transform) {
+    return String(formula).split(/("[^"]*")/).map((part, i) => (i % 2 ? part : transform(part))).join('');
+  }
+
+  function toFileFormula(formula) {
+    return mapOutsideStrings(formula, part => part.replace(XLFN_FUNCTIONS, (m, before, name) => `${before}_xlfn.${name.toUpperCase()}`));
+  }
+
+  function fromFileFormula(formula) {
+    return mapOutsideStrings(formula, part => part.replace(/_xlfn\./gi, ''));
+  }
+
   // Формула з кешованим значенням того типу, який дав би Excel. Невідомий результат не
   // записуємо як 0: без <v> програма рахує формулу сама (workbook має fullCalcOnLoad).
   function formulaCellXml(ref, styleIndex, formula, cached) {
-    const f = `<f>${xmlEscape(formula)}</f>`;
+    const f = `<f>${xmlEscape(toFileFormula(formula))}</f>`;
     switch (cached?.kind) {
       case 'number': return `<c r="${ref}" s="${styleIndex}">${f}<v>${cached.value}</v></c>`;
       case 'boolean': return `<c r="${ref}" s="${styleIndex}" t="b">${f}<v>${cached.value ? 1 : 0}</v></c>`;

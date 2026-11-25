@@ -388,7 +388,11 @@ F4 — тип посилання у формулі: A1 → $A$1 → A$1 → $A1`
 • абсолютні посилання ($A$1) і клавішу F4
 • іменовані діапазони: =SUM(Витрати)
 • копіювання формул та автозаповнення (маркер)
-• умовні функції COUNTIF, SUMIF, AVERAGEIF
+• умовні функції COUNTIF, SUMIF, AVERAGEIF, COUNTIFS, SUMIFS, AVERAGEIFS, MAXIFS, MINIFS (у критеріях: ">5", "<>а", "а*", "?б")
+• пошук: VLOOKUP, HLOOKUP, INDEX, MATCH; помилки й перевірки: IFERROR, IFNA, ISBLANK, ISNUMBER, ISTEXT, ISERROR
+• рейтинг: RANK, LARGE, SMALL, COUNTBLANK; математика: ROUNDUP, ROUNDDOWN, TRUNC, SIGN, PRODUCT, SUMPRODUCT, RAND, RANDBETWEEN, PI, EXP, LN, LOG, LOG10
+• текст: LEN, LEFT, RIGHT, MID, CONCAT, CONCATENATE, TEXTJOIN, UPPER, LOWER, PROPER, TRIM, SUBSTITUTE, REPLACE, FIND, SEARCH, REPT, EXACT, TEXT ("0", "0.00", "#,##0", "0%", "dd.mm.yyyy")
+• дати: YEAR, MONTH, DAY, WEEKDAY, DATEDIF ("y", "m", "d")
 • фінансові функції PV, FV, PMT: сплачене — від'ємне, ставка — за період
 • дати TODAY, NOW, DATE і формат дати
 • умовне форматування за правилом

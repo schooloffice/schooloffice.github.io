@@ -96,7 +96,11 @@ function evalScalar(node) {
     case 'err': throw formulaError(node.value);
     case 'ref': return getCellValueForRef(node);
     case 'range': throw formulaError(FORMULA_ERRORS.VALUE); // діапазон не можна як скаляр
-    case 'name': return evalScalar(resolveNameNode(node));
+    case 'name':
+      // Літерали TRUE/FALSE (у ПЛЮС логічні значення — числа 1/0).
+      if (node.name === 'TRUE') return 1;
+      if (node.name === 'FALSE') return 0;
+      return evalScalar(resolveNameNode(node));
     case 'unary': {
       if (node.op === '%post') return toFormulaNumber(evalScalar(node.operand)) / 100;
       const v = toFormulaNumber(evalScalar(node.operand));
@@ -143,8 +147,33 @@ function collectValues(argNodes) {
   return out;
 }
 
+// Діапазон (або одна клітинка/значення) як двовимірна матриця [рядок][стовпець].
+function collectMatrix(argNode) {
+  const node = argNode.type === 'name' && argNode.name !== 'TRUE' && argNode.name !== 'FALSE'
+    ? resolveNameNode(argNode) : argNode;
+  if (node.type !== 'range') return [[evalScalar(node)]];
+  const sheetName = node.start.sheet;
+  if (sheetName) pushEvalContext(resolveSheetContext(sheetName));
+  try {
+    const cMin = Math.min(node.start.col, node.end.col);
+    const cMax = Math.max(node.start.col, node.end.col);
+    const rMin = Math.min(node.start.row, node.end.row);
+    const rMax = Math.max(node.start.row, node.end.row);
+    const out = [];
+    for (let r = rMin; r <= rMax; r++) {
+      const line = [];
+      for (let c = cMin; c <= cMax; c++) line.push(getCellValueByIndex(c, r));
+      out.push(line);
+    }
+    return out;
+  } finally {
+    if (sheetName) popEvalContext();
+  }
+}
+
 const FORMULA_CTX = {
   evalScalar,
+  matrix: collectMatrix,
   toNumber: toFormulaNumber,
   isTruthy: isFormulaTruthy,
   num: node => toFormulaNumber(evalScalar(node)),
@@ -199,7 +228,7 @@ const EXCEL_EXACT_FUNCTIONS = new Set(['SUM', 'MAX', 'MIN', 'COUNT', 'COUNTA', '
 const EXCEL_FINANCE_FUNCTIONS = new Set(['PV', 'FV', 'PMT']);
 const EXCEL_BOOLEAN_FUNCTIONS = new Set(['AND', 'OR', 'NOT']);
 const COMPARISON_OPERATORS = new Set(['=', '<>', '<', '>', '<=', '>=']);
-const EXCEL_ERROR_VALUES = new Set([FORMULA_ERRORS.DIV0, FORMULA_ERRORS.REF, FORMULA_ERRORS.NAME, FORMULA_ERRORS.VALUE, FORMULA_ERRORS.NUM]);
+const EXCEL_ERROR_VALUES = new Set([FORMULA_ERRORS.DIV0, FORMULA_ERRORS.REF, FORMULA_ERRORS.NAME, FORMULA_ERRORS.VALUE, FORMULA_ERRORS.NUM, FORMULA_ERRORS.NA]);
 const EXACT_CHECK_MAX_DEPTH = 40;
 const EXACT_CHECK_MAX_RANGE_CELLS = 10000;
 // «1,5» ПЛЮС читає як число, а Excel зберігає як текст.
@@ -251,6 +280,8 @@ function isExcelExactNode(node, depth = 0) {
       return true;
     }
     case 'name': {
+      // TRUE/FALSE у ПЛЮС — числа, а в Excel — логічні значення: кеш не пишемо.
+      if (node.name === 'TRUE' || node.name === 'FALSE') return false;
       // Невідоме ім'я Excel теж показує як #NAME?. Зламане (#REF!) у XLSX не потрапляє,
       // тож Excel покаже #NAME? — такий результат не кешуємо.
       let resolved;
