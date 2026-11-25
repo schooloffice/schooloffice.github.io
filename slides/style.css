@@ -923,22 +923,6 @@ ol.shape-text-element {
   border-radius: .5rem;
 }
 
-/* Контекстне меню об'єкта (права кнопка миші). */
-.context-menu {
-  position: fixed;
-  min-width: 200px;
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: .6rem;
-  box-shadow: var(--shadow);
-  padding: .3rem;
-  z-index: 10000;
-}
-
-.context-menu.hidden {
-  display: none;
-}
-
 .resize-handle {
   width: 10px;
   height: 10px;

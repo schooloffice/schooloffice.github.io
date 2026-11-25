@@ -374,7 +374,8 @@
       const countShapes = () => doc.querySelectorAll('#stage .shape-element').length;
       const countSlides = () => doc.querySelectorAll('#slideList .slide-card').length;
       const clickAction = action => {
-        const buttons = Array.from(doc.querySelectorAll(`[data-action="${action}"]`));
+        let buttons = Array.from(doc.querySelectorAll(`[data-action="${action}"]`));
+        if (!buttons.length) buttons = Array.from(doc.querySelectorAll(`#contextMenu [data-context-action="${action}"]`));
         const button = buttons.find(node => !node.closest('.menu-dropdown')) || buttons[0];
         if (!button) throw new Error(`action button missing: ${action}`);
         button.click();
@@ -745,10 +746,45 @@
       // Права кнопка показує контекстне меню; Escape ховає.
       const ctxMenu = doc.querySelector('#contextMenu');
       const ctxWrap = Array.from(doc.querySelectorAll('#stage .stage-element')).find(w => w.querySelector('.shape-element'));
-      ctxWrap.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, clientX: 120, clientY: 120 }));
-      checks.push(check('right-click shows object context menu', !ctxMenu.classList.contains('hidden')));
+      ctxWrap.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, button: 2, clientX: 120, clientY: 120 }));
+      checks.push(check('right-click shows object context menu', !ctxMenu.hidden));
       doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      checks.push(check('Escape hides the context menu', ctxMenu.classList.contains('hidden')));
+      checks.push(check('Escape hides the context menu', ctxMenu.hidden));
+
+      // Порожня ділянка слайда: наше меню, виділення знімається, пункт працює, Escape закриває.
+      const areaMenu = doc.querySelector('#slideAreaMenu');
+      const stageHost = doc.querySelector('.stage-wrap');
+      const areaEvent = new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 40 });
+      stageHost.dispatchEvent(areaEvent);
+      checks.push(check('right-click on empty slide area opens our menu', !areaMenu.hidden && areaEvent.defaultPrevented));
+      checks.push(check('empty-area menu clears element selection', doc.querySelectorAll('#stage .stage-element.selected').length === 0));
+      checks.push(check('empty-area menu hides object menu', doc.querySelector('#contextMenu').hidden));
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      checks.push(check('Escape closes the empty-area menu', areaMenu.hidden));
+      const shiftEvent = new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, shiftKey: true, clientX: 40, clientY: 40 });
+      stageHost.dispatchEvent(shiftEvent);
+      checks.push(check('Shift+right-click keeps the browser menu on the slide area', !shiftEvent.defaultPrevented && areaMenu.hidden));
+      const textBefore = doc.querySelectorAll('#stage .text-element').length;
+      stageHost.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 40 }));
+      areaMenu.querySelector('[data-context-action="insert-text"]').click();
+      await waitFor(() => doc.querySelectorAll('#stage .text-element').length === textBefore + 1, 'empty-area menu inserts text');
+      checks.push(check('empty-area menu action inserts a text box', doc.querySelectorAll('#stage .text-element').length === textBefore + 1 && areaMenu.hidden));
+
+      // Мініатюра слайда: наше меню зі слайдовими діями.
+      const thumbMenu = doc.querySelector('#slideListMenu');
+      const slidesBeforeThumb = doc.querySelectorAll('#slideList .slide-card').length;
+      const thumbEvent = new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 30, clientY: 30 });
+      doc.querySelector('#slideList .slide-card .slide-thumb-button').dispatchEvent(thumbEvent);
+      checks.push(check('right-click on a thumbnail opens our slide menu', !thumbMenu.hidden && thumbEvent.defaultPrevented));
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      checks.push(check('Escape closes the thumbnail menu', thumbMenu.hidden));
+      const thumbShift = new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, shiftKey: true, clientX: 30, clientY: 30 });
+      doc.querySelector('#slideList .slide-card .slide-thumb-button').dispatchEvent(thumbShift);
+      checks.push(check('Shift+right-click keeps the browser menu on a thumbnail', !thumbShift.defaultPrevented && thumbMenu.hidden));
+      doc.querySelector('#slideList .slide-card .slide-thumb-button').dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 30, clientY: 30 }));
+      thumbMenu.querySelector('[data-context-action="duplicate-slide"]').click();
+      await waitFor(() => doc.querySelectorAll('#slideList .slide-card').length === slidesBeforeThumb + 1, 'thumbnail menu duplicates slide');
+      checks.push(check('thumbnail menu action duplicates the slide', doc.querySelectorAll('#slideList .slide-card').length === slidesBeforeThumb + 1 && thumbMenu.hidden));
 
       // === 2.4 доступність: keyboard-навігація об'єктами і слайдами ===
       clickAction('new-slide');
@@ -834,21 +870,21 @@
       // Shift+F10 відкриває контекст-меню з клавіатури й фокусує пункт.
       doc.querySelector('#workspace').focus();
       doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true })); // обираємо об'єкт
-      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }));
-      await waitFor(() => !doc.querySelector('#contextMenu').classList.contains('hidden'), 'context menu opens via keyboard');
-      checks.push(check('Shift+F10 opens context menu from keyboard', !doc.querySelector('#contextMenu').classList.contains('hidden')));
+      doc.querySelector('#workspace').dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0 }));
+      await waitFor(() => !doc.querySelector('#contextMenu').hidden, 'context menu opens via keyboard');
+      checks.push(check('Shift+F10 opens context menu from keyboard', !doc.querySelector('#contextMenu').hidden));
       await waitFor(() => doc.querySelector('#contextMenu').contains(doc.activeElement), 'context menu item focused');
       checks.push(check('keyboard context menu focuses an item', doc.querySelector('#contextMenu').contains(doc.activeElement)));
       doc.activeElement.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      await waitFor(() => doc.querySelector('#contextMenu').classList.contains('hidden'), 'Escape closes keyboard context menu');
-      checks.push(check('Escape closes the keyboard context menu', doc.querySelector('#contextMenu').classList.contains('hidden')));
+      await waitFor(() => doc.querySelector('#contextMenu').hidden, 'Escape closes keyboard context menu');
+      checks.push(check('Escape closes the keyboard context menu', doc.querySelector('#contextMenu').hidden));
 
       // Після виконання команди з клавіатурного меню фокус повертається на
       // workspace, а не лишається на прихованій кнопці.
-      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }));
+      doc.querySelector('#workspace').dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0 }));
       await waitFor(() => doc.querySelector('#contextMenu').contains(doc.activeElement), 'context menu refocused');
       doc.activeElement.click();
-      await waitFor(() => doc.querySelector('#contextMenu').classList.contains('hidden'), 'context menu closes after command');
+      await waitFor(() => doc.querySelector('#contextMenu').hidden, 'context menu closes after command');
       checks.push(check('context-menu command restores workspace focus', doc.activeElement === doc.querySelector('#workspace')));
 
       // === 3.1 текст: вага шрифту, сімейство, довільний розмір, міжрядковий інтервал ===
@@ -1507,8 +1543,8 @@
       checks.push(check('Shift+Arrow at text boundary extends the range', doc.querySelectorAll('#stage .slide-table-cell.range-selected').length === 2));
       tcells()[0].textContent = '';
       tableCell.focus();
-      tableCell.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, clientX: 200, clientY: 200 }));
-      checks.push(check('table context menu hides image-only commands', !doc.querySelector('#contextMenu [data-action="table-cell-format"]').classList.contains('hidden') && !doc.querySelector('#contextMenu [data-action="table-track-size"]').classList.contains('hidden') && !doc.querySelector('#contextMenu [data-action="table-merge-cells"]').classList.contains('hidden') && !doc.querySelector('#contextMenu [data-action="table-split-cell"]').classList.contains('hidden') && doc.querySelector('#contextMenu [data-action="edit-alt"]').classList.contains('hidden')));
+      tableCell.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, button: 2, clientX: 200, clientY: 200 }));
+      checks.push(check('table context menu hides image-only commands', !doc.querySelector('#contextMenu [data-context-action="table-cell-format"]').hidden && !doc.querySelector('#contextMenu [data-context-action="table-track-size"]').hidden && !doc.querySelector('#contextMenu [data-context-action="table-merge-cells"]').hidden && !doc.querySelector('#contextMenu [data-context-action="table-split-cell"]').hidden && doc.querySelector('#contextMenu [data-context-action="edit-alt"]').hidden));
       doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       tableCell.textContent = 'Показник';
       tableCell.dispatchEvent(new win.Event('input', { bubbles: true }));
@@ -1755,8 +1791,8 @@
       checks.push(check('chart insert creates a selected chart object', !!doc.querySelector('#stage .stage-element.selected .slide-chart')));
       checks.push(check('column chart renders series bars', doc.querySelectorAll('#stage .slide-chart rect').length >= 4));
       checks.push(check('chart renders in active thumbnail', !!doc.querySelector('#slideList .slide-card.active .slide-chart')));
-      doc.querySelector('#stage .stage-element.selected').dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, clientX: 200, clientY: 200 }));
-      checks.push(check('chart context menu exposes chart editing only', !doc.querySelector('#contextMenu [data-action="edit-chart"]').classList.contains('hidden') && doc.querySelector('#contextMenu [data-action="edit-table"]').classList.contains('hidden')));
+      doc.querySelector('#stage .stage-element.selected').dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, button: 2, clientX: 200, clientY: 200 }));
+      checks.push(check('chart context menu exposes chart editing only', !doc.querySelector('#contextMenu [data-context-action="edit-chart"]').hidden && doc.querySelector('#contextMenu [data-context-action="edit-table"]').hidden));
       doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       clickAction('edit-chart');
       await waitFor(() => doc.querySelector('#chartDataField'), 'chart edit modal');
@@ -1874,8 +1910,8 @@
       // перезаписав маркерну чернетку вже після її збереження.
       clickAction('insert-rect');
       checks.push(check('selecting another object clears table range highlight', !doc.querySelector('#stage .slide-table-cell.range-selected')));
-      doc.querySelector('#stage .stage-element.selected').dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, clientX: 200, clientY: 200 }));
-      checks.push(check('non-table context menu hides table/chart-only commands', doc.querySelector('#contextMenu [data-action="edit-table"]').classList.contains('hidden') && doc.querySelector('#contextMenu [data-action="table-cell-format"]').classList.contains('hidden') && doc.querySelector('#contextMenu [data-action="table-track-size"]').classList.contains('hidden') && doc.querySelector('#contextMenu [data-action="table-merge-cells"]').classList.contains('hidden') && doc.querySelector('#contextMenu [data-action="table-split-cell"]').classList.contains('hidden') && doc.querySelector('#contextMenu [data-action="edit-chart"]').classList.contains('hidden')));
+      doc.querySelector('#stage .stage-element.selected').dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, button: 2, clientX: 200, clientY: 200 }));
+      checks.push(check('non-table context menu hides table/chart-only commands', doc.querySelector('#contextMenu [data-context-action="edit-table"]').hidden && doc.querySelector('#contextMenu [data-context-action="table-cell-format"]').hidden && doc.querySelector('#contextMenu [data-context-action="table-track-size"]').hidden && doc.querySelector('#contextMenu [data-context-action="table-merge-cells"]').hidden && doc.querySelector('#contextMenu [data-context-action="table-split-cell"]').hidden && doc.querySelector('#contextMenu [data-context-action="edit-chart"]').hidden));
       doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       clickAction('new-project');
       doc.querySelector('#modalConfirm').click();
