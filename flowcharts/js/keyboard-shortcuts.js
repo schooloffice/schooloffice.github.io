@@ -34,6 +34,7 @@
       closeValidationPanel,
       templatesModal,
       selectAllShapes,
+      duplicateBlocks,
     } = options || {};
 
     const isMacPlatform = detectMacPlatform();
@@ -71,6 +72,14 @@
         if (!isTextInputActive()) {
           event.preventDefault();
           selectAllShapes?.();
+        }
+        return;
+      }
+      // Ctrl/Cmd+D дублює вибрані блоки (Ctrl+C/X/V працюють через рідні події copy/cut/paste).
+      if (mod && key === 'd' && !event.shiftKey && !event.altKey) {
+        if (!isTextInputActive()) {
+          event.preventDefault();
+          duplicateBlocks?.();
         }
         return;
       }

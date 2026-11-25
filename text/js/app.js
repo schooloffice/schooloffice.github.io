@@ -113,11 +113,6 @@ window.TextApp.boot = async () => {
     button.addEventListener('click', () => ArtToolbar.applyAlign(button.dataset.align));
   });
 
-  document.querySelectorAll('[data-table-action]').forEach(button => {
-    button.addEventListener('mousedown', event => event.preventDefault());
-    button.addEventListener('click', () => ArtEditor.tableAction(button.dataset.tableAction));
-  });
-
   document.getElementById('tableMenuButton')?.addEventListener('click', event => {
     event.stopPropagation();
     ArtSelection.remember(editor);

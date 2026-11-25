@@ -403,51 +403,75 @@
           aria-label="Нотатки доповідача для поточного слайда"></textarea>
       </div>
 
-      <div id="contextMenu" class="context-menu hidden" role="menu" aria-label="Дії з об’єктом">
-        <button class="menu-item" data-action="copy"><span><i class="fa-regular fa-copy fa-fw"></i> Копіювати</span></button>
-        <button class="menu-item" data-action="paste"><span><i class="fa-solid fa-paste fa-fw"></i> Вставити</span></button>
-        <button class="menu-item" data-action="duplicate-element"><span><i class="fa-regular fa-clone fa-fw"></i>
+      <div id="contextMenu" class="office-context-menu" hidden aria-label="Дії з об’єктом">
+        <button class="menu-item" data-context-action="copy"><span><i class="fa-regular fa-copy fa-fw"></i> Копіювати</span></button>
+        <button class="menu-item" data-context-action="paste"><span><i class="fa-solid fa-paste fa-fw"></i> Вставити</span></button>
+        <button class="menu-item" data-context-action="duplicate-element"><span><i class="fa-regular fa-clone fa-fw"></i>
             Дублювати</span></button>
-        <button class="menu-item" data-action="edit-link"><span><i class="fa-solid fa-link fa-fw"></i>
+        <button class="menu-item" data-context-action="edit-link"><span><i class="fa-solid fa-link fa-fw"></i>
             Посилання…</span></button>
-        <button class="menu-item" data-action="edit-action"><span><i class="fa-solid fa-hand-pointer fa-fw"></i>
+        <button class="menu-item" data-context-action="edit-action"><span><i class="fa-solid fa-hand-pointer fa-fw"></i>
             Дія при кліку…</span></button>
-        <button class="menu-item" data-action="edit-table" data-context-kind="table-object"><span><i class="fa-solid fa-table-cells fa-fw"></i>
+        <button class="menu-item" data-context-action="edit-table" data-context-kind="table-object"><span><i class="fa-solid fa-table-cells fa-fw"></i>
             Змінити таблицю…</span></button>
-        <button class="menu-item" data-action="edit-chart" data-context-kind="chart"><span><i class="fa-solid fa-chart-column fa-fw"></i>
+        <button class="menu-item" data-context-action="edit-chart" data-context-kind="chart"><span><i class="fa-solid fa-chart-column fa-fw"></i>
             Змінити діаграму…</span></button>
-        <button class="menu-item" data-action="table-cell-format" data-context-kind="table-cell"><span><i class="fa-solid fa-paintbrush fa-fw"></i>
+        <button class="menu-item" data-context-action="table-cell-format" data-context-kind="table-cell"><span><i class="fa-solid fa-paintbrush fa-fw"></i>
             Формат комірки…</span></button>
-        <button class="menu-item" data-action="table-track-size" data-context-kind="table-cell"><span><i class="fa-solid fa-arrows-left-right-to-line fa-fw"></i>
+        <button class="menu-item" data-context-action="table-track-size" data-context-kind="table-cell"><span><i class="fa-solid fa-arrows-left-right-to-line fa-fw"></i>
             Розмір рядка та стовпця…</span></button>
-        <button class="menu-item" data-action="table-merge-cells" data-context-kind="table-cell"><span><i class="fa-solid fa-object-group fa-fw"></i>
+        <button class="menu-item" data-context-action="table-merge-cells" data-context-kind="table-cell"><span><i class="fa-solid fa-object-group fa-fw"></i>
             Об’єднати комірки</span></button>
-        <button class="menu-item" data-action="table-split-cell" data-context-kind="table-cell"><span><i class="fa-solid fa-table-cells fa-fw"></i>
+        <button class="menu-item" data-context-action="table-split-cell" data-context-kind="table-cell"><span><i class="fa-solid fa-table-cells fa-fw"></i>
             Розділити комірки</span></button>
-        <button class="menu-item" data-action="table-row-before" data-context-kind="table-cell"><span><i class="fa-solid fa-arrow-up fa-fw"></i>
+        <button class="menu-item" data-context-action="table-row-before" data-context-kind="table-cell"><span><i class="fa-solid fa-arrow-up fa-fw"></i>
             Рядок вище</span></button>
-        <button class="menu-item" data-action="table-row-after" data-context-kind="table-cell"><span><i class="fa-solid fa-arrow-down fa-fw"></i>
+        <button class="menu-item" data-context-action="table-row-after" data-context-kind="table-cell"><span><i class="fa-solid fa-arrow-down fa-fw"></i>
             Рядок нижче</span></button>
-        <button class="menu-item" data-action="table-row-delete" data-context-kind="table-cell"><span><i class="fa-solid fa-delete-left fa-fw"></i>
+        <button class="menu-item" data-context-action="table-row-delete" data-context-kind="table-cell"><span><i class="fa-solid fa-delete-left fa-fw"></i>
             Видалити рядок</span></button>
-        <button class="menu-item" data-action="table-col-before" data-context-kind="table-cell"><span><i class="fa-solid fa-arrow-left fa-fw"></i>
+        <button class="menu-item" data-context-action="table-col-before" data-context-kind="table-cell"><span><i class="fa-solid fa-arrow-left fa-fw"></i>
             Стовпець ліворуч</span></button>
-        <button class="menu-item" data-action="table-col-after" data-context-kind="table-cell"><span><i class="fa-solid fa-arrow-right fa-fw"></i>
+        <button class="menu-item" data-context-action="table-col-after" data-context-kind="table-cell"><span><i class="fa-solid fa-arrow-right fa-fw"></i>
             Стовпець праворуч</span></button>
-        <button class="menu-item" data-action="table-col-delete" data-context-kind="table-cell"><span><i class="fa-solid fa-delete-left fa-rotate-90 fa-fw"></i>
+        <button class="menu-item" data-context-action="table-col-delete" data-context-kind="table-cell"><span><i class="fa-solid fa-delete-left fa-rotate-90 fa-fw"></i>
             Видалити стовпець</span></button>
-        <button class="menu-item" data-action="edit-alt" data-context-kind="image"><span><i class="fa-solid fa-closed-captioning fa-fw"></i> Опис
+        <button class="menu-item" data-context-action="edit-alt" data-context-kind="image"><span><i class="fa-solid fa-closed-captioning fa-fw"></i> Опис
             зображення…</span></button>
-        <button class="menu-item" data-action="replace-image" data-context-kind="image"><span><i class="fa-solid fa-arrows-rotate fa-fw"></i>
+        <button class="menu-item" data-context-action="replace-image" data-context-kind="image"><span><i class="fa-solid fa-arrows-rotate fa-fw"></i>
             Замінити зображення…</span></button>
         <div class="menu-sep"></div>
-        <button class="menu-item" data-action="bring-front"><span><i class="fa-solid fa-layer-group fa-fw"></i> На
+        <button class="menu-item" data-context-action="bring-front"><span><i class="fa-solid fa-layer-group fa-fw"></i> На
             передній план</span></button>
-        <button class="menu-item" data-action="send-back"><span><i class="fa-solid fa-layer-group fa-flip-vertical fa-fw"></i>
+        <button class="menu-item" data-context-action="send-back"><span><i class="fa-solid fa-layer-group fa-flip-vertical fa-fw"></i>
             На задній план</span></button>
         <div class="menu-sep"></div>
-        <button class="menu-item" data-action="delete-element"><span><i class="fa-solid fa-trash fa-fw"></i>
+        <button class="menu-item" data-context-action="delete-element"><span><i class="fa-solid fa-trash fa-fw"></i>
             Видалити</span></button>
+      </div>
+
+      <div id="slideAreaMenu" class="office-context-menu" hidden aria-label="Дії зі слайдом">
+        <button class="menu-item" data-context-action="paste"><span><i class="fa-solid fa-paste fa-fw"></i> Вставити</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-context-action="insert-text"><span><i class="fa-solid fa-font fa-fw"></i> Вставити текст</span></button>
+        <button class="menu-item" data-context-action="insert-image"><span><i class="fa-regular fa-image fa-fw"></i> Вставити зображення</span></button>
+        <button class="menu-item" data-context-action="insert-table"><span><i class="fa-solid fa-table fa-fw"></i> Вставити таблицю</span></button>
+        <button class="menu-item" data-context-action="insert-chart"><span><i class="fa-solid fa-chart-column fa-fw"></i> Вставити діаграму</span></button>
+        <button class="menu-item" data-context-action="insert-rect"><span><i class="fa-regular fa-square fa-fw"></i> Вставити прямокутник</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-context-action="slide-background"><span><i class="fa-solid fa-fill-drip fa-fw"></i> Тло слайда…</span></button>
+        <button class="menu-item" data-context-action="show-layouts"><span><i class="fa-solid fa-table-columns fa-fw"></i> Макет слайда…</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-context-action="new-slide"><span><i class="fa-solid fa-plus fa-fw"></i> Новий слайд</span></button>
+      </div>
+      <div id="slideListMenu" class="office-context-menu" hidden aria-label="Дії зі слайдом у списку">
+        <button class="menu-item" data-context-action="new-slide"><span><i class="fa-solid fa-plus fa-fw"></i> Новий слайд</span></button>
+        <button class="menu-item" data-context-action="duplicate-slide"><span><i class="fa-regular fa-copy fa-fw"></i> Дублювати слайд</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-context-action="move-slide-up"><span><i class="fa-solid fa-arrow-up fa-fw"></i> Перемістити вгору</span></button>
+        <button class="menu-item" data-context-action="move-slide-down"><span><i class="fa-solid fa-arrow-down fa-fw"></i> Перемістити вниз</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-context-action="delete-slide"><span><i class="fa-regular fa-trash-can fa-fw"></i> Видалити слайд</span></button>
       </div>
     </section>
   </main>

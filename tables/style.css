@@ -1073,22 +1073,13 @@ th.col-header {
   color: var(--accent-dark) !important;
 }
 
-.header-context-menu {
-  position: fixed;
-  min-width: 220px;
-  background: var(--panel);
-  border: 1.5px solid var(--line);
-  border-radius: .55rem;
-  box-shadow: 0 8px 32px rgba(30, 41, 59, .14);
-  padding: .3rem;
-  z-index: var(--office-z-popover);
-}
-
-.header-context-menu .menu-item.danger {
+#rowHeaderMenu .menu-item.danger,
+#colHeaderMenu .menu-item.danger {
   color: #b91c1c;
 }
 
-.header-context-menu .menu-item.danger:hover {
+#rowHeaderMenu .menu-item.danger:hover,
+#colHeaderMenu .menu-item.danger:hover {
   background: #fee2e2;
   color: #991b1b;
 }
