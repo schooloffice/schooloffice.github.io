@@ -389,6 +389,24 @@
     <button class="menu-item danger" data-action="delete-col"><span><i class="fa-solid fa-trash-can fa-fw"></i> Видалити колонку</span></button>
   </div>
 
+  <div id="cellContextMenu" class="office-context-menu" hidden aria-label="Дії з клітинками">
+    <button class="menu-item" data-context-action="copy"><span><i class="fa-regular fa-copy fa-fw" aria-hidden="true"></i> Копіювати</span><span class="shortcut">Ctrl+C</span></button>
+    <button class="menu-item" data-context-action="paste"><span><i class="fa-solid fa-paste fa-fw" aria-hidden="true"></i> Вставити</span><span class="shortcut">Ctrl+V</span></button>
+    <button class="menu-item" data-context-action="clear-selection"><span><i class="fa-solid fa-eraser fa-fw" aria-hidden="true"></i> Очистити вміст</span><span class="shortcut">Del</span></button>
+    <div class="menu-sep" role="separator"></div>
+    <button class="menu-item" data-context-action="insert-row-above"><span><i class="fa-solid fa-grip-lines fa-fw" aria-hidden="true"></i> Вставити рядок зверху</span></button>
+    <button class="menu-item" data-context-action="insert-row-below"><span><i class="fa-solid fa-grip-lines fa-fw" aria-hidden="true"></i> Вставити рядок знизу</span></button>
+    <button class="menu-item" data-context-action="insert-col-left"><span><i class="fa-solid fa-table-columns fa-fw" aria-hidden="true"></i> Вставити колонку ліворуч</span></button>
+    <button class="menu-item" data-context-action="insert-col-right"><span><i class="fa-solid fa-table-columns fa-fw" aria-hidden="true"></i> Вставити колонку праворуч</span></button>
+    <button class="menu-item" data-context-action="delete-row"><span><i class="fa-solid fa-trash-can fa-fw" aria-hidden="true"></i> Видалити рядок</span></button>
+    <button class="menu-item" data-context-action="delete-col"><span><i class="fa-solid fa-trash-can fa-fw" aria-hidden="true"></i> Видалити колонку</span></button>
+    <div class="menu-sep" role="separator"></div>
+    <button class="menu-item" data-context-action="merge-toggle"><span><i class="fa-solid fa-table-cells-large fa-fw" aria-hidden="true"></i> Об'єднати клітинки</span></button>
+    <button class="menu-item" data-context-action="unmerge-cells"><span><i class="fa-solid fa-table-cells fa-fw" aria-hidden="true"></i> Роз'єднати клітинки</span></button>
+    <button class="menu-item" data-context-action="sort-asc"><span><i class="fa-solid fa-arrow-down-a-z fa-fw" aria-hidden="true"></i> Сортувати A→Я / 1→9</span></button>
+    <button class="menu-item" data-context-action="sort-desc"><span><i class="fa-solid fa-arrow-down-z-a fa-fw" aria-hidden="true"></i> Сортувати Я→A / 9→1</span></button>
+  </div>
+
   <script src="js/addressing.js"></script>
   <script src="js/model.js"></script>
   <script src="../office-storage.js"></script>

@@ -140,6 +140,7 @@ Shared API:
 - `OfficeUI.closeModal(modalOrId, options)`
 - `OfficeUI.closeActiveModal()`
 - `OfficeUI.closeTopOverlay()`
+- `OfficeUI.bindContextMenu(options)`, `OfficeUI.closeContextMenus()`
 - `OfficeUI.dispatchOverlayClose(type, detail)`
 - `OfficeUI.setPressed(target, pressed)`
 - `OfficeUI.updateStatus(message, slot)`
@@ -154,6 +155,14 @@ Shared API:
 - Пункти `[data-office-large-tools-toggle]` отримують `role="menuitemcheckbox"`, `aria-checked` і клас `checked`; після перемикання фокус повертається на заголовок меню, а зміна оголошується через `announce`. Також надсилається подія `office:largetoolschange`.
 - Редактор, що підтримує режим, додає пункт у «Перегляд», викликає `OfficeUI.toggleLargeTools()` зі свого dispatcher-а й задає власні CSS-правила для `:root[data-office-tools="large"]`. Документ, історія й чернетка при цьому не змінюються.
 - Зараз режим підтримують Малюнки й Вектор; інші редактори атрибут ігнорують.
+
+Власне контекстне меню замість меню браузера — `OfficeUI.bindContextMenu(options)`:
+
+- розмітка: `<div id="…" class="office-context-menu" hidden aria-label="…">` із пунктами `<button class="menu-item" data-context-action="…">` і роздільниками `.menu-sep`; роздільник ховається сам, якщо поруч немає видимих пунктів;
+- `surface` — область, де правий клік відкриває меню; `resolve(event)` повертає контекст або `null`, і тоді лишається меню браузера (наприклад, коли учень редагує текст у клітинці); `prepare(menu, context)` ховає (`hidden`) або вимикає (`disabled`) пункти; `anchor(context)` дає точку для відкриття з клавіатури (клавіша меню, Shift+F10); `onAction(action, context, item)` виконує пункт через той самий код, що й головне меню;
+- Shift + правий клік мишею і довге натискання на сенсорному екрані навмисно лишають меню браузера: там варіанти виправлення правопису та системна вставка;
+- `OfficeUI` позиціює меню в межах вікна, веде стрілками/Home/End, закриває за Escape, Tab, кліком поза меню, прокруткою, зміною розміру й втратою фокуса вікна, повертає фокус після відкриття з клавіатури й надсилає `office:overlayclose` з типом `contextmenu`. Клік по пункту не забирає фокус і виділення з робочої області;
+- якщо внутрішній обробник (наприклад, меню таблиці в Тексті) уже викликав `preventDefault`, спільне меню не відкривається.
 
 `OfficeShell` не замінює modal/status API. Він відповідає лише за boot, command routing і file picker adapter.
 

@@ -253,12 +253,104 @@
       return checks;
     }
 
+    // Власне контекстне меню полотна: правий клік вибирає блок і відкриває меню замість браузерного.
+    async function runContextMenuChecks(win, doc) {
+      const checks = [];
+      const waitUntil = async (predicate, timeout = 3000) => {
+        const start = performance.now();
+        while (performance.now() - start < timeout) {
+          if (predicate()) return true;
+          await wait(50);
+        }
+        return predicate();
+      };
+      const menu = doc.getElementById('diagramContextMenu');
+      const messageModal = doc.getElementById('message-modal');
+      const originalRaf = win.requestAnimationFrame;
+      win.requestAnimationFrame = callback => win.setTimeout(() => callback(performance.now()), 16);
+      const rightClick = (el, init = {}) => {
+        const rect = el.getBoundingClientRect();
+        const event = new win.MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true, button: 2,
+          clientX: rect.left + Math.min(rect.width / 2, 40), clientY: rect.top + Math.min(rect.height / 2, 40), ...init
+        });
+        el.dispatchEvent(event);
+        return event;
+      };
+      const visibleActions = () => [...menu.querySelectorAll('[data-context-action]')].filter(item => !item.hidden).map(item => item.dataset.contextAction);
+      try {
+        const project = {
+          version: 2, diagramTitle: 'Контекстне меню', shapeCounter: 2, lastShapeType: 'process', snapEnabled: true,
+          shapes: [
+            { id: 'shape-1', type: 'process', textRaw: 'Дія', left: 100, top: 80 },
+            { id: 'shape-2', type: 'process', textRaw: 'Інша', left: 380, top: 240 }
+          ],
+          connections: []
+        };
+        const transfer = new win.DataTransfer();
+        transfer.items.add(new win.File([JSON.stringify(project)], 'context.json', { type: 'application/json' }));
+        const fileInput = doc.getElementById('project-file-input');
+        fileInput.files = transfer.files;
+        fileInput.dispatchEvent(new win.Event('change'));
+        const opened = await waitUntil(() => doc.querySelectorAll('.shape').length === 2);
+        messageModal?.classList.remove('active');
+        addCheck(checks, 'context menu: project opened', opened);
+
+        const first = doc.getElementById('shape-1');
+        const event = rightClick(first);
+        addCheck(checks, 'context menu: right click on a block opens our menu, selects it and cancels the browser menu',
+          !menu.hidden && event.defaultPrevented && first.classList.contains('selected'),
+          `hidden=${menu.hidden} prevented=${event.defaultPrevented}`);
+        addCheck(checks, 'context menu: block menu offers text and delete but no align or canvas items',
+          visibleActions().join() === 'edit-text,delete', visibleActions().join());
+
+        doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        addCheck(checks, 'context menu: Escape closes the menu', menu.hidden);
+
+        const shifted = rightClick(first, { shiftKey: true });
+        addCheck(checks, 'context menu: Shift+right click keeps the browser menu', menu.hidden && !shifted.defaultPrevented);
+
+        const container = doc.getElementById('canvas-container');
+        container.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 2, pointerId: 91 }));
+        const emptyEvent = rightClick(container, { clientX: 700, clientY: 560 });
+        addCheck(checks, 'context menu: empty canvas clears selection and shows only canvas items',
+          !menu.hidden && emptyEvent.defaultPrevented && !doc.querySelector('.shape.selected')
+            && visibleActions().join() === 'select-all,fit', visibleActions().join());
+        menu.querySelector('[data-context-action="select-all"]').click();
+        addCheck(checks, 'context menu: Select all selects every block from the menu',
+          menu.hidden && doc.querySelectorAll('.shape.selected').length === 2);
+
+        rightClick(doc.getElementById('shape-2'));
+        addCheck(checks, 'context menu: right click inside a multi-selection keeps it and offers align',
+          doc.querySelectorAll('.shape.selected').length === 2 && visibleActions().includes('align-left')
+            && !visibleActions().includes('edit-text'), visibleActions().join());
+        const topsBefore = ['shape-1', 'shape-2'].map(id => doc.getElementById(id).offsetLeft);
+        menu.querySelector('[data-context-action="align-left"]').click();
+        addCheck(checks, 'context menu: align left from the menu moves blocks like the main menu',
+          doc.getElementById('shape-1').offsetLeft === doc.getElementById('shape-2').offsetLeft
+            && topsBefore[0] !== topsBefore[1]);
+
+        doc.getElementById('shape-2').click();
+        rightClick(first);
+        menu.querySelector('[data-context-action="delete"]').click();
+        const confirmButton = messageModal?.querySelector('.no-btn');
+        confirmButton?.click();
+        const deleted = await waitUntil(() => doc.querySelectorAll('.shape').length === 1 && !doc.getElementById('shape-1'));
+        addCheck(checks, 'context menu: Delete from the menu removes the block', deleted, `shapes=${doc.querySelectorAll('.shape').length}`);
+      } finally {
+        messageModal?.classList.remove('active');
+        win.requestAnimationFrame = originalRaf;
+      }
+      return checks;
+    }
+
     async function run() {
       const frame = await loadFrame();
       const win = frame.contentWindow;
       const doc = frame.contentDocument;
       await wait(500);
       const checks = await runArrangeChecks(win, doc);
+      checks.push(...await runContextMenuChecks(win, doc));
 
       const failures = checks.filter(check => !check.ok);
       result.className = failures.length ? 'fail' : 'pass';

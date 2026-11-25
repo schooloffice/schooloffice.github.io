@@ -305,6 +305,25 @@
     </main>
   </div>
 
+  <div id="diagramContextMenu" class="office-context-menu" hidden aria-label="Дії з діаграмою">
+    <button class="menu-item" data-context-action="edit-text"><span><i class="fa-solid fa-pen fa-fw" aria-hidden="true"></i> Змінити текст</span></button>
+    <button class="menu-item" data-context-action="edit-label"><span><i class="fa-solid fa-tag fa-fw" aria-hidden="true"></i> Змінити підпис стрілки</span></button>
+    <button class="menu-item" data-context-action="route"><span><i class="fa-solid fa-share-nodes fa-fw" aria-hidden="true"></i> Змінити маршрут стрілки</span><span class="shortcut">R</span></button>
+    <button class="menu-item" data-context-action="delete"><span><i class="fa-solid fa-trash fa-fw" aria-hidden="true"></i> Видалити</span><span class="shortcut">Delete</span></button>
+    <div class="menu-sep" role="separator"></div>
+    <button class="menu-item" data-context-action="align-left"><span><i class="fa-solid fa-align-left fa-fw" aria-hidden="true"></i> Вирівняти ліворуч</span></button>
+    <button class="menu-item" data-context-action="align-center"><span><i class="fa-solid fa-align-center fa-fw" aria-hidden="true"></i> Вирівняти по центру</span></button>
+    <button class="menu-item" data-context-action="align-right"><span><i class="fa-solid fa-align-right fa-fw" aria-hidden="true"></i> Вирівняти праворуч</span></button>
+    <button class="menu-item" data-context-action="align-top"><span><i class="fa-solid fa-arrow-up fa-fw" aria-hidden="true"></i> Вирівняти вгору</span></button>
+    <button class="menu-item" data-context-action="align-middle"><span><i class="fa-solid fa-grip-lines fa-fw" aria-hidden="true"></i> Вирівняти по середині</span></button>
+    <button class="menu-item" data-context-action="align-bottom"><span><i class="fa-solid fa-arrow-down fa-fw" aria-hidden="true"></i> Вирівняти донизу</span></button>
+    <button class="menu-item" data-context-action="distribute-horizontal"><span><i class="fa-solid fa-arrows-left-right fa-fw" aria-hidden="true"></i> Розподілити по горизонталі</span></button>
+    <button class="menu-item" data-context-action="distribute-vertical"><span><i class="fa-solid fa-arrows-up-down fa-fw" aria-hidden="true"></i> Розподілити по вертикалі</span></button>
+    <div class="menu-sep" role="separator"></div>
+    <button class="menu-item" data-context-action="select-all"><span><i class="fa-solid fa-object-group fa-fw" aria-hidden="true"></i> Виділити все</span><span class="shortcut">Ctrl+A</span></button>
+    <button class="menu-item" data-context-action="fit"><span><i class="fa-solid fa-expand fa-fw" aria-hidden="true"></i> Показати всю схему</span><span class="shortcut">Shift+1</span></button>
+  </div>
+
   <footer class="statusbar office-statusbar" aria-label="Рядок стану">
     <div class="status-left" data-office-status-slot="primary">
       <span>ЛКМ: вибір і перетягування</span>
