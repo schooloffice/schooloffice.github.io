@@ -77,7 +77,16 @@
         <button class="menu-item" data-action="redo" role="menuitem"><span><i
               class="fa-solid fa-rotate-right fa-fw"></i> Повернути</span><span class="shortcut">Ctrl+Y</span></button>
         <div class="menu-sep"></div>
-        <button class="menu-item" data-action="delete-selected" role="menuitem"><span><i
+        <button class="menu-item" data-action="cut-blocks" role="menuitem"><span><i
+              class="fa-solid fa-scissors fa-fw"></i> Вирізати</span><span class="shortcut">Ctrl+X</span></button>
+        <button class="menu-item" data-action="copy-blocks" role="menuitem"><span><i
+              class="fa-solid fa-copy fa-fw"></i> Копіювати</span><span class="shortcut">Ctrl+C</span></button>
+        <button class="menu-item" data-action="paste-blocks" role="menuitem"><span><i
+              class="fa-solid fa-paste fa-fw"></i> Вставити</span><span class="shortcut">Ctrl+V</span></button>
+        <button class="menu-item" data-action="duplicate-blocks" role="menuitem"><span><i
+              class="fa-regular fa-clone fa-fw"></i> Дублювати</span><span class="shortcut">Ctrl+D</span></button>
+        <div class="menu-sep"></div>
+        <button class="menu-item" data-action="delete-selected"role="menuitem"><span><i
               class="fa-solid fa-trash fa-fw"></i> Видалити вибране</span><span class="shortcut">Delete</span></button>
         <button class="menu-item" data-action="clear-canvas" role="menuitem"><span><i
               class="fa-solid fa-broom fa-fw"></i> Очистити полотно</span></button>
@@ -307,6 +316,10 @@
 
   <div id="diagramContextMenu" class="office-context-menu" hidden aria-label="Дії з діаграмою">
     <button class="menu-item" data-context-action="edit-text"><span><i class="fa-solid fa-pen fa-fw" aria-hidden="true"></i> Змінити текст</span></button>
+    <button class="menu-item" data-context-action="cut"><span><i class="fa-solid fa-scissors fa-fw" aria-hidden="true"></i> Вирізати</span><span class="shortcut">Ctrl+X</span></button>
+    <button class="menu-item" data-context-action="copy"><span><i class="fa-solid fa-copy fa-fw" aria-hidden="true"></i> Копіювати</span><span class="shortcut">Ctrl+C</span></button>
+    <button class="menu-item" data-context-action="duplicate"><span><i class="fa-regular fa-clone fa-fw" aria-hidden="true"></i> Дублювати</span><span class="shortcut">Ctrl+D</span></button>
+    <button class="menu-item" data-context-action="paste"><span><i class="fa-solid fa-paste fa-fw" aria-hidden="true"></i> Вставити</span><span class="shortcut">Ctrl+V</span></button>
     <button class="menu-item" data-context-action="edit-label"><span><i class="fa-solid fa-tag fa-fw" aria-hidden="true"></i> Змінити підпис стрілки</span></button>
     <button class="menu-item" data-context-action="route"><span><i class="fa-solid fa-share-nodes fa-fw" aria-hidden="true"></i> Змінити маршрут стрілки</span><span class="shortcut">R</span></button>
     <button class="menu-item" data-context-action="delete"><span><i class="fa-solid fa-trash fa-fw" aria-hidden="true"></i> Видалити</span><span class="shortcut">Delete</span></button>

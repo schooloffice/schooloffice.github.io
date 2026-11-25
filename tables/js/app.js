@@ -145,10 +145,10 @@ async function initTablesEditor() {
     }
   });
 
+  TablesClipboard.initNativeClipboard();
+
   // keyboard shortcuts
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeHeaderContextMenu();
-
     // F4 — перемкнути тип посилання (A1 → $A$1 → A$1 → $A1) у формулі
     if (e.key === 'F4') {
       const activeEl = document.activeElement;
@@ -193,26 +193,8 @@ async function initTablesEditor() {
         window.print();
         return;
       }
-      if (e.key.toLowerCase() === 'c') {
-        const activeEl = document.activeElement;
-        if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
-          return; // allow normal copy in input fields
-        }
-        e.preventDefault();
-        copySelectionToClipboard();
-        return;
-      }
-      // Ctrl+V — вставити в активну клітинку якщо жодна не у фокусі
-      if (e.key.toLowerCase() === 'v') {
-        const activeEl = document.activeElement;
-        if (!activeEl || (activeEl.tagName !== 'INPUT' && activeEl.tagName !== 'TEXTAREA')) {
-          e.preventDefault();
-          navigator.clipboard?.readText().then(text => {
-            if (text) pasteToGrid(text, active.c, active.r);
-          }).catch(() => {}); // тихо ігноруємо якщо немає дозволу
-        }
-        return;
-      }
+      // Ctrl+C / Ctrl+X / Ctrl+V не скасовуємо: їх виконують нативні події copy/cut/paste
+      // (див. initNativeClipboard), яким не потрібен дозвіл на буфер обміну.
     }
 
     // Delete / Backspace (avoid when formula bar or cell active)

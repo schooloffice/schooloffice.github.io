@@ -432,7 +432,9 @@ Assert-True (Test-Path $html2PdfLicensePath) "vendor/html2pdf: missing companion
 $productionJsFiles = Get-ChildItem -Path $Root -Recurse -File -Include '*.js' |
   Where-Object {
     $_.FullName -notmatch '\\vendor\\' -and
-    $_.FullName -notmatch '\\tests\\'
+    $_.FullName -notmatch '\\tests\\' -and
+    # Робочі копії агентів (.claude\worktrees) і службові каталоги не є кодом продукту.
+    $_.FullName -notmatch '\\\.(claude|git|wrangler)\\'
   }
 
 $innerHtmlBaseline = 92
@@ -760,7 +762,7 @@ if ((Test-Path $slidesConstantsPath) -and (Test-Path $slidesAppPath) -and (Test-
   $slidesAppSource = Get-Content -Raw -Encoding UTF8 $slidesAppPath
   $slidesExportSource = Get-Content -Raw -Encoding UTF8 $slidesExportPath
   Assert-True ($slidesConstants -match "export const ELEMENT_ACTION_KINDS = \['show', 'hide', 'toggle'\];") "slides/js/constants.js: click actions should use the show/hide/toggle allowlist"
-  Assert-True ([regex]::Matches($slidesHtml, 'data-action="edit-action"').Count -eq 2) "slides/index.html: click action should be available from the Insert menu and the object context menu"
+  Assert-True ([regex]::Matches($slidesHtml, 'data-(context-)?action="edit-action"').Count -eq 2) "slides/index.html: click action should be available from the Insert menu and the object context menu"
   Assert-True ($slidesAppSource -match "case 'edit-action': showActionModal\(\)") "slides/js/app.js: edit-action should open the click action dialog"
   Assert-True ($slidesExportSource -match 'export function createSlideSnapshot\(slide, \{ presentation = false \} = \{\}\)') "slides/js/export.js: only the presentation snapshot should hide start-hidden objects and expose triggers"
   Assert-True ($slidesAppSource -match 'createSlideSnapshot\(slide, \{ presentation: true \}\)') "slides/js/app.js: presentation should render the interactive snapshot"

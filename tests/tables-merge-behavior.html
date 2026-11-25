@@ -263,6 +263,94 @@
       input('A2').setSelectionRange(0, 1);
       const editEvent = ctx('A2');
       check('context menu: selected text inside a cell keeps the browser menu', !editEvent.defaultPrevented && ctxMenu.hidden);
+
+      // Вирізання/копіювання через нативні події буфера обміну.
+      const fresh = () => {
+        win.TablesWorkbookFile.applyWorkbookPayload({
+          type: 'art-tables-workbook', version: 4, name: 'Буфер', activeSheet: 0,
+          sheets: [sheet('Буфер', { A1: 'a', B1: 'b', A2: 'c', B2: 'd' })]
+        });
+        doc.activeElement?.blur?.();
+        selectRange('A1', 'B2');
+      };
+      const clipEvent = (type) => {
+        const event = new win.ClipboardEvent(type, { bubbles: true, cancelable: true, clipboardData: new win.DataTransfer() });
+        // Читаємо дані всередині події: після диспетчеризації DataTransfer може бути порожнім.
+        const grab = () => { event.captured = event.clipboardData.getData('text/plain'); };
+        doc.addEventListener(type, grab, { once: true });
+        doc.body.dispatchEvent(event);
+        doc.removeEventListener(type, grab);
+        return event;
+      };
+      const keyEvent = (key) => {
+        const event = new win.KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true });
+        doc.body.dispatchEvent(event);
+        return event;
+      };
+      fresh();
+      check('clipboard: Ctrl+C and Ctrl+X keydown are not cancelled by the app', !keyEvent('c').defaultPrevented && !keyEvent('x').defaultPrevented);
+      const copyEv = clipEvent('copy');
+      const tsv = ['a', 'b'].join(String.fromCharCode(9)) + String.fromCharCode(10) + ['c', 'd'].join(String.fromCharCode(9));
+      check('clipboard: native copy puts TSV on clipboardData and keeps cells', copyEv.defaultPrevented
+        && copyEv.captured === tsv && value('A1') === 'a' && value('B2') === 'd',
+        copyEv.captured);
+      const cutEv = clipEvent('cut');
+      check('clipboard: native cut puts TSV on clipboardData and clears the selection',
+        cutEv.defaultPrevented && cutEv.captured === tsv
+        && value('A1') === '' && value('B2') === '', `${value('A1')}|${value('B2')}`);
+      win.undo();
+      check('clipboard: cut is one undo step', value('A1') === 'a' && value('B1') === 'b' && value('A2') === 'c' && value('B2') === 'd',
+        `${value('A1')}|${value('B1')}|${value('A2')}|${value('B2')}`);
+      selectRange('B1', 'B1');
+      input('B1').focus();
+      input('B1').setSelectionRange(0, 1);
+      check('clipboard: selected text inside a cell keeps the browser copy', !clipEvent('cut').defaultPrevented && value('B1') === 'b');
+      fresh();
+      selectRange('A1', 'B2');
+      ctx('B2');
+      ctxMenu.querySelector('[data-context-action="cut"]').click();
+      // Синтетичний click не має активації користувача, тому execCommand відмовляє і працює запасний шлях.
+      check('clipboard: context menu Cut clears cells and closes the menu', ctxMenu.hidden
+        && value('A1') === '' && value('B2') === '');
+      win.undo();
+      check('clipboard: context menu Cut is one undo step', value('A1') === 'a' && value('B2') === 'd');
+      selectRange('A1', 'B2');
+      doc.querySelector('[data-action="cut"]').click();
+      check('clipboard: main menu Cut clears cells', value('A1') === '' && value('B1') === '');
+      win.undo();
+      check('clipboard: main menu Cut is one undo step', value('A1') === 'a' && value('B1') === 'b');
+
+      // Контекстне меню заголовків.
+      fresh();
+      const rowMenu = doc.getElementById('rowHeaderMenu');
+      const colMenu = doc.getElementById('colHeaderMenu');
+      const colHeader = doc.querySelector('th.col-header[data-col="1"]');
+      const headerEv = new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 100, clientY: 60 });
+      colHeader.dispatchEvent(headerEv);
+      check('header menu: right click on a column header opens the shared menu and selects the column',
+        headerEv.defaultPrevented && !colMenu.hidden && colMenu.classList.contains('office-context-menu')
+        && bounds() === json({ cMin: 1, cMax: 1, rMin: 1, rMax: 60 }), bounds());
+      colMenu.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      check('header menu: Escape closes it', colMenu.hidden);
+      colHeader.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 100, clientY: 60 }));
+      colMenu.querySelector('[data-context-action="insert-col-left"]').click();
+      check('header menu: insert column left works and closes the menu', colMenu.hidden && value('A1') === 'a' && value('B1') === '' && value('C1') === 'b',
+        `${value('A1')}|${value('B1')}|${value('C1')}`);
+      const rowHeader = doc.querySelector('#bodyRows .row-header[data-row="1"]');
+      rowHeader.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 90 }));
+      check('header menu: right click on a row header opens the row menu', !rowMenu.hidden && colMenu.hidden);
+      rowMenu.querySelector('[data-context-action="delete-row"]').click();
+      check('header menu: delete row works and closes the menu', rowMenu.hidden && value('A1') === 'c', value('A1'));
+      // Клавіатура: Shift+F10 / клавіша меню при виділеній колонці.
+      selectRange('A1', 'A1');
+      doc.querySelector('th.col-header[data-col="1"]').dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 100, clientY: 60 }));
+      colMenu.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      const kbEvent = new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0 });
+      input('A2').dispatchEvent(kbEvent);
+      check('header menu: context-menu key with a whole column selected opens the column menu', kbEvent.defaultPrevented && !colMenu.hidden);
+      colMenu.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     }
 
     run().then(() => {

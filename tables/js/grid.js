@@ -108,15 +108,6 @@ function rebuildGrid(requestedRange = null) {
       renderSel();
     });
 
-    th.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      selStart = { c, r: 1 };
-      selEnd = { c, r: ROWS };
-      setActive(c, active.r, getCellId(c, active.r), { keepSelection: true });
-      renderSel();
-      openHeaderContextMenu('col', c, e.clientX, e.clientY);
-    });
-
     hRow.appendChild(th);
   }
   if (view.rightWidth) {
@@ -163,14 +154,6 @@ function rebuildGrid(requestedRange = null) {
       selEnd = { c: COL_COUNT - 1, r };
       setActive(active.c, r, getCellId(active.c, r), { keepSelection: true });
       renderSel();
-    });
-    rowTh.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      selStart = { c: 0, r };
-      selEnd = { c: COL_COUNT - 1, r };
-      setActive(active.c, r, getCellId(active.c, r), { keepSelection: true });
-      renderSel();
-      openHeaderContextMenu('row', r, e.clientX, e.clientY);
     });
     tr.appendChild(rowTh);
 

@@ -10,7 +10,9 @@ function normalizeTsv(text) {
   return String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n+$/, '');
 }
 
-function copySelectionToClipboard() {
+// Якщо передано clipboardData з нативної події copy/cut, пишемо в нього (без дозволу
+// navigator.clipboard); інакше — navigator.clipboard з запасним варіантом.
+function copySelectionToClipboard(clipboardData) {
   const b = getBounds();
   const cells = [];
   for (let r = b.rMin; r <= b.rMax; r++) {
@@ -29,11 +31,66 @@ function copySelectionToClipboard() {
   const tsv = serializeSelectionToTsv();
   internalClipboardKey = normalizeTsv(tsv);
 
-  if (navigator.clipboard?.writeText) {
+  if (clipboardData?.setData) {
+    clipboardData.setData('text/plain', tsv);
+  } else if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(tsv).catch(() => fallbackCopyText(tsv));
   } else {
     fallbackCopyText(tsv);
   }
+}
+
+// Нативні події copy/cut: клітинки (не текст усередині клітинки чи іншого поля).
+// Відкрите модальне вікно або текст, виділений мишею деінде на сторінці (довідка,
+// повідомлення), лишаються браузеру: копіюється й вставляється саме те, що бачить учень.
+function clipboardBelongsElsewhere() {
+  if (document.querySelector('.modal-overlay.active, .modal.active')) return true;
+  const selection = window.getSelection?.();
+  if (!selection || selection.isCollapsed || !selection.toString().trim()) return false;
+  const node = selection.anchorNode;
+  const el = node && (node.nodeType === 1 ? node : node.parentElement);
+  return !el?.closest?.('.cell-input');
+}
+
+function isCellClipboardTarget() {
+  if (clipboardBelongsElsewhere()) return false;
+  const el = document.activeElement;
+  if (!el || el === document.body || !(el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return true;
+  if (!el.classList.contains('cell-input')) return false;
+  return el.selectionStart === el.selectionEnd;
+}
+
+function handleNativeClipboardEvent(e, cut) {
+  if (e.defaultPrevented || !isCellClipboardTarget()) return;
+  e.preventDefault();
+  copySelectionToClipboard(e.clipboardData);
+  if (cut) deleteSelection();
+  nativeClipboardHandled = true;
+}
+
+// Меню: execCommand запускає ту саму нативну подію; navigator.clipboard — лише запасний шлях.
+let nativeClipboardHandled = false;
+function runClipboardCommand(kind) {
+  nativeClipboardHandled = false;
+  try { document.execCommand(kind); } catch (_) { /* запасний шлях нижче */ }
+  if (nativeClipboardHandled) return;
+  copySelectionToClipboard();
+  if (kind === 'cut') deleteSelection();
+}
+
+function initNativeClipboard() {
+  document.addEventListener('copy', e => handleNativeClipboardEvent(e, false));
+  document.addEventListener('cut', e => handleNativeClipboardEvent(e, true));
+  // Вставка поза клітинкою (у клітинках працює її власний обробник paste).
+  document.addEventListener('paste', e => {
+    if (e.defaultPrevented || clipboardBelongsElsewhere()) return;
+    const el = document.activeElement;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+    const text = e.clipboardData?.getData('text/plain');
+    if (!text) return;
+    e.preventDefault();
+    pasteToGrid(text, active.c, active.r);
+  });
 }
 
 function serializeSelectionToTsv() {
@@ -151,7 +208,9 @@ window.TablesClipboard = {
   applyTsvToGridData,
   copySelectionToClipboard,
   fallbackCopyText,
+  initNativeClipboard,
   isInternalPaste,
   pasteToGrid,
+  runClipboardCommand,
   serializeSelectionToTsv
 };

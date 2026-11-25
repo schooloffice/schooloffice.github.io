@@ -39,22 +39,6 @@ function closeModal(id) {
   el.setAttribute('aria-hidden', 'true');
 }
 
-function openHeaderContextMenu(type, index, clientX, clientY) {
-  closeHeaderContextMenu();
-  const menu = document.getElementById(type === 'row' ? 'rowHeaderMenu' : 'colHeaderMenu');
-  if (!menu) return;
-  headerMenuState = { type, index };
-  menu.classList.remove('hidden');
-  const rect = menu.getBoundingClientRect();
-  menu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - rect.width - 8))}px`;
-  menu.style.top = `${Math.max(8, Math.min(clientY, window.innerHeight - rect.height - 8))}px`;
-}
-
-function closeHeaderContextMenu() {
-  headerMenuState = null;
-  document.querySelectorAll('.header-context-menu').forEach(menu => menu.classList.add('hidden'));
-}
-
 // ---- Контекстне меню клітинок ----
 function pasteFromContextMenu() {
   const hint = 'Браузер не дозволив вставлення з меню. Натисни Ctrl+V.';
@@ -62,6 +46,48 @@ function pasteFromContextMenu() {
   navigator.clipboard.readText()
     .then(text => { if (text) pasteToGrid(text, active.c, active.r); })
     .catch(() => announce(hint));
+}
+
+// Контекстні меню заголовків рядків і колонок. Правий клік спершу виділяє весь рядок/колонку;
+// з клавіатури (клавіша меню, Shift+F10) меню відкривається, коли виділено рядки чи колонки повністю.
+function initHeaderContextMenus() {
+  const surface = document.getElementById('gridWrap');
+  if (!surface || !window.OfficeUI?.bindContextMenu) return;
+  const selectedHeaderEl = type => document.querySelector(type === 'row'
+    ? '#bodyRows .row-header.header-selected'
+    : 'th.col-header.header-selected');
+  const bind = (type, menuId) => window.OfficeUI.bindContextMenu({
+    surface,
+    menu: document.getElementById(menuId),
+    resolve(event) {
+      const th = event.target.closest?.(type === 'row' ? '#bodyRows .row-header[data-row]' : 'th.col-header[data-col]');
+      if (th && surface.contains(th)) {
+        const index = Number(type === 'row' ? th.dataset.row : th.dataset.col);
+        if (type === 'row') { selStart = { c: 0, r: index }; selEnd = { c: COL_COUNT - 1, r: index }; setActive(active.c, index, getCellId(active.c, index), { keepSelection: true }); }
+        else { selStart = { c: index, r: 1 }; selEnd = { c: index, r: ROWS }; setActive(index, active.r, getCellId(index, active.r), { keepSelection: true }); }
+        renderSel();
+        return { type, index };
+      }
+      // Клавіатура: контекст береться з уже виділених заголовків.
+      const fromKeyboard = event.button !== 2;
+      if (!fromKeyboard || !selectedHeaderEl(type)) return null;
+      if (type === 'col' && !TablesStructure.getWholeColSelectionRange()) return null;
+      if (type === 'row' && (!TablesStructure.getWholeRowSelectionRange() || TablesStructure.getWholeColSelectionRange())) return null;
+      return { type, index: null };
+    },
+    anchor(ctx) {
+      const el = ctx && selectedHeaderEl(ctx.type);
+      const rect = el?.getBoundingClientRect();
+      return rect ? { x: rect.left + 8, y: rect.bottom - 4 } : null;
+    },
+    onAction(action, ctx) {
+      // index === null: діємо по поточному виділенню (див. dispatchUiAction).
+      headerMenuState = ctx?.index == null ? null : ctx;
+      try { dispatchUiAction(action); } finally { headerMenuState = null; }
+    }
+  });
+  bind('col', 'colHeaderMenu');
+  bind('row', 'rowHeaderMenu');
 }
 
 function initCellContextMenu() {
@@ -187,19 +213,7 @@ function initMenusAndToolbar() {
     document.addEventListener('click', (e) => {
       if (!e.target.closest('.menu-item-wrap')) closeAllMenus();
       if (!e.target.closest('.palette-wrap')) closeAllPalettes();
-      if (!e.target.closest('.header-context-menu')) closeHeaderContextMenu();
     });
-
-    document.addEventListener('pointerdown', (e) => {
-      if (!e.target.closest('.header-context-menu')) closeHeaderContextMenu();
-    }, true);
-
-    document.addEventListener('contextmenu', (e) => {
-      if (!e.target.closest('.header-context-menu')) closeHeaderContextMenu();
-    }, true);
-
-    window.addEventListener('resize', closeHeaderContextMenu);
-    document.addEventListener('scroll', closeHeaderContextMenu, true);
 
     document.querySelectorAll('[data-action]').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -225,6 +239,7 @@ function initMenusAndToolbar() {
       btn.addEventListener('click', () => closeModal(btn.dataset.closeModal));
     });
 
+    initHeaderContextMenus();
     initCellContextMenu();
     menusInitialized = true;
   }
@@ -301,45 +316,40 @@ function dispatchUiAction(action) {
     case 'print': window.print(); break;
     case 'undo': runOfficeCommand('undo') || undo(); break;
     case 'redo': runOfficeCommand('redo') || redo(); break;
-    case 'copy': copySelectionToClipboard(); break;
+    case 'cut': TablesClipboard.runClipboardCommand('cut'); break;
+    case 'copy': TablesClipboard.runClipboardCommand('copy'); break;
     case 'paste': navigator.clipboard?.readText().then(text => { if (text) pasteToGrid(text, active.c, active.r); }).catch(() => showInfoModal('Браузер не дозволив вставлення з буфера обміну.')); break;
     case 'clear-selection': deleteSelection(); break;
     case 'insert-row-above': {
       const target = headerMenuState?.type === 'row' ? headerMenuState.index : (TablesStructure.getWholeRowSelectionRange()?.start || active.r);
       TablesStructure.insertRow(target);
-      closeHeaderContextMenu();
       break;
     }
     case 'insert-row-below': {
       const range = TablesStructure.getWholeRowSelectionRange();
       const target = headerMenuState?.type === 'row' ? headerMenuState.index + 1 : ((range?.end || active.r) + 1);
       TablesStructure.insertRow(target);
-      closeHeaderContextMenu();
       break;
     }
     case 'delete-row': {
       const range = headerMenuState?.type === 'row' ? { start: headerMenuState.index, end: headerMenuState.index } : (TablesStructure.getWholeRowSelectionRange() || { start: active.r, end: active.r });
       TablesStructure.deleteRow(range.start, range.end - range.start + 1);
-      closeHeaderContextMenu();
       break;
     }
     case 'insert-col-left': {
       const target = headerMenuState?.type === 'col' ? headerMenuState.index : (TablesStructure.getWholeColSelectionRange()?.start ?? active.c);
       TablesStructure.insertColumn(target);
-      closeHeaderContextMenu();
       break;
     }
     case 'insert-col-right': {
       const range = TablesStructure.getWholeColSelectionRange();
       const target = headerMenuState?.type === 'col' ? headerMenuState.index + 1 : ((range?.end ?? active.c) + 1);
       TablesStructure.insertColumn(target);
-      closeHeaderContextMenu();
       break;
     }
     case 'delete-col': {
       const range = headerMenuState?.type === 'col' ? { start: headerMenuState.index, end: headerMenuState.index } : (TablesStructure.getWholeColSelectionRange() || { start: active.c, end: active.c });
       TablesStructure.deleteColumn(range.start, range.end - range.start + 1);
-      closeHeaderContextMenu();
       break;
     }
     case 'chart': TablesCharts.makeChart(); break;
