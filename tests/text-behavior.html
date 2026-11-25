@@ -566,6 +566,68 @@
         && !!doc.querySelector('#editor table');
       win.art.modals.confirmNo();
 
+      // ── Вставка через подію paste, без дозволу на читання буфера ─────────
+      const pasteParagraph = pageContents(doc)[0].querySelector('p') || pageContents(doc)[0];
+      editor.focus();
+      setCaretAtStart(win, pasteParagraph);
+      const ctrlVPassesThrough = editor.dispatchEvent(new win.KeyboardEvent('keydown', {
+        key: 'v', ctrlKey: true, bubbles: true, cancelable: true
+      }));
+      const pasteData = new win.DataTransfer();
+      pasteData.setData('text/plain', 'Вставлений рядок\nДругий рядок');
+      pasteData.setData('text/html', '<b id="pastedBold">Вставлений рядок</b><img src="x" onerror="window.__pasteXss=1">');
+      const pasteHandled = !editor.dispatchEvent(new win.ClipboardEvent('paste', {
+        clipboardData: pasteData, bubbles: true, cancelable: true
+      }));
+      await wait(300);
+      const pastedText = editor.textContent || '';
+      const pasteInsertsPlainText = pasteHandled
+        && pastedText.includes('Вставлений рядок')
+        && pastedText.includes('Другий рядок')
+        && !doc.getElementById('pastedBold')
+        && !editor.querySelector('img[src="x"]')
+        && !win.__pasteXss;
+      const pasteMarksDirty = win.art.state.isDirty();
+
+      // ── Копіювання й вирізання через події copy/cut ────────────────────
+      const selectWord = word => {
+        const walker = doc.createTreeWalker(editor, win.NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          const at = node.data.indexOf(word);
+          if (at < 0) continue;
+          const range = doc.createRange();
+          range.setStart(node, at);
+          range.setEnd(node, at + word.length);
+          const sel = win.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          return true;
+        }
+        return false;
+      };
+      const clipboardKeysPassThrough = ['c', 'x'].every(key => editor.dispatchEvent(new win.KeyboardEvent('keydown', {
+        key, ctrlKey: true, bubbles: true, cancelable: true
+      })));
+      selectWord('Другий');
+      const copyData = new win.DataTransfer();
+      const copyHandled = !editor.dispatchEvent(new win.ClipboardEvent('copy', {
+        clipboardData: copyData, bubbles: true, cancelable: true
+      }));
+      const copyWritesSelection = copyHandled
+        && copyData.getData('text/plain') === 'Другий'
+        && (editor.textContent || '').includes('Другий рядок');
+
+      selectWord('Другий');
+      const cutData = new win.DataTransfer();
+      const cutHandled = !editor.dispatchEvent(new win.ClipboardEvent('cut', {
+        clipboardData: cutData, bubbles: true, cancelable: true
+      }));
+      await wait(300);
+      const cutMovesSelection = cutHandled
+        && cutData.getData('text/plain') === 'Другий'
+        && !(editor.textContent || '').includes('Другий рядок')
+        && (editor.textContent || '').includes(' рядок');
       // ── Власне контекстне меню документа поза таблицею ─────────────────
       const textContextMenu = doc.getElementById('textContextMenu');
       const editorScroll = doc.querySelector('.editor-scroll');
@@ -1041,6 +1103,12 @@
         check('table menu opens on right click', tableMenuOpensFromRightClick),
         check('Shift+F10 opens the table menu', tableMenuOpensFromKeyboard),
         check('Escape closes the table menu and restores editor focus', tableMenuEscapeRestoresEditor),
+        check('Ctrl+V is left to the browser paste event', ctrlVPassesThrough),
+        check('paste inserts plain text only, without foreign HTML', pasteInsertsPlainText),
+        check('paste marks the document as changed', pasteMarksDirty),
+        check('Ctrl+C and Ctrl+X are left to the browser copy/cut events', clipboardKeysPassThrough),
+        check('copy puts the selected plain text on the clipboard', copyWritesSelection),
+        check('cut puts the selection on the clipboard and removes it', cutMovesSelection),
         check('right click on text opens our menu, cut/copy disabled without selection', textMenuOpensOnText),
         check('Escape closes the text context menu', textMenuEscapeCloses),
         check('right click beside the page opens our menu', textMenuOpensBesidePage),

@@ -471,13 +471,15 @@
       closeTopOverlay();
     }, true);
 
-    // Відкрите контекстне меню прив'язане до точки на екрані: прокрутка, зміна розміру
-    // або перехід в інше вікно його закривають.
+    // Відкрите контекстне меню прив'язане до точки на екрані: прокрутка колесом чи жестом,
+    // зміна розміру або перехід в інше вікно його закривають. Програмна прокрутка (розбиття
+    // на сторінки, автозбереження) меню не закриває, інакше воно зникало б саме по собі.
     const closeContextOnViewportChange = event => {
-      if (event?.type === 'scroll' && openContextMenu?.menu.contains(event.target)) return;
+      if (event?.type !== 'resize' && event?.type !== 'blur' && openContextMenu?.menu.contains(event.target)) return;
       closeContextMenus();
     };
-    window.addEventListener('scroll', closeContextOnViewportChange, true);
+    window.addEventListener('wheel', closeContextOnViewportChange, { capture: true, passive: true });
+    window.addEventListener('touchmove', closeContextOnViewportChange, { capture: true, passive: true });
     window.addEventListener('resize', closeContextOnViewportChange);
     window.addEventListener('blur', closeContextOnViewportChange);
   }
