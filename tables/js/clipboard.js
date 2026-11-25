@@ -41,7 +41,19 @@ function copySelectionToClipboard(clipboardData) {
 }
 
 // Нативні події copy/cut: клітинки (не текст усередині клітинки чи іншого поля).
+// Відкрите модальне вікно або текст, виділений мишею деінде на сторінці (довідка,
+// повідомлення), лишаються браузеру: копіюється й вставляється саме те, що бачить учень.
+function clipboardBelongsElsewhere() {
+  if (document.querySelector('.modal-overlay.active, .modal.active')) return true;
+  const selection = window.getSelection?.();
+  if (!selection || selection.isCollapsed || !selection.toString().trim()) return false;
+  const node = selection.anchorNode;
+  const el = node && (node.nodeType === 1 ? node : node.parentElement);
+  return !el?.closest?.('.cell-input');
+}
+
 function isCellClipboardTarget() {
+  if (clipboardBelongsElsewhere()) return false;
   const el = document.activeElement;
   if (!el || el === document.body || !(el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return true;
   if (!el.classList.contains('cell-input')) return false;
@@ -71,7 +83,7 @@ function initNativeClipboard() {
   document.addEventListener('cut', e => handleNativeClipboardEvent(e, true));
   // Вставка поза клітинкою (у клітинках працює її власний обробник paste).
   document.addEventListener('paste', e => {
-    if (e.defaultPrevented) return;
+    if (e.defaultPrevented || clipboardBelongsElsewhere()) return;
     const el = document.activeElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
     const text = e.clipboardData?.getData('text/plain');
