@@ -682,6 +682,19 @@ th.col-header {
   pointer-events: none;
 }
 
+/* Cell format modal */
+.cell-format-modal { text-align: left; max-width: 620px; }
+.cell-format-layout { display: grid; grid-template-columns: 190px 1fr; gap: 16px; margin: 12px 0; }
+.cell-format-categories { display: flex; flex-direction: column; gap: 6px; }
+.cell-format-category-list { width: 100%; }
+.cell-format-options { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.cell-format-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cell-format-row[hidden] { display: none; }
+.cell-format-preview-box { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid #d6dce5; border-radius: 8px; background: #f8fafc; }
+.cell-format-preview { font-size: 1.15rem; font-weight: 700; min-height: 1.5em; overflow-wrap: anywhere; }
+.cell-format-hint { margin: 0; font-size: .85rem; color: #64748b; }
+@media (max-width: 560px) { .cell-format-layout { grid-template-columns: 1fr; } }
+
 /* Conditional formatting modal */
 .cond-modal { text-align: left; max-width: 460px; }
 .cond-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }

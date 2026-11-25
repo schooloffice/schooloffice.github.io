@@ -94,6 +94,7 @@
         <button class="menu-item" data-action="clear-fill"><span><i class="fa-solid fa-droplet-slash fa-fw"></i> Без заливки</span></button>
         <button class="menu-item" data-action="clear-text-color"><span><i class="fa-solid fa-font fa-fw"></i> Стандартний колір тексту</span></button>
         <div class="menu-sep"></div>
+        <button class="menu-item" data-action="cell-format"><span><i class="fa-solid fa-hashtag fa-fw"></i> Формат клітинок…</span><span class="shortcut">Ctrl+1</span></button>
         <button class="menu-item" data-action="cond-format"><span><i class="fa-solid fa-wand-magic-sparkles fa-fw"></i> Умовне форматування…</span></button>
       </div>
     </div>
@@ -196,13 +197,17 @@
 
     <div class="tb-group">
       <select id="numberFormatSelect" class="tb-select" aria-label="Формат числа">
-        <option value="">Звичайний формат</option>
-        <option value="style-num-int">Ціле число</option>
-        <option value="style-num-fixed2">2 знаки після коми</option>
-        <option value="style-num-percent">Відсотки</option>
-        <option value="style-num-currency-uah">Гривні ₴</option>
-        <option value="style-num-date">Дата</option>
-        <option value="style-num-datetime">Дата і час</option>
+        <option value="">Загальний формат</option>
+        <option value="style-nf-num-0">Ціле число</option>
+        <option value="style-nf-num-2-t">2 знаки після коми</option>
+        <option value="style-nf-pct-0">Відсотки</option>
+        <option value="style-nf-cur-2-uah">Гривні ₴</option>
+        <option value="style-nf-date-dmy">Дата</option>
+        <option value="style-nf-date-dmyhm">Дата і час</option>
+        <option value="style-nf-time-hm">Час</option>
+        <option value="style-nf-text">Текстовий</option>
+        <option value="__more">Інші формати…</option>
+        <option value="__custom" hidden>Інший формат</option>
       </select>
     </div>
 
@@ -346,6 +351,80 @@
     </div>
   </div>
 
+  <div id="cellFormatModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cellFormatTitle">
+    <div class="modal-content cell-format-modal">
+      <h3 id="cellFormatTitle" class="modal-title">Формат клітинок</h3>
+      <p class="modal-text">Виділення: <strong id="cellFormatTarget">A1</strong>. Формат змінює лише показ: числа й формули не змінюються.</p>
+      <div class="cell-format-layout">
+        <div class="cell-format-categories">
+          <label class="cond-label" for="cellFormatCategory">Категорія</label>
+          <select id="cellFormatCategory" class="cond-select cell-format-category-list" size="9">
+            <option value="general">Загальний</option>
+            <option value="number">Числовий</option>
+            <option value="currency">Грошовий</option>
+            <option value="percent">Відсотковий</option>
+            <option value="date">Дата</option>
+            <option value="time">Час</option>
+            <option value="fraction">Дробовий</option>
+            <option value="scientific">Експоненційний</option>
+            <option value="text">Текстовий</option>
+          </select>
+        </div>
+        <div class="cell-format-options">
+          <div class="cell-format-preview-box">
+            <span class="cond-label">Зразок</span>
+            <output id="cellFormatPreview" class="cell-format-preview" aria-live="polite"></output>
+            <span id="cellFormatPreviewHint" class="cell-format-hint"></span>
+          </div>
+          <div class="cell-format-row" data-cf-row="decimals">
+            <label class="cond-label" for="cellFormatDecimals">Знаків після коми</label>
+            <input id="cellFormatDecimals" type="number" class="cond-num" min="0" max="10" step="1" value="2">
+          </div>
+          <div class="cell-format-row" data-cf-row="thousands">
+            <input id="cellFormatThousands" type="checkbox">
+            <label for="cellFormatThousands">Розділяти тисячі пропуском</label>
+          </div>
+          <div class="cell-format-row" data-cf-row="currency">
+            <label class="cond-label" for="cellFormatCurrency">Валюта</label>
+            <select id="cellFormatCurrency" class="cond-select">
+              <option value="uah">₴ гривня</option>
+              <option value="usd">$ долар</option>
+              <option value="eur">€ євро</option>
+            </select>
+          </div>
+          <div class="cell-format-row" data-cf-row="date">
+            <label class="cond-label" for="cellFormatDate">Вигляд дати</label>
+            <select id="cellFormatDate" class="cond-select">
+              <option value="dmy">ДД.ММ.РРРР</option>
+              <option value="dmmmy">Д МММ РРРР</option>
+              <option value="dmmmmy">Д мммм РРРР</option>
+              <option value="dmyhm">ДД.ММ.РРРР ГГ:ХХ</option>
+            </select>
+          </div>
+          <div class="cell-format-row" data-cf-row="time">
+            <label class="cond-label" for="cellFormatTime">Вигляд часу</label>
+            <select id="cellFormatTime" class="cond-select">
+              <option value="hm">ГГ:ХХ</option>
+              <option value="hms">ГГ:ХХ:СС</option>
+            </select>
+          </div>
+          <div class="cell-format-row" data-cf-row="fraction">
+            <label class="cond-label" for="cellFormatFraction">Вигляд дробу</label>
+            <select id="cellFormatFraction" class="cond-select">
+              <option value="1">Одна цифра (# ?/?)</option>
+              <option value="2">Дві цифри (# ??/??)</option>
+            </select>
+          </div>
+          <p id="cellFormatNote" class="cell-format-hint"></p>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button data-close-modal="cellFormatModal" class="modal-secondary-btn">Скасувати</button>
+        <button id="cellFormatApply" class="modal-primary-btn">Застосувати</button>
+      </div>
+    </div>
+  </div>
+
   <div id="filterModal" class="modal-overlay">
     <div class="modal-content cond-modal">
       <h3 class="modal-title">Фільтр за стовпцем</h3>
@@ -405,6 +484,7 @@
     <div class="menu-sep" role="separator"></div>
     <button class="menu-item" data-context-action="merge-toggle"><span><i class="fa-solid fa-table-cells-large fa-fw" aria-hidden="true"></i> Об'єднати клітинки</span></button>
     <button class="menu-item" data-context-action="unmerge-cells"><span><i class="fa-solid fa-table-cells fa-fw" aria-hidden="true"></i> Роз'єднати клітинки</span></button>
+    <button class="menu-item" data-context-action="cell-format"><span><i class="fa-solid fa-hashtag fa-fw" aria-hidden="true"></i> Формат клітинок…</span><span class="shortcut">Ctrl+1</span></button>
     <button class="menu-item" data-context-action="sort-asc"><span><i class="fa-solid fa-arrow-down-a-z fa-fw" aria-hidden="true"></i> Сортувати A→Я / 1→9</span></button>
     <button class="menu-item" data-context-action="sort-desc"><span><i class="fa-solid fa-arrow-down-z-a fa-fw" aria-hidden="true"></i> Сортувати Я→A / 9→1</span></button>
   </div>
@@ -420,6 +500,7 @@
   <script src="js/named-ranges.js"></script>
   <script src="js/chart-model.js"></script>
   <script src="js/merge-model.js"></script>
+  <script src="js/number-format.js"></script>
   <script src="js/core.js"></script>
   <script src="js/state.js"></script>
   <script src="js/column-sizing.js"></script>

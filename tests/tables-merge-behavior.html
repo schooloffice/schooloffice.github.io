@@ -165,7 +165,7 @@
         win.URL.createObjectURL = originalCreateObjectURL;
         win.HTMLAnchorElement.prototype.click = originalAnchorClick;
       }
-      check('.arttab saves merged cells in file version 4', saved?.version === 4 && json(saved.sheets[0].merges) === '[[0,1,3,1],[2,2,2,3]]'
+      check('.arttab saves merged cells in file version 5', saved?.version === 5 && json(saved.sheets[0].merges) === '[[0,1,3,1],[2,2,2,3]]'
         && !('B1' in saved.sheets[0].cellData), json(saved?.sheets?.[0]?.merges));
       selectRange('A1', 'A1');
       menuAction('format', 'unmerge-cells');

@@ -264,6 +264,154 @@
       checks.push(['undo removes the PMT formula', pmtUndone === '' && cellText('N3') !== '']);
       checks.push(['redo restores the PMT result', /^-299[.,]7/.test(pmtRedone)]);
 
+      // ---- Формат клітинок: числа, відсотки, дати, дроби, наукові, текст ----
+      const NF = win.TablesNumberFormat;
+      const CFU = win.TablesCellFormatUi;
+      const NB = ' ';
+      const nfShow = (token, value) => NF.format(NF.parseToken(token), value);
+      const serial2026 = win.ymdToSerial(2026, 11, 25);
+      checks.push(['number format module exposed', !!NF && typeof NF.format === 'function' && !!CFU?.openCellFormatDialog]);
+      checks.push(['number format 1234.5 → "1 234,50"', nfShow('style-nf-num-2-t', 1234.5) === `1${NB}234,50`]);
+      checks.push(['number format without thousands keeps digits together', nfShow('style-nf-num-2', 1234.5) === '1234,50' && nfShow('style-nf-num-0', 2.5) === '3']);
+      checks.push(['currency has the symbol after the value', nfShow('style-nf-cur-2-uah', 1234.5) === `1${NB}234,50${NB}₴` && nfShow('style-nf-cur-0-usd', -5) === `-5${NB}$` && nfShow('style-nf-cur-2-eur', 0.5) === `0,50${NB}€`]);
+      checks.push(['percent 0.256 → "25,6 %"', nfShow('style-nf-pct-1', 0.256) === `25,6${NB}%` && nfShow('style-nf-pct-0', 0.07) === `7${NB}%`]);
+      checks.push(['date serial → "25.11.2026"', nfShow('style-nf-date-dmy', serial2026) === '25.11.2026']);
+      checks.push(['date with Ukrainian month names', nfShow('style-nf-date-dmmmy', serial2026) === '25 лис 2026' && nfShow('style-nf-date-dmmmmy', serial2026) === '25 листопада 2026']);
+      checks.push(['time and date-time formats', nfShow('style-nf-time-hm', 0.75) === '18:00' && nfShow('style-nf-time-hms', 0.75 + 30 / 86400) === '18:00:30' && nfShow('style-nf-date-dmyhm', serial2026 + 0.5) === '25.11.2026 12:00']);
+      checks.push(['fraction 1.5 → "1 1/2" and 0.25 → "1/4"', nfShow('style-nf-frac-1', 1.5) === '1 1/2' && nfShow('style-nf-frac-1', 0.25) === '1/4' && nfShow('style-nf-frac-2', 0.333) === '1/3']);
+      checks.push(['scientific 12345 → "1,23E+04"', nfShow('style-nf-sci-2', 12345) === '1,23E+04' && nfShow('style-nf-sci-2', 0.00012) === '1,20E-04']);
+      checks.push(['text format keeps "007" as typed', nfShow('style-nf-text', '007') === '007']);
+      checks.push(['non-numeric text and errors are shown unchanged', nfShow('style-nf-num-2-t', 'привіт') === 'привіт' && nfShow('style-nf-pct-0', '#DIV/0!') === '#DIV/0!']);
+      checks.push(['comma decimal input is understood', nfShow('style-nf-num-2', '12,5') === '12,50']);
+      checks.push(['format token validation', NF.isToken('style-nf-num-2-t') && !NF.isToken('style-nf-num-11') && !NF.isToken('style-nf-num-02') && !NF.isToken('style-nf-cur-2-gbp') && !NF.isToken('style-nf-evil')]);
+
+      const selectCell = id => { fire(doc.querySelector('td[data-id="' + id + '"]'), 'mousedown'); fire(doc, 'mouseup'); };
+      const selectRange = (from, to) => {
+        fire(doc.querySelector('td[data-id="' + from + '"]'), 'mousedown');
+        fire(doc.querySelector('td[data-id="' + to + '"]'), 'mouseenter');
+        fire(doc, 'mouseup');
+      };
+      const shown = id => doc.getElementById('inp_' + id)?.value;
+      // Збережена модель активного аркуша (глобали `let` недоступні через window).
+      const model = () => { const state = win.snapshotState(); return JSON.parse(state.sheets)[state.activeSheet]; };
+      const plain = text => String(text ?? '').replace(/[\s ]/g, ' ');
+      commitCell('P1', '1234.5');
+      commitCell('P2', '0.256');
+      commitCell('P3', String(serial2026));
+      commitCell('P4', '1.5');
+      commitCell('P5', '12345');
+      commitCell('P6', '007');
+      commitCell('P7', '=P1*2');
+      selectCell('P1'); CFU.applyNumberFormatToken('style-nf-num-2-t');
+      selectCell('P2'); CFU.applyNumberFormatToken('style-nf-pct-1');
+      selectCell('P3'); CFU.applyNumberFormatToken('style-nf-date-dmy');
+      selectCell('P4'); CFU.applyNumberFormatToken('style-nf-frac-1');
+      selectCell('P5'); CFU.applyNumberFormatToken('style-nf-sci-2');
+      selectCell('P6'); CFU.applyNumberFormatToken('style-nf-text');
+      await wait(50);
+      checks.push(['grid shows 1234.5 as "1 234,50"', shown('P1') === `1${NB}234,50`]);
+      checks.push(['grid shows 0.256 as "25,6 %"', shown('P2') === `25,6${NB}%`]);
+      checks.push(['grid shows a date serial as "25.11.2026"', shown('P3') === '25.11.2026']);
+      checks.push(['grid shows fraction and scientific formats', shown('P4') === '1 1/2' && shown('P5') === '1,23E+04']);
+      checks.push(['grid keeps leading zeros in the text format', shown('P6') === '007' && model().cellData.P6 === '007' && doc.querySelector('td[data-id="P6"]').classList.contains('cell-type-text')]);
+      checks.push(['formatting does not change stored values', model().cellData.P1 === '1234.5' && model().cellData.P2 === '0.256' && model().cellData.P3 === String(serial2026)]);
+      checks.push(['formula on a formatted cell uses the stored number', shown('P7') === '2469']);
+      selectCell('P7'); CFU.applyNumberFormatToken('style-nf-num-2-t');
+      checks.push(['formula result takes its own cell format', shown('P7') === `2${NB}469,00` && model().cellData.P7 === '=P1*2']);
+      commitCell('P1', '1000');
+      checks.push(['formatted formula recomputes after the source changes', shown('P7') === `2${NB}000,00`]);
+
+      // Один крок історії на все виділення; Ctrl+Z повертає попередній показ.
+      selectRange('P1', 'P2'); CFU.applyNumberFormatToken('style-nf-num-0');
+      checks.push(['format applies to the whole selection', shown('P1') === '1000' && shown('P2') === '0']);
+      win.undo(); await wait(50);
+      checks.push(['one undo reverts the format of the whole selection', shown('P1') === `1${NB}000,00` && shown('P2') === `25,6${NB}%`]);
+      win.redo(); await wait(50);
+      checks.push(['redo restores the selection format', shown('P1') === '1000' && shown('P2') === '0']);
+      selectCell('P2'); CFU.applyNumberFormatToken('');
+      checks.push(['General format shows the stored value', shown('P2') === '0.256' && !(model().cellStyles.P2 || '').includes('style-nf-')]);
+
+      // Діалог «Формат клітинок…»: Формат-меню, контекстне меню, Ctrl+1, зразок і застосування.
+      checks.push(['Format menu and context menu offer the dialog', !!doc.querySelector('.menu-dropdown[data-menu="format"] [data-action="cell-format"]')
+        && !!doc.querySelector('#cellContextMenu [data-context-action="cell-format"]')]);
+      selectRange('P1', 'P2');
+      const cfModal = doc.getElementById('cellFormatModal');
+      win.dispatchUiAction('cell-format');
+      const cfCategory = doc.getElementById('cellFormatCategory');
+      checks.push(['dialog opens with the active cell format', cfModal.classList.contains('active') && cfModal.getAttribute('aria-hidden') === 'false' && cfCategory.value === 'number'
+        && doc.getElementById('cellFormatTarget').textContent === 'P1:P2']);
+      checks.push(['dialog preview uses the active cell value', doc.getElementById('cellFormatPreview').textContent === '1000']);
+      cfCategory.value = 'percent';
+      cfCategory.dispatchEvent(new win.Event('change', { bubbles: true }));
+      doc.getElementById('cellFormatDecimals').value = '2';
+      doc.getElementById('cellFormatDecimals').dispatchEvent(new win.Event('input', { bubbles: true }));
+      checks.push(['dialog preview updates live and shows only relevant options', doc.getElementById('cellFormatPreview').textContent === `100000,00${NB}%`
+        && !doc.querySelector('[data-cf-row="decimals"]').hidden && doc.querySelector('[data-cf-row="currency"]').hidden && doc.querySelector('[data-cf-row="date"]').hidden]);
+      doc.getElementById('cellFormatApply').click();
+      checks.push(['dialog applies the format to the selection and closes', !cfModal.classList.contains('active') && shown('P1') === `100000,00${NB}%` && shown('P2') === `25,60${NB}%`]);
+      win.undo(); await wait(50);
+      checks.push(['dialog change is one undo step', shown('P1') === '1000' && shown('P2') === '0.256']);
+      selectCell('P3');
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: '1', code: 'Digit1', ctrlKey: true, bubbles: true, cancelable: true }));
+      checks.push(['Ctrl+1 opens the dialog on the date category', cfModal.classList.contains('active') && cfCategory.value === 'date'
+        && doc.getElementById('cellFormatPreview').textContent === '25.11.2026']);
+      doc.getElementById('cellFormatDate').value = 'dmmmmy';
+      doc.getElementById('cellFormatDate').dispatchEvent(new win.Event('change', { bubbles: true }));
+      doc.getElementById('cellFormatApply').click();
+      checks.push(['dialog date pattern applies', shown('P3') === '25 листопада 2026']);
+      const numberSelect = doc.getElementById('numberFormatSelect');
+      checks.push(['toolbar select follows the active cell format', numberSelect.value === '__custom']);
+      selectCell('P1');
+      checks.push(['toolbar select shows a preset format', numberSelect.value === 'style-nf-num-0']);
+      numberSelect.value = 'style-nf-cur-2-uah';
+      numberSelect.dispatchEvent(new win.Event('change', { bubbles: true }));
+      checks.push(['toolbar select applies a preset', shown('P1') === `1${NB}000,00${NB}₴`]);
+      numberSelect.value = '__more';
+      numberSelect.dispatchEvent(new win.Event('change', { bubbles: true }));
+      checks.push(['toolbar "Інші формати…" opens the dialog', cfModal.classList.contains('active') && cfCategory.value === 'currency']);
+      win.closeModal('cellFormatModal');
+
+      // Проєкт: збереження .arttab, перевірка схеми й повторне відкриття.
+      const downloads = [];
+      const blobs = new Map();
+      const origCreateUrl = win.URL.createObjectURL;
+      const origAnchorClick = win.HTMLAnchorElement.prototype.click;
+      win.URL.createObjectURL = function (blob) { const url = origCreateUrl.call(win.URL, blob); blobs.set(url, blob); return url; };
+      win.HTMLAnchorElement.prototype.click = function () { if (this.download) { downloads.push({ name: this.download, blob: blobs.get(this.href) }); return undefined; } return origAnchorClick.call(this); };
+      let savedProject = null;
+      try {
+        win.TablesWorkbookFile.exportWorkbook();
+        savedProject = downloads.length ? JSON.parse(await downloads[0].blob.text()) : null;
+      } finally {
+        win.URL.createObjectURL = origCreateUrl;
+        win.HTMLAnchorElement.prototype.click = origAnchorClick;
+      }
+      checks.push(['.arttab stores number formats in file version 5', savedProject?.version === 5 && savedProject.sheets[0].cellStyles.P1.includes('style-nf-cur-2-uah')
+        && savedProject.sheets[0].cellStyles.P4 === 'style-nf-frac-1']);
+      win.TablesWorkbookFile.applyWorkbookPayload(JSON.parse(JSON.stringify(savedProject)));
+      await wait(50);
+      checks.push(['project round-trip keeps formats and values', shown('P1') === `1${NB}000,00${NB}₴` && shown('P4') === '1 1/2' && shown('P6') === '007' && model().cellData.P1 === '1000']);
+      checks.push(['schema rejects invalid number format classes', ['style-nf-num-11', 'style-nf-evil', 'style-nf-cur-2-gbp'].every(cls => validatorRejects({ sheets: [{ name: 'Аркуш1', cellStyles: { A1: cls } }] }))
+        && !validatorRejects({ sheets: [{ name: 'Аркуш1', cellStyles: { A1: 'style-text-bold style-nf-pct-1' } }] })]);
+
+      // Старі проєкти (без форматів і зі старими класами) відкриваються без змін.
+      win.TablesWorkbookFile.applyWorkbookPayload({
+        type: 'art-tables-workbook', version: 3, name: 'Старий', activeSheet: 0,
+        sheets: [{ name: 'Аркуш1', rows: 60, cols: 30, cellData: { A1: '1234.5', B1: '0.25', C1: '12' }, cellStyles: { A1: 'style-num-fixed2', B1: 'style-num-percent', C1: 'style-text-bold' }, colWidths: {}, condRules: [] }]
+      });
+      await wait(50);
+      checks.push(['old project with legacy format classes still displays them', plain(shown('A1')) === '1 234,50' && shown('B1') === '25%' && shown('C1') === '12']);
+      selectCell('A1');
+      checks.push(['legacy format is mapped to the matching toolbar preset', numberSelect.value === 'style-nf-num-2-t']);
+      CFU.applyNumberFormatToken('style-nf-pct-0');
+      checks.push(['changing a legacy format replaces the old class', shown('A1') === `123450${NB}%` && !/style-num-/.test(model().cellStyles.A1)]);
+      win.TablesWorkbookFile.applyWorkbookPayload({
+        type: 'art-tables-workbook', version: 4, name: 'Без форматів', activeSheet: 0,
+        sheets: [{ name: 'Аркуш1', rows: 60, cols: 30, cellData: { A1: '5' }, cellStyles: { A1: 'style-text-bold' }, colWidths: {}, condRules: [] }]
+      });
+      await wait(50);
+      checks.push(['old project without formats opens unchanged', shown('A1') === '5' && model().cellStyles.A1 === 'style-text-bold']);
+
       const failures = checks.filter(([, ok]) => !ok).map(([name]) => name);
       result.className = failures.length ? 'fail' : 'pass';
       result.textContent = checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} ${name}`).join('\n') +

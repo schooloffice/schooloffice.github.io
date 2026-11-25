@@ -26,11 +26,34 @@ function valueToNumberOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-// Будує предикат для критерію COUNTIF/SUMIF/AVERAGEIF.
-// Критерій — число (точна рівність) або рядок: "текст", ">5", "<=10", "<>3"…
+// Шаблон із підстановками Excel: * — будь-яка кількість символів, ? — один символ,
+// ~* ~? ~~ — буквальні символи. Повертає RegExp (без урахування регістру).
+function wildcardToRegExp(pattern, anchored) {
+  let out = '';
+  const src = String(pattern);
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '~' && i + 1 < src.length && '*?~'.includes(src[i + 1])) {
+      out += '\\' + src[i + 1];
+      i++;
+    } else if (ch === '*') out += '[\\s\\S]*';
+    else if (ch === '?') out += '[\\s\\S]';
+    else out += ch.replace(/[.+^${}()|[\]\\\/-]/g, '\\$&');
+  }
+  return new RegExp(anchored ? `^${out}$` : out, 'i');
+}
+
+function hasWildcard(text) {
+  return /[*?]/.test(String(text));
+}
+
+// Будує предикат для критерію COUNTIF/SUMIF/AVERAGEIF і *IFS.
+// Критерій — число (точна рівність) або рядок: "текст", ">5", "<=10", "<>3", "а*", "?б".
+// Для "=" і "<>" працюють підстановки * та ?; порівняння тексту — без урахування регістру.
+// Числові оператори (> < >= <=) ігнорують текстові й порожні клітинки, як у Excel.
 function makeCriteriaPredicate(criteria) {
   if (typeof criteria === 'number') {
-    return v => valueToNumberOrNull(v) === criteria;
+    return v => typeof v !== 'string' && valueToNumberOrNull(v) === criteria;
   }
 
   const s = String(criteria ?? '').trim();
@@ -39,27 +62,35 @@ function makeCriteriaPredicate(criteria) {
   const rhs = m[2];
   const rhsNum = valueToNumberOrNull(rhs);
   const rhsText = String(rhs).toLowerCase();
+  const wildcard = rhsNum === null && (op === '=' || op === '<>') && hasWildcard(rhs)
+    ? wildcardToRegExp(rhs, true) : null;
 
   return (v) => {
     const vn = valueToNumberOrNull(v);
-    if (rhsNum !== null && vn !== null) {
-      switch (op) {
-        case '=': return vn === rhsNum;
-        case '<>': return vn !== rhsNum;
-        case '>': return vn > rhsNum;
-        case '<': return vn < rhsNum;
-        case '>=': return vn >= rhsNum;
-        case '<=': return vn <= rhsNum;
+    if (rhsNum !== null) {
+      if (vn !== null) {
+        switch (op) {
+          case '=': return vn === rhsNum;
+          case '<>': return vn !== rhsNum;
+          case '>': return vn > rhsNum;
+          case '<': return vn < rhsNum;
+          case '>=': return vn >= rhsNum;
+          case '<=': return vn <= rhsNum;
+        }
       }
+      // Число в критерії, а в клітинці текст чи порожньо.
+      return op === '<>';
     }
-    const vs = String(v ?? '').trim().toLowerCase();
+    const vs = String(v ?? '').trim();
+    if (wildcard) return op === '<>' ? !wildcard.test(vs) : wildcard.test(vs);
+    const lower = vs.toLowerCase();
     switch (op) {
-      case '<>': return vs !== rhsText;
-      case '>': return vs > rhsText;
-      case '<': return vs < rhsText;
-      case '>=': return vs >= rhsText;
-      case '<=': return vs <= rhsText;
-      default: return vs === rhsText;
+      case '<>': return lower !== rhsText;
+      case '>': return lower > rhsText;
+      case '<': return lower < rhsText;
+      case '>=': return lower >= rhsText;
+      case '<=': return lower <= rhsText;
+      default: return lower === rhsText;
     }
   };
 }
@@ -262,5 +293,508 @@ const FORMULA_FUNCTIONS = {
     return financeResult(-(rate * (pv * Math.exp(logGrowth) + fv)) / (factor * Math.expm1(logGrowth)));
   }
 };
+
+// ---- Допоміжні функції для пошуку, тексту, дат ----
+function fnError(code) { return formulaError(code); }
+
+function requireArgs(a, min, max) {
+  if (a.length < min || (max !== undefined && a.length > max)) throw fnError(FORMULA_ERRORS.VALUE);
+}
+
+function toText(v) {
+  if (v === null || v === undefined) return '';
+  return String(v);
+}
+
+// Порівняння для пошуку: число з числом, текст з текстом (без урахування регістру).
+// null — типи несумісні (або клітинка порожня), такі клітинки пошук пропускає.
+function lookupCompare(cell, key) {
+  if (typeof key === 'number') {
+    return typeof cell === 'number' ? Math.sign(cell - key) : null;
+  }
+  if (typeof cell !== 'string') return null;
+  const a = cell.toLowerCase();
+  const b = String(key).toLowerCase();
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function lookupEquals(cell, key) {
+  if (typeof key === 'number') return typeof cell === 'number' && cell === key;
+  if (typeof cell !== 'string') return false;
+  if (hasWildcard(key)) return wildcardToRegExp(key, true).test(cell);
+  return cell.toLowerCase() === String(key).toLowerCase();
+}
+
+function lookupKey(ctx, node) {
+  const v = ctx.evalScalar(node);
+  return v === null || v === undefined ? 0 : v;
+}
+
+// Індекс точного збігу або -1.
+function exactIndex(vector, key) {
+  for (let i = 0; i < vector.length; i++) if (lookupEquals(vector[i], key)) return i;
+  return -1;
+}
+
+// Найбільше значення ≤ key у відсортованому за зростанням списку.
+function approxIndexAscending(vector, key) {
+  let best = -1;
+  for (let i = 0; i < vector.length; i++) {
+    const c = lookupCompare(vector[i], key);
+    if (c === null) continue;
+    if (c <= 0) best = i; else break;
+  }
+  return best;
+}
+
+function transpose(matrix) {
+  return matrix[0].map((_, c) => matrix.map(row => row[c]));
+}
+
+// VLOOKUP/HLOOKUP: matrix уже орієнтована так, що шукаємо в першому рядку.
+function lookupInRows(a, ctx, byRow) {
+  requireArgs(a, 3, 4);
+  const key = lookupKey(ctx, a[0]);
+  let table = ctx.matrix(a[1]);
+  if (byRow) table = transpose(table); // HLOOKUP: перший рядок стає першим стовпцем
+  const index = ctx.num(a[2]);
+  const approx = a.length > 3 ? ctx.isTruthy(ctx.evalScalar(a[3])) : true;
+  if (!Number.isFinite(index) || index < 1) throw fnError(FORMULA_ERRORS.VALUE);
+  if (Math.floor(index) > table[0].length) throw fnError(FORMULA_ERRORS.REF);
+  const firstColumn = table.map(row => row[0]);
+  const found = approx ? approxIndexAscending(firstColumn, key) : exactIndex(firstColumn, key);
+  if (found < 0) throw fnError(FORMULA_ERRORS.NA);
+  return table[found][Math.floor(index) - 1];
+}
+
+// Спільна частина COUNTIFS/SUMIFS/AVERAGEIFS/MAXIFS/MINIFS: булевий масив збігів за всіма
+// парами (діапазон; критерій), починаючи з аргументу firstPair.
+function ifsMatches(a, ctx, firstPair) {
+  if (a.length < firstPair + 2 || (a.length - firstPair) % 2 !== 0) throw fnError(FORMULA_ERRORS.VALUE);
+  let matches = null;
+  for (let i = firstPair; i < a.length; i += 2) {
+    const range = ctx.collectValues([a[i]]);
+    const pred = makeCriteriaPredicate(ctx.evalScalar(a[i + 1]));
+    if (matches && matches.length !== range.length) throw fnError(FORMULA_ERRORS.VALUE);
+    if (!matches) matches = range.map(() => true);
+    for (let k = 0; k < range.length; k++) if (matches[k] && !pred(range[k])) matches[k] = false;
+  }
+  return matches;
+}
+
+function ifsNumbers(a, ctx) {
+  const matches = ifsMatches(a, ctx, 1);
+  const values = ctx.collectValues([a[0]]);
+  if (values.length !== matches.length) throw fnError(FORMULA_ERRORS.VALUE);
+  return values.filter((v, i) => matches[i] && isFormulaNumber(v));
+}
+
+// Значення, яке не є помилкою CIRC: IFERROR та ISERROR не маскують цикли.
+function tryEvaluate(node, ctx) {
+  const depth = calcDepth;
+  try {
+    return { value: ctx.evalScalar(node) };
+  } catch (e) {
+    const code = e && e.message;
+    if (!(e && (e.isFormulaError || isFormulaErrorCode(code))) || code === FORMULA_ERRORS.CIRC) throw e;
+    calcDepth = depth;
+    return { error: code };
+  }
+}
+
+// Округлення від нуля / до нуля з поправкою на двійкову похибку (2.3*100 = 229.99999999999997).
+function roundDirected(n, digits, up) {
+  const f = Math.pow(10, Math.trunc(digits));
+  const x = Number((Math.abs(n) * f).toPrecision(15));
+  const r = up ? Math.ceil(x) : Math.floor(x);
+  const out = Math.sign(n) * r / f + 0;
+  if (!Number.isFinite(out)) throw fnError(FORMULA_ERRORS.NUM);
+  return out;
+}
+
+function roundHalfAway(n, decimals) {
+  const sign = n < 0 ? -1 : 1;
+  const x = Number((Math.abs(n) * Math.pow(10, decimals)).toPrecision(15));
+  return sign * Math.round(x) / Math.pow(10, decimals);
+}
+
+function groupThousands(intText) {
+  return intText.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+// Дати: серійний номер або текст ISO (рррр-мм-дд) / дд.мм.рррр.
+function dateValueToSerial(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  if (typeof v === 'number') {
+    if (v < 0) throw fnError(FORMULA_ERRORS.NUM);
+    return Math.floor(v);
+  }
+  const s = String(v).trim();
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+  let y, mo, d;
+  if (m) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+  else if ((m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})/.exec(s))) { d = +m[1]; mo = +m[2]; y = +m[3]; }
+  else {
+    const n = Number(s.replace(',', '.'));
+    if (s !== '' && Number.isFinite(n)) return dateValueToSerial(n);
+    throw fnError(FORMULA_ERRORS.VALUE);
+  }
+  const serial = ymdToSerial(y, mo, d);
+  const check = new Date(DATE_EPOCH_UTC + serial * 86400000);
+  if (check.getUTCMonth() + 1 !== mo || check.getUTCDate() !== d) throw fnError(FORMULA_ERRORS.VALUE);
+  return serial;
+}
+
+function serialParts(serial) {
+  const dt = new Date(DATE_EPOCH_UTC + serial * 86400000);
+  return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate(), dow: dt.getUTCDay() };
+}
+
+// Підтримувані формати TEXT: 0, 0.00, #,##0, #,##0.00, 0%, 0.00%, dd.mm.yyyy, dd.mm.yy, yyyy-mm-dd.
+function formatTextValue(value, format) {
+  const fmt = String(format);
+  const lower = fmt.toLowerCase();
+  const dateFormats = { 'dd.mm.yyyy': 1, 'dd.mm.yy': 1, 'yyyy-mm-dd': 1 };
+  if (dateFormats[lower]) {
+    if (typeof value !== 'number') return toText(value);
+    if (value < 0) throw fnError(FORMULA_ERRORS.VALUE);
+    const p = serialParts(Math.floor(value));
+    const dd = String(p.d).padStart(2, '0');
+    const mm = String(p.m).padStart(2, '0');
+    if (lower === 'dd.mm.yyyy') return `${dd}.${mm}.${p.y}`;
+    if (lower === 'dd.mm.yy') return `${dd}.${mm}.${String(p.y).slice(-2)}`;
+    return `${p.y}-${mm}-${dd}`;
+  }
+  const m = /^(#,##)?0(?:\.(0+))?(%)?$/.exec(fmt);
+  if (!m) throw fnError(FORMULA_ERRORS.VALUE);
+  if (typeof value !== 'number') return toText(value);
+  const decimals = m[2] ? m[2].length : 0;
+  const scaled = m[3] ? value * 100 : value;
+  const rounded = roundHalfAway(scaled, decimals);
+  let text = Math.abs(rounded).toFixed(decimals);
+  if (m[1]) {
+    const [intPart, frac] = text.split('.');
+    text = groupThousands(intPart) + (frac !== undefined ? '.' + frac : '');
+  }
+  const negative = rounded < 0 && Number(text.replace(/,/g, '')) !== 0;
+  return (negative ? '-' : '') + text + (m[3] ? '%' : '');
+}
+
+function flattenTexts(nodes, ctx) {
+  return ctx.collectValues(nodes);
+}
+
+Object.assign(FORMULA_FUNCTIONS, {
+  // ---- Пошук і посилання ----
+  VLOOKUP: (a, ctx) => lookupInRows(a, ctx, false),
+  HLOOKUP: (a, ctx) => lookupInRows(a, ctx, true),
+  MATCH: (a, ctx) => {
+    requireArgs(a, 2, 3);
+    const key = lookupKey(ctx, a[0]);
+    const matrix = ctx.matrix(a[1]);
+    if (matrix.length > 1 && matrix[0].length > 1) throw fnError(FORMULA_ERRORS.NA);
+    const vector = matrix.length === 1 ? matrix[0] : matrix.map(row => row[0]);
+    const type = a.length > 2 ? ctx.num(a[2]) : 1;
+    let found = -1;
+    if (type === 0) found = exactIndex(vector, key);
+    else if (type > 0) found = approxIndexAscending(vector, key);
+    else {
+      for (let i = 0; i < vector.length; i++) {
+        const c = lookupCompare(vector[i], key);
+        if (c === null) continue;
+        if (c >= 0) found = i; else break;
+      }
+    }
+    if (found < 0) throw fnError(FORMULA_ERRORS.NA);
+    return found + 1;
+  },
+  INDEX: (a, ctx) => {
+    requireArgs(a, 2, 3);
+    const matrix = ctx.matrix(a[0]);
+    const rows = matrix.length;
+    const cols = matrix[0].length;
+    let row = Math.trunc(ctx.num(a[1]));
+    let col = a.length > 2 ? Math.trunc(ctx.num(a[2])) : null;
+    if (row < 0 || (col !== null && col < 0)) throw fnError(FORMULA_ERRORS.VALUE);
+    if (col === null) {
+      // Один індекс: у рядку-векторі це номер стовпця, у стовпці — номер рядка.
+      if (rows === 1) { col = row; row = 1; }
+      else if (cols === 1) col = 1;
+      else throw fnError(FORMULA_ERRORS.VALUE); // цілий рядок — масив, не скаляр
+    }
+    if (row === 0 || col === 0) throw fnError(FORMULA_ERRORS.VALUE);
+    if (row > rows || col > cols) throw fnError(FORMULA_ERRORS.REF);
+    return matrix[row - 1][col - 1];
+  },
+
+  // ---- Умовні агрегати ----
+  COUNTIFS: (a, ctx) => ifsMatches(a, ctx, 0).filter(Boolean).length,
+  SUMIFS: (a, ctx) => ifsNumbers(a, ctx).reduce((x, y) => x + y, 0),
+  AVERAGEIFS: (a, ctx) => {
+    const v = ifsNumbers(a, ctx);
+    if (!v.length) throw fnError(FORMULA_ERRORS.DIV0);
+    return v.reduce((x, y) => x + y, 0) / v.length;
+  },
+  MAXIFS: (a, ctx) => { const v = ifsNumbers(a, ctx); return v.length ? Math.max(...v) : 0; },
+  MINIFS: (a, ctx) => { const v = ifsNumbers(a, ctx); return v.length ? Math.min(...v) : 0; },
+
+  // ---- Помилки і логіка ----
+  IFERROR: (a, ctx) => {
+    requireArgs(a, 2, 2);
+    const r = tryEvaluate(a[0], ctx);
+    return 'error' in r ? ctx.evalScalar(a[1]) : r.value;
+  },
+  IFNA: (a, ctx) => {
+    requireArgs(a, 2, 2);
+    const r = tryEvaluate(a[0], ctx);
+    if (r.error === FORMULA_ERRORS.NA) return ctx.evalScalar(a[1]);
+    if ('error' in r) throw fnError(r.error);
+    return r.value;
+  },
+  ISBLANK: (a, ctx) => {
+    requireArgs(a, 1, 1);
+    const r = tryEvaluate(a[0], ctx);
+    return !('error' in r) && (r.value === null || r.value === undefined) ? 1 : 0;
+  },
+  ISNUMBER: (a, ctx) => {
+    requireArgs(a, 1, 1);
+    const r = tryEvaluate(a[0], ctx);
+    return !('error' in r) && isFormulaNumber(r.value) ? 1 : 0;
+  },
+  ISTEXT: (a, ctx) => {
+    requireArgs(a, 1, 1);
+    const r = tryEvaluate(a[0], ctx);
+    return !('error' in r) && typeof r.value === 'string' ? 1 : 0;
+  },
+  ISERROR: (a, ctx) => { requireArgs(a, 1, 1); return 'error' in tryEvaluate(a[0], ctx) ? 1 : 0; },
+  ISNA: (a, ctx) => { requireArgs(a, 1, 1); return tryEvaluate(a[0], ctx).error === FORMULA_ERRORS.NA ? 1 : 0; },
+  NA: () => { throw fnError(FORMULA_ERRORS.NA); },
+  TRUE: () => 1,
+  FALSE: () => 0,
+
+  // ---- Рейтинг і порядкова статистика ----
+  RANK: (a, ctx) => {
+    requireArgs(a, 2, 3);
+    const n = ctx.num(a[0]);
+    const values = numericValues([a[1]], ctx);
+    const ascending = a.length > 2 && ctx.num(a[2]) !== 0;
+    if (!values.includes(n)) throw fnError(FORMULA_ERRORS.NA);
+    return 1 + values.filter(v => (ascending ? v < n : v > n)).length;
+  },
+  LARGE: (a, ctx) => {
+    requireArgs(a, 2, 2);
+    const v = numericValues([a[0]], ctx).sort((x, y) => y - x);
+    const k = Math.ceil(ctx.num(a[1]));
+    if (k < 1 || k > v.length) throw fnError(FORMULA_ERRORS.NUM);
+    return v[k - 1];
+  },
+  SMALL: (a, ctx) => {
+    requireArgs(a, 2, 2);
+    const v = numericValues([a[0]], ctx).sort((x, y) => x - y);
+    const k = Math.ceil(ctx.num(a[1]));
+    if (k < 1 || k > v.length) throw fnError(FORMULA_ERRORS.NUM);
+    return v[k - 1];
+  },
+  COUNTBLANK: (a, ctx) => {
+    requireArgs(a, 1, 1);
+    return ctx.collectValues(a).filter(v => v === null || v === undefined || v === '').length;
+  },
+
+  // ---- Округлення та математика ----
+  ROUNDUP: (a, ctx) => { requireArgs(a, 1, 2); return roundDirected(ctx.num(a[0]), a.length > 1 ? ctx.num(a[1]) : 0, true); },
+  ROUNDDOWN: (a, ctx) => { requireArgs(a, 1, 2); return roundDirected(ctx.num(a[0]), a.length > 1 ? ctx.num(a[1]) : 0, false); },
+  TRUNC: (a, ctx) => { requireArgs(a, 1, 2); return roundDirected(ctx.num(a[0]), a.length > 1 ? ctx.num(a[1]) : 0, false); },
+  SIGN: (a, ctx) => { requireArgs(a, 1, 1); return Math.sign(ctx.num(a[0])) + 0; },
+  PRODUCT: (a, ctx) => {
+    const v = numericValues(a, ctx);
+    return v.length ? v.reduce((x, y) => x * y, 1) : 0;
+  },
+  SUMPRODUCT: (a, ctx) => {
+    requireArgs(a, 1);
+    const matrices = a.map(node => ctx.matrix(node));
+    const rows = matrices[0].length;
+    const cols = matrices[0][0].length;
+    if (matrices.some(m => m.length !== rows || m[0].length !== cols)) throw fnError(FORMULA_ERRORS.VALUE);
+    let sum = 0;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        let product = 1;
+        for (const m of matrices) product *= isFormulaNumber(m[r][c]) ? m[r][c] : 0; // текст рахується як 0
+        sum += product;
+      }
+    }
+    return sum;
+  },
+  RAND: () => Math.random(),
+  RANDBETWEEN: (a, ctx) => {
+    requireArgs(a, 2, 2);
+    const low = Math.ceil(ctx.num(a[0]));
+    const high = Math.floor(ctx.num(a[1]));
+    if (low > high) throw fnError(FORMULA_ERRORS.NUM);
+    return low + Math.floor(Math.random() * (high - low + 1));
+  },
+  PI: () => Math.PI,
+  EXP: (a, ctx) => { requireArgs(a, 1, 1); return Math.exp(ctx.num(a[0])); },
+  LN: (a, ctx) => {
+    requireArgs(a, 1, 1);
+    const v = ctx.num(a[0]);
+    if (v <= 0) throw fnError(FORMULA_ERRORS.NUM);
+    return Math.log(v);
+  },
+  LOG10: (a, ctx) => {
+    requireArgs(a, 1, 1);
+    const v = ctx.num(a[0]);
+    if (v <= 0) throw fnError(FORMULA_ERRORS.NUM);
+    return Math.log10(v);
+  },
+  LOG: (a, ctx) => {
+    requireArgs(a, 1, 2);
+    const v = ctx.num(a[0]);
+    const base = a.length > 1 ? ctx.num(a[1]) : 10;
+    if (v <= 0 || base <= 0) throw fnError(FORMULA_ERRORS.NUM);
+    if (base === 1) throw fnError(FORMULA_ERRORS.DIV0);
+    // Для основи 10 і 2 беремо точні log10/log2, щоб LOG(1000) було рівно 3.
+    if (base === 10) return Math.log10(v);
+    if (base === 2) return Math.log2(v);
+    return Math.log(v) / Math.log(base);
+  },
+
+  // ---- Текст ----
+  LEN: (a, ctx) => { requireArgs(a, 1, 1); return toText(ctx.evalScalar(a[0])).length; },
+  LEFT: (a, ctx) => {
+    requireArgs(a, 1, 2);
+    const n = a.length > 1 ? Math.trunc(ctx.num(a[1])) : 1;
+    if (n < 0) throw fnError(FORMULA_ERRORS.VALUE);
+    return toText(ctx.evalScalar(a[0])).slice(0, n);
+  },
+  RIGHT: (a, ctx) => {
+    requireArgs(a, 1, 2);
+    const n = a.length > 1 ? Math.trunc(ctx.num(a[1])) : 1;
+    if (n < 0) throw fnError(FORMULA_ERRORS.VALUE);
+    const s = toText(ctx.evalScalar(a[0]));
+    return n === 0 ? '' : s.slice(Math.max(0, s.length - n));
+  },
+  MID: (a, ctx) => {
+    requireArgs(a, 3, 3);
+    const s = toText(ctx.evalScalar(a[0]));
+    const start = Math.trunc(ctx.num(a[1]));
+    const n = Math.trunc(ctx.num(a[2]));
+    if (start < 1 || n < 0) throw fnError(FORMULA_ERRORS.VALUE);
+    return s.substr(start - 1, n);
+  },
+  CONCAT: (a, ctx) => { requireArgs(a, 1); return flattenTexts(a, ctx).map(toText).join(''); },
+  CONCATENATE: (a, ctx) => { requireArgs(a, 1); return a.map(node => toText(ctx.evalScalar(node))).join(''); },
+  TEXTJOIN: (a, ctx) => {
+    requireArgs(a, 3);
+    const delimiter = toText(ctx.evalScalar(a[0]));
+    const ignoreEmpty = ctx.isTruthy(ctx.evalScalar(a[1]));
+    let parts = flattenTexts(a.slice(2), ctx).map(toText);
+    if (ignoreEmpty) parts = parts.filter(p => p !== '');
+    return parts.join(delimiter);
+  },
+  UPPER: (a, ctx) => { requireArgs(a, 1, 1); return toText(ctx.evalScalar(a[0])).toUpperCase(); },
+  LOWER: (a, ctx) => { requireArgs(a, 1, 1); return toText(ctx.evalScalar(a[0])).toLowerCase(); },
+  PROPER: (a, ctx) => {
+    requireArgs(a, 1, 1);
+    return toText(ctx.evalScalar(a[0])).replace(/\p{L}+/gu, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+  },
+  TRIM: (a, ctx) => {
+    requireArgs(a, 1, 1);
+    return toText(ctx.evalScalar(a[0])).replace(/ +/g, ' ').replace(/^ | $/g, '');
+  },
+  SUBSTITUTE: (a, ctx) => {
+    requireArgs(a, 3, 4);
+    const text = toText(ctx.evalScalar(a[0]));
+    const oldText = toText(ctx.evalScalar(a[1]));
+    const newText = toText(ctx.evalScalar(a[2]));
+    const instance = a.length > 3 ? Math.trunc(ctx.num(a[3])) : 0;
+    if (a.length > 3 && instance < 1) throw fnError(FORMULA_ERRORS.VALUE);
+    if (oldText === '') return text;
+    if (!instance) return text.split(oldText).join(newText);
+    let from = -1;
+    for (let i = 0; i < instance; i++) {
+      from = text.indexOf(oldText, from + 1);
+      if (from < 0) return text;
+    }
+    return text.slice(0, from) + newText + text.slice(from + oldText.length);
+  },
+  REPLACE: (a, ctx) => {
+    requireArgs(a, 4, 4);
+    const text = toText(ctx.evalScalar(a[0]));
+    const start = Math.trunc(ctx.num(a[1]));
+    const n = Math.trunc(ctx.num(a[2]));
+    const insert = toText(ctx.evalScalar(a[3]));
+    if (start < 1 || n < 0) throw fnError(FORMULA_ERRORS.VALUE);
+    return text.slice(0, start - 1) + insert + text.slice(start - 1 + n);
+  },
+  FIND: (a, ctx) => {
+    requireArgs(a, 2, 3);
+    const find = toText(ctx.evalScalar(a[0]));
+    const within = toText(ctx.evalScalar(a[1]));
+    const start = a.length > 2 ? Math.trunc(ctx.num(a[2])) : 1;
+    if (start < 1 || start > within.length + (find === '' ? 1 : 0)) throw fnError(FORMULA_ERRORS.VALUE);
+    const at = within.indexOf(find, start - 1);
+    if (at < 0) throw fnError(FORMULA_ERRORS.VALUE);
+    return at + 1;
+  },
+  SEARCH: (a, ctx) => {
+    requireArgs(a, 2, 3);
+    const find = toText(ctx.evalScalar(a[0]));
+    const within = toText(ctx.evalScalar(a[1]));
+    const start = a.length > 2 ? Math.trunc(ctx.num(a[2])) : 1;
+    if (start < 1 || start > within.length + (find === '' ? 1 : 0)) throw fnError(FORMULA_ERRORS.VALUE);
+    const m = wildcardToRegExp(find, false).exec(within.slice(start - 1));
+    if (!m) throw fnError(FORMULA_ERRORS.VALUE);
+    return m.index + start;
+  },
+  REPT: (a, ctx) => {
+    requireArgs(a, 2, 2);
+    const s = toText(ctx.evalScalar(a[0]));
+    const n = Math.trunc(ctx.num(a[1]));
+    if (n < 0 || s.length * n > 32767) throw fnError(FORMULA_ERRORS.VALUE);
+    return s.repeat(n);
+  },
+  EXACT: (a, ctx) => {
+    requireArgs(a, 2, 2);
+    return toText(ctx.evalScalar(a[0])) === toText(ctx.evalScalar(a[1])) ? 1 : 0;
+  },
+  TEXT: (a, ctx) => {
+    requireArgs(a, 2, 2);
+    return formatTextValue(ctx.evalScalar(a[0]), toText(ctx.evalScalar(a[1])));
+  },
+
+  // ---- Дата ----
+  YEAR: (a, ctx) => { requireArgs(a, 1, 1); return serialParts(dateValueToSerial(ctx.evalScalar(a[0]))).y; },
+  MONTH: (a, ctx) => { requireArgs(a, 1, 1); return serialParts(dateValueToSerial(ctx.evalScalar(a[0]))).m; },
+  DAY: (a, ctx) => { requireArgs(a, 1, 1); return serialParts(dateValueToSerial(ctx.evalScalar(a[0]))).d; },
+  WEEKDAY: (a, ctx) => {
+    requireArgs(a, 1, 2);
+    const dow = serialParts(dateValueToSerial(ctx.evalScalar(a[0]))).dow; // 0 = неділя
+    const type = a.length > 1 ? ctx.num(a[1]) : 1;
+    if (type === 1) return dow + 1;
+    if (type === 2) return (dow + 6) % 7 + 1;
+    if (type === 3) return (dow + 6) % 7;
+    throw fnError(FORMULA_ERRORS.NUM);
+  },
+  DATEDIF: (a, ctx) => {
+    requireArgs(a, 3, 3);
+    const start = dateValueToSerial(ctx.evalScalar(a[0]));
+    const end = dateValueToSerial(ctx.evalScalar(a[1]));
+    const unit = toText(ctx.evalScalar(a[2])).toLowerCase();
+    if (start > end) throw fnError(FORMULA_ERRORS.NUM);
+    const s = serialParts(start);
+    const e = serialParts(end);
+    const months = (e.y - s.y) * 12 + e.m - s.m - (e.d < s.d ? 1 : 0);
+    switch (unit) {
+      case 'd': return end - start;
+      case 'm': return months;
+      case 'y': return Math.floor(months / 12);
+      case 'ym': return months % 12;
+      default: throw fnError(FORMULA_ERRORS.NUM);
+    }
+  }
+});
+
+FORMULA_FUNCTIONS['RANK.EQ'] = FORMULA_FUNCTIONS.RANK;
 
 window.TablesFormulaFunctions = { FORMULA_FUNCTIONS, isFormulaNumber };

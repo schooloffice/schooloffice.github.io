@@ -59,7 +59,7 @@ function validateCellStyles(value, rows, cols) {
     const id = validateCellKey(key, rows, cols, 'Стилі клітинок');
     if (typeof src[key] !== 'string') throw new Error(`Стиль ${id}: очікувався текст`);
     const classes = src[key].split(/\s+/).filter(Boolean);
-    if (classes.some(cls => !ALLOWED_STYLE_CLASSES.has(cls))) throw new Error(`Стиль ${id}: недопустимий клас`);
+    if (classes.some(cls => !ALLOWED_STYLE_CLASSES.has(cls) && !window.TablesNumberFormat?.isToken(cls))) throw new Error(`Стиль ${id}: недопустимий клас`);
     if (classes.length) out[id] = [...new Set(classes)].join(' ');
   }
   return out;
@@ -120,8 +120,8 @@ function validateWorkbookSheet(value, usedNames, index) {
 function validateWorkbookPayload(payload) {
   workbookObject(payload, 'Файл');
   if (payload.type && payload.type !== 'art-tables-workbook') throw new Error('Це не файл ПЛЮС Таблиць');
-  // Версія 3 додала іменовані діапазони, 4 — діаграми та об'єднані клітинки; старші файли відкриваються без них.
-  if (payload.version != null && ![1, 2, 3, 4].includes(Number(payload.version))) throw new Error('Непідтримувана версія файлу');
+  // Версія 3 додала іменовані діапазони, 4 — діаграми та об'єднані клітинки, 5 — формати чисел (клас style-nf-… у cellStyles); старші файли відкриваються без них.
+  if (payload.version != null && ![1, 2, 3, 4, 5].includes(Number(payload.version))) throw new Error('Непідтримувана версія файлу');
 
   const usedNames = new Set();
   let validatedSheets;
@@ -157,7 +157,7 @@ function exportWorkbook() {
   syncActiveSheetFromGlobals();
   const payload = {
     type: 'art-tables-workbook',
-    version: 4,
+    version: 5,
     name: workbookName,
     activeSheet,
     sheets,

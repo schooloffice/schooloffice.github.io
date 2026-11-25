@@ -33,6 +33,7 @@
   <script src="../tables/js/grid.js"></script>
   <script src="../tables/js/clipboard.js"></script>
   <script src="../tables/js/cell-format-ui.js"></script>
+  <script src="../tables/js/xlsx-file.js"></script>
   <script>
     const result = document.getElementById('result');
 
@@ -55,7 +56,7 @@
       throw new Error(`${name}: expected throw ${expectedMessage}, but nothing was thrown`);
     }
 
-    try {
+    (async () => { try {
       localStorage.clear();
       setGridSize(20, 10);
       selStart = { c: 0, r: 1 };
@@ -385,6 +386,258 @@
       checks.push(assertEqual('XLSX cache resolves names from the exported workbook', evaluateFormulaForExport('SUM(Разом)', exportSheets, 0, [{ name: 'Разом', sheet: 'Дані', range: [0, 1, 0, 2] }]).value, 10));
       workbookNames = [];
 
+      // ---- Нові функції (семантика Microsoft Excel) ----
+      {
+        const savedCellData = cellData;
+        cellData = {
+          A1: 'яблуко', B1: '10', C1: 'a',
+          A2: 'груша', B2: '20', C2: 'b',
+          A3: 'слива', B3: '30', C3: 'a',
+          A4: 'ананас', B4: '20', C4: 'b',
+          E1: '1', F1: 'один', E2: '3', F2: 'три', E3: '5', F3: 'п’ять', E4: '7', F4: 'сім',
+          H1: '9', H2: '7', H3: '5', H4: '1',
+          A6: '1', B6: '2', C6: '3', D6: '4', A7: 'a', B7: 'b', C7: 'c', D7: 'd',
+          J1: '=1/0'
+        };
+        const F = formula => { try { return evaluateFormula(formula); } catch (e) { return e.message; } };
+        const eq = (name, formula, expected) => checks.push(assertEqual(name, F(formula), expected));
+        const close = (name, formula, expected) => checks.push(assertClose(name, F(formula), expected));
+
+        // Пошук
+        eq('VLOOKUP exact', 'VLOOKUP("груша",A1:B4,2,FALSE)', 20);
+        eq('VLOOKUP exact with 0 is case-insensitive', 'VLOOKUP("Груша",A1:B4,2,0)', 20);
+        eq('VLOOKUP exact not found is #N/A', 'VLOOKUP("кавун",A1:B4,2,FALSE)', '#N/A');
+        eq('VLOOKUP exact does not approximate', 'VLOOKUP(4,E1:F4,2,FALSE)', '#N/A');
+        eq('VLOOKUP exact hit', 'VLOOKUP(3,E1:F4,2,FALSE)', 'три');
+        eq('VLOOKUP approximate (omitted) takes the largest <= key', 'VLOOKUP(4,E1:F4,2)', 'три');
+        eq('VLOOKUP approximate TRUE past the end', 'VLOOKUP(100,E1:F4,2,TRUE)', 'сім');
+        eq('VLOOKUP approximate below the first is #N/A', 'VLOOKUP(0,E1:F4,2)', '#N/A');
+        eq('VLOOKUP column beyond the table is #REF!', 'VLOOKUP(5,E1:F4,3)', '#REF!');
+        eq('VLOOKUP column 0 is #VALUE!', 'VLOOKUP(5,E1:F4,0)', '#VALUE!');
+        eq('VLOOKUP exact supports wildcards', 'VLOOKUP("сл*",A1:B4,2,0)', 30);
+        eq('HLOOKUP exact', 'HLOOKUP(3,A6:D7,2,FALSE)', 'c');
+        eq('HLOOKUP approximate', 'HLOOKUP(2.5,A6:D7,2)', 'b');
+        eq('HLOOKUP not found is #N/A', 'HLOOKUP(9,A6:D7,2,FALSE)', '#N/A');
+        eq('MATCH exact', 'MATCH(20,B1:B4,0)', 2);
+        eq('MATCH exact text wildcard', 'MATCH("сл*",A1:A4,0)', 3);
+        eq('MATCH exact not found is #N/A', 'MATCH(4,E1:E4,0)', '#N/A');
+        eq('MATCH 1 (default) finds the largest <= key', 'MATCH(4,E1:E4)', 2);
+        eq('MATCH -1 finds the smallest >= key in descending data', 'MATCH(6,H1:H4,-1)', 2);
+        eq('MATCH -1 with key above every value is #N/A', 'MATCH(10,H1:H4,-1)', '#N/A');
+        eq('MATCH on a row', 'MATCH(3,A6:D6,0)', 3);
+        eq('INDEX of a table', 'INDEX(A1:B4,2,2)', 20);
+        eq('INDEX of a column with one index', 'INDEX(B1:B4,3)', 30);
+        eq('INDEX of a row with one index', 'INDEX(A6:D6,3)', 3);
+        eq('INDEX outside the range is #REF!', 'INDEX(A1:B4,5,1)', '#REF!');
+        eq('INDEX with row 0 returns an array, #VALUE! as a scalar', 'INDEX(A1:B4,0,1)', '#VALUE!');
+        eq('INDEX+MATCH', 'INDEX(B1:B4,MATCH("слива",A1:A4,0))', 30);
+
+        // Умовні агрегати та критерії
+        eq('COUNTIFS two criteria', 'COUNTIFS(C1:C4,"a",B1:B4,">5")', 2);
+        eq('COUNTIFS narrows with the second criterion', 'COUNTIFS(C1:C4,"a",B1:B4,">25")', 1);
+        eq('COUNTIFS same range twice', 'COUNTIFS(B1:B4,">=20",B1:B4,"<30")', 2);
+        eq('COUNTIFS ranges of different size is #VALUE!', 'COUNTIFS(C1:C3,"a",B1:B4,">5")', '#VALUE!');
+        eq('COUNTIFS unpaired argument is #VALUE!', 'COUNTIFS(C1:C4)', '#VALUE!');
+        eq('SUMIFS', 'SUMIFS(B1:B4,C1:C4,"a")', 40);
+        eq('SUMIFS with two criteria', 'SUMIFS(B1:B4,C1:C4,"b",B1:B4,">20")', 0);
+        eq('AVERAGEIFS', 'AVERAGEIFS(B1:B4,C1:C4,"b")', 20);
+        eq('AVERAGEIFS without matches is #DIV/0!', 'AVERAGEIFS(B1:B4,C1:C4,"z")', '#DIV/0!');
+        eq('MAXIFS', 'MAXIFS(B1:B4,C1:C4,"a")', 30);
+        eq('MINIFS', 'MINIFS(B1:B4,C1:C4,"b")', 20);
+        eq('MAXIFS without matches is 0', 'MAXIFS(B1:B4,C1:C4,"z")', 0);
+        eq('COUNTIF wildcard *', 'COUNTIF(A1:A4,"а*")', 1);
+        eq('COUNTIF wildcard ?', 'COUNTIF(A1:A4,"?руша")', 1);
+        eq('COUNTIF <> text', 'COUNTIF(A1:A4,"<>груша")', 3);
+        eq('COUNTIF <> with wildcard', 'COUNTIF(A1:A4,"<>*а")', 2);
+        eq('COUNTIF numeric operator ignores text cells', 'COUNTIF(A1:A4,">5")', 0);
+        eq('COUNTIF = matches blank cells', 'COUNTIF(B4:B5,"=")', 1);
+        eq('COUNTIF <> matches non-blank cells', 'COUNTIF(B4:B5,"<>")', 1);
+        eq('SUMIF with wildcard criterion', 'SUMIF(A1:A4,"*а",B1:B4)', 50);
+
+        // Помилки та перевірки
+        eq('IFERROR catches #DIV/0!', 'IFERROR(1/0,"x")', 'x');
+        eq('IFERROR passes a good value', 'IFERROR(5,"x")', 5);
+        eq('IFERROR catches #N/A from VLOOKUP', 'IFERROR(VLOOKUP("кавун",A1:B4,2,0),"немає")', 'немає');
+        eq('IFERROR catches an error stored in a cell', 'IFERROR(J1,7)', 7);
+        eq('IFERROR is lazy about the fallback', 'IFERROR(3,1/0)', 3);
+        eq('IFNA catches #N/A', 'IFNA(VLOOKUP("кавун",A1:B4,2,0),0)', 0);
+        eq('IFNA lets #DIV/0! through', 'IFNA(1/0,0)', '#DIV/0!');
+        eq('IFNA passes a good value', 'IFNA(NA(),5)', 5);
+        eq('ISBLANK blank', 'ISBLANK(J9)', 1);
+        eq('ISBLANK filled', 'ISBLANK(B1)', 0);
+        eq('ISNUMBER number', 'ISNUMBER(B1)', 1);
+        eq('ISNUMBER text', 'ISNUMBER(A1)', 0);
+        eq('ISTEXT text', 'ISTEXT(A1)', 1);
+        eq('ISTEXT number', 'ISTEXT(B1)', 0);
+        eq('ISERROR error', 'ISERROR(1/0)', 1);
+        eq('ISERROR error in cell', 'ISERROR(J1)', 1);
+        eq('ISERROR #N/A', 'ISERROR(NA())', 1);
+        eq('ISERROR value', 'ISERROR(B1)', 0);
+        eq('TRUE/FALSE literals', 'IF(TRUE,1,2)+IF(FALSE,10,20)', 21);
+
+        // Рейтинг
+        eq('RANK descending (default)', 'RANK(30,B1:B4)', 1);
+        eq('RANK ties share the rank', 'RANK(20,B1:B4)', 2);
+        eq('RANK after ties skips ranks', 'RANK(10,B1:B4)', 4);
+        eq('RANK ascending', 'RANK(10,B1:B4,1)', 1);
+        eq('RANK ascending with ties', 'RANK(20,B1:B4,1)', 2);
+        eq('RANK of a missing number is #N/A', 'RANK(99,B1:B4)', '#N/A');
+        eq('RANK.EQ alias', 'RANK.EQ(20,B1:B4)', 2);
+        eq('LARGE 1', 'LARGE(B1:B4,1)', 30);
+        eq('LARGE counts duplicates', 'LARGE(B1:B4,3)', 20);
+        eq('LARGE k beyond the data is #NUM!', 'LARGE(B1:B4,5)', '#NUM!');
+        eq('SMALL 1', 'SMALL(B1:B4,1)', 10);
+        eq('SMALL k = 0 is #NUM!', 'SMALL(B1:B4,0)', '#NUM!');
+        eq('COUNTBLANK', 'COUNTBLANK(B1:C5)', 2);
+
+        // Округлення та математика
+        eq('ROUNDUP', 'ROUNDUP(2.341,2)', 2.35);
+        eq('ROUNDUP negative goes away from zero', 'ROUNDUP(-2.341,2)', -2.35);
+        eq('ROUNDUP whole', 'ROUNDUP(2.3,0)', 3);
+        eq('ROUNDUP negative digits', 'ROUNDUP(1234,-2)', 1300);
+        eq('ROUNDUP ignores binary noise', 'ROUNDUP(2.3*100/100,1)', 2.3);
+        eq('ROUNDDOWN', 'ROUNDDOWN(2.399,2)', 2.39);
+        eq('ROUNDDOWN negative goes toward zero', 'ROUNDDOWN(-2.9,0)', -2);
+        eq('ROUNDDOWN negative digits', 'ROUNDDOWN(1299,-2)', 1200);
+        eq('ROUNDDOWN of tiny negative is 0, not -0', 'ROUNDDOWN(-0.1,0)', 0);
+        eq('TRUNC', 'TRUNC(8.9)', 8);
+        eq('TRUNC negative', 'TRUNC(-8.9)', -8);
+        eq('TRUNC digits', 'TRUNC(3.14159,3)', 3.141);
+        eq('SIGN negative', 'SIGN(-5)', -1);
+        eq('SIGN zero', 'SIGN(0)', 0);
+        eq('SIGN positive', 'SIGN(7)', 1);
+        eq('PRODUCT', 'PRODUCT(B1:B2,2)', 400);
+        eq('SUMPRODUCT', 'SUMPRODUCT(B1:B4,B1:B4)', 1800);
+        eq('SUMPRODUCT single array is a sum', 'SUMPRODUCT(B1:B4)', 80);
+        eq('SUMPRODUCT of different sizes is #VALUE!', 'SUMPRODUCT(B1:B4,B1:B3)', '#VALUE!');
+        eq('SUMPRODUCT treats text as 0', 'SUMPRODUCT(B1:B4,A1:A4)', 0);
+        eq('RANDBETWEEN with equal bounds', 'RANDBETWEEN(5,5)', 5);
+        eq('RANDBETWEEN with bottom > top is #NUM!', 'RANDBETWEEN(6,1)', '#NUM!');
+        {
+          const draws = Array.from({ length: 200 }, () => F('RAND()'));
+          checks.push(assertEqual('RAND stays in [0,1)', draws.every(v => typeof v === 'number' && v >= 0 && v < 1), true));
+          checks.push(assertEqual('RAND is recalculated on every evaluation', new Set(draws).size > 150, true));
+          const dice = Array.from({ length: 300 }, () => F('RANDBETWEEN(1,6)'));
+          checks.push(assertEqual('RANDBETWEEN gives integers inside the bounds', dice.every(v => Number.isInteger(v) && v >= 1 && v <= 6), true));
+          checks.push(assertEqual('RANDBETWEEN reaches both bounds', dice.includes(1) && dice.includes(6), true));
+        }
+        close('PI', 'PI()', Math.PI);
+        eq('EXP(0)', 'EXP(0)', 1);
+        close('EXP(1)', 'EXP(1)', Math.E);
+        eq('LN(1)', 'LN(1)', 0);
+        close('LN(e)', 'LN(EXP(1))', 1);
+        eq('LN(0) is #NUM!', 'LN(0)', '#NUM!');
+        eq('LOG default base 10', 'LOG(1000)', 3);
+        eq('LOG base 2', 'LOG(8,2)', 3);
+        close('LOG base 3', 'LOG(27,3)', 3);
+        eq('LOG(-1) is #NUM!', 'LOG(-1)', '#NUM!');
+        eq('LOG with base 1 is #DIV/0!', 'LOG(10,1)', '#DIV/0!');
+        eq('LOG10', 'LOG10(100)', 2);
+
+        // Текст
+        eq('LEN', 'LEN("привіт")', 6);
+        eq('LEN of a number', 'LEN(B1)', 2);
+        eq('LEFT', 'LEFT("привіт",3)', 'при');
+        eq('LEFT default is one character', 'LEFT("abc")', 'a');
+        eq('LEFT with num > length returns everything', 'LEFT("abc",10)', 'abc');
+        eq('LEFT with negative num is #VALUE!', 'LEFT("abc",-1)', '#VALUE!');
+        eq('RIGHT', 'RIGHT("привіт",2)', 'іт');
+        eq('RIGHT with num > length returns everything', 'RIGHT("ab",5)', 'ab');
+        eq('RIGHT with 0 is empty', 'RIGHT("ab",0)', '');
+        eq('MID', 'MID("привіт",2,3)', 'рив');
+        eq('MID start past the end is empty', 'MID("abc",5,2)', '');
+        eq('MID length past the end is clipped', 'MID("abc",2,100)', 'bc');
+        eq('MID start 0 is #VALUE!', 'MID("abc",0,1)', '#VALUE!');
+        eq('CONCAT mixes cells and text', 'CONCAT(A1,"-",B1)', 'яблуко-10');
+        eq('CONCAT of a range', 'CONCAT(C1:C3)', 'aba');
+        eq('CONCATENATE', 'CONCATENATE("a",1,"b")', 'a1b');
+        eq('TEXTJOIN of a range', 'TEXTJOIN(", ",TRUE,C1:C3)', 'a, b, a');
+        eq('TEXTJOIN ignores empty strings', 'TEXTJOIN("-",TRUE,"a","","b")', 'a-b');
+        eq('TEXTJOIN keeps empty strings when asked', 'TEXTJOIN("-",FALSE,"a","","b")', 'a--b');
+        eq('TEXTJOIN ignores blank cells', 'TEXTJOIN("+",1,B4:B5)', '20');
+        eq('UPPER', 'UPPER("abc я")', 'ABC Я');
+        eq('LOWER', 'LOWER("ABC Я")', 'abc я');
+        eq('PROPER', 'PROPER("hello wORLD-ok")', 'Hello World-Ok');
+        eq('PROPER Cyrillic', 'PROPER("іван петренко")', 'Іван Петренко');
+        eq('TRIM collapses inner spaces', 'TRIM("  a   b  ")', 'a b');
+        eq('SUBSTITUTE all', 'SUBSTITUTE("a-b-c","-","+")', 'a+b+c');
+        eq('SUBSTITUTE nth', 'SUBSTITUTE("a-b-c","-","+",2)', 'a-b+c');
+        eq('SUBSTITUTE is case-sensitive', 'SUBSTITUTE("Abc","a","x")', 'Abc');
+        eq('SUBSTITUTE nth beyond the count keeps the text', 'SUBSTITUTE("a-b","-","+",3)', 'a-b');
+        eq('REPLACE', 'REPLACE("abcdef",2,3,"X")', 'aXef');
+        eq('REPLACE past the end appends', 'REPLACE("abc",5,1,"X")', 'abcX');
+        eq('FIND', 'FIND("b","abcb")', 2);
+        eq('FIND with start', 'FIND("b","abcb",3)', 4);
+        eq('FIND is case-sensitive', 'FIND("B","abc")', '#VALUE!');
+        eq('SEARCH is case-insensitive', 'SEARCH("B","abc")', 2);
+        eq('SEARCH wildcards', 'SEARCH("b?d","abcd")', 2);
+        eq('SEARCH not found is #VALUE!', 'SEARCH("z","abc")', '#VALUE!');
+        eq('REPT', 'REPT("ab",3)', 'ababab');
+        eq('REPT negative is #VALUE!', 'REPT("a",-1)', '#VALUE!');
+        eq('EXACT differs by case', 'EXACT("a","A")', 0);
+        eq('EXACT equal', 'EXACT("a","a")', 1);
+        eq('TEXT 0.00', 'TEXT(5,"0.00")', '5.00');
+        eq('TEXT rounds half away from zero', 'TEXT(2.5,"0")', '3');
+        eq('TEXT negative rounds half away from zero', 'TEXT(-2.5,"0")', '-3');
+        eq('TEXT #,##0', 'TEXT(1234567.891,"#,##0")', '1,234,568');
+        eq('TEXT #,##0.00', 'TEXT(1234.5,"#,##0.00")', '1,234.50');
+        eq('TEXT percent', 'TEXT(0.256,"0%")', '26%');
+        eq('TEXT percent with decimals', 'TEXT(0.256,"0.0%")', '25.6%');
+        eq('TEXT date', 'TEXT(DATE(2024,3,5),"dd.mm.yyyy")', '05.03.2024');
+        eq('TEXT leaves text unchanged for number formats', 'TEXT("abc","0.00")', 'abc');
+        eq('TEXT unsupported format is #VALUE!', 'TEXT(1,"abc")', '#VALUE!');
+
+        // Дата
+        eq('YEAR', 'YEAR(DATE(2024,3,5))', 2024);
+        eq('MONTH', 'MONTH(DATE(2024,3,5))', 3);
+        eq('DAY', 'DAY(DATE(2024,3,5))', 5);
+        eq('YEAR of an ISO text date', 'YEAR("2023-09-01")', 2023);
+        eq('MONTH of a dd.mm.yyyy text date', 'MONTH("15.11.2022")', 11);
+        eq('YEAR of text is #VALUE!', 'YEAR("не дата")', '#VALUE!');
+        eq('YEAR of a negative serial is #NUM!', 'YEAR(-1)', '#NUM!');
+        eq('WEEKDAY default (Tuesday)', 'WEEKDAY(DATE(2024,3,5))', 3);
+        eq('WEEKDAY Sunday default', 'WEEKDAY(DATE(2024,3,3))', 1);
+        eq('WEEKDAY type 2 Monday-first', 'WEEKDAY(DATE(2024,3,3),2)', 7);
+        eq('WEEKDAY type 3 zero-based', 'WEEKDAY(DATE(2024,3,3),3)', 6);
+        eq('WEEKDAY unknown type is #NUM!', 'WEEKDAY(DATE(2024,3,3),9)', '#NUM!');
+        eq('DATEDIF y', 'DATEDIF(DATE(2020,1,15),DATE(2024,3,10),"y")', 4);
+        eq('DATEDIF m', 'DATEDIF(DATE(2020,1,15),DATE(2024,3,10),"m")', 49);
+        eq('DATEDIF d', 'DATEDIF(DATE(2020,1,15),DATE(2024,3,10),"d")', 1516);
+        eq('DATEDIF ym', 'DATEDIF(DATE(2020,1,15),DATE(2024,3,10),"ym")', 1);
+        eq('DATEDIF y on the exact anniversary', 'DATEDIF(DATE(2020,3,10),DATE(2024,3,10),"y")', 4);
+        eq('DATEDIF y one day before the anniversary', 'DATEDIF(DATE(2020,3,10),DATE(2024,3,9),"y")', 3);
+        eq('DATEDIF m end of month', 'DATEDIF(DATE(2024,1,31),DATE(2024,2,29),"m")', 0);
+        eq('DATEDIF start after end is #NUM!', 'DATEDIF(DATE(2024,3,10),DATE(2020,1,15),"d")', '#NUM!');
+        eq('DATEDIF unknown unit is #NUM!', 'DATEDIF(DATE(2020,1,15),DATE(2024,3,10),"x")', '#NUM!');
+
+        // XLSX: префікс _xlfn. для нових функцій і round-trip формул
+        const xlsxApi = window.TablesXlsxFile;
+        const fileFormulas = {
+          A1: '=IFNA(VLOOKUP(5,E1:F4,2,FALSE),"IFNA(x)")',
+          A2: '=TEXTJOIN(", ",TRUE,C1:C3)',
+          A3: '=RANK.EQ(B1,B1:B4)+COUNTIFS(C1:C4,"a")',
+          A4: '=SUMPRODUCT(B1:B4,B1:B4)'
+        };
+        const xlsxPayload = {
+          type: 'art-tables-workbook', version: 4, name: 'Формули', activeSheet: 0,
+          sheets: [{ name: 'Дані', rows: 20, cols: 10, cellData: { ...cellData, ...fileFormulas }, cellStyles: {}, colWidths: {}, condRules: [] }]
+        };
+        const xlsxBytes = xlsxApi.exportArrayBuffer(xlsxPayload);
+        const xlsxText = new TextDecoder().decode(new Uint8Array(xlsxBytes));
+        checks.push(assertEqual('XLSX export adds _xlfn. to IFNA', xlsxText.includes('<f>_xlfn.IFNA(VLOOKUP(5,E1:F4,2,FALSE),&quot;IFNA(x)&quot;)</f>'), true));
+        checks.push(assertEqual('XLSX export adds _xlfn. to TEXTJOIN', xlsxText.includes('<f>_xlfn.TEXTJOIN(&quot;, &quot;,TRUE,C1:C3)</f>'), true));
+        checks.push(assertEqual('XLSX export adds _xlfn. to RANK.EQ only', xlsxText.includes('<f>_xlfn.RANK.EQ(B1,B1:B4)+COUNTIFS(C1:C4,&quot;a&quot;)</f>'), true));
+        checks.push(assertEqual('XLSX export keeps classic functions plain', xlsxText.includes('<f>SUMPRODUCT(B1:B4,B1:B4)</f>'), true));
+        const imported = await xlsxApi.importArrayBuffer(xlsxBytes, 'Формули.xlsx');
+        const importedData = imported.payload.sheets[0].cellData;
+        for (const key of Object.keys(fileFormulas)) {
+          checks.push(assertEqual(`XLSX round-trip keeps ${key}`, importedData[key], fileFormulas[key]));
+        }
+        checks.push(assertEqual('XLSX import of Excel _xlfn. formulas', evaluateFormula('MAXIFS(B1:B4,C1:C4,"a")'), 30));
+
+        cellData = savedCellData;
+      }
+
       result.className = 'pass';
       result.textContent = checks.join('\n') + '\n\nPASSED';
       document.body.dataset.tablesFormula = 'passed';
@@ -392,7 +645,7 @@
       result.className = 'fail';
       result.textContent = String(error && error.stack || error);
       document.body.dataset.tablesFormula = 'failed';
-    }
+    } })();
   </script>
 </body>
 </html>

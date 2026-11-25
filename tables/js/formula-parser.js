@@ -28,7 +28,7 @@ function tokenizeFormula(src) {
   const CROSS_SHEET_RE = /^([A-Za-z_Ѐ-ӿ][A-Za-z0-9_Ѐ-ӿ]*)!(\$?)([A-Za-z]+)(\$?)(\d+)/;
   const QUOTED_SHEET_RE = /^'([^']+)'!(\$?)([A-Za-z]+)(\$?)(\d+)/;
   const PLAIN_REF_RE = /^(\$?)([A-Za-z]+)(\$?)(\d+)/;
-  const ERR_RE = /^#(DIV\/0!|REF!|NAME\?|VALUE!|NUM!|CIRC!)/;
+  const ERR_RE = /^#(DIV\/0!|REF!|NAME\?|VALUE!|NUM!|N\/A|CIRC!)/;
 
   while (i < n) {
     const ch = s[i];
@@ -84,7 +84,8 @@ function tokenizeFormula(src) {
       }
 
       const refMatch = PLAIN_REF_RE.exec(s.slice(i));
-      if (refMatch) {
+      // «LOG10(» — функція, а не клітинка LOG10: після адреси одразу відкривальна дужка.
+      if (refMatch && !/^\s*\(/.test(s.slice(i + refMatch[0].length))) {
         tokens.push({
           type: 'ref',
           col: colToIndex(refMatch[2]),
@@ -98,7 +99,9 @@ function tokenizeFormula(src) {
 
       // Назва (функція або іменований діапазон). text — написання автора, call — далі «(».
       let j = i;
-      while (j < n && (isLetter(s[j]) || isCyr(s[j]) || s[j] === '_' || isDigit(s[j]))) j++;
+      // Крапка всередині назви функції (RANK.EQ) — лише між літерами.
+      while (j < n && (isLetter(s[j]) || isCyr(s[j]) || s[j] === '_' || isDigit(s[j])
+        || (s[j] === '.' && j > i && isLetter(s[j - 1]) && isLetter(s[j + 1] || '')))) j++;
       // «$» без адреси: без цієї перевірки порожня назва зациклювала токенізатор.
       if (j === i) throw new Error('Unexpected character: ' + ch);
       let k = j;

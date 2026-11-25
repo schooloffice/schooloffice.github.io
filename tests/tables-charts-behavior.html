@@ -162,7 +162,7 @@
         win.URL.createObjectURL = originalCreateObjectURL;
         win.HTMLAnchorElement.prototype.click = originalAnchorClick;
       }
-      check('.arttab saves charts as file version 4', saved?.version === 4 && saved.sheets[0].charts?.length === 1
+      check('.arttab saves charts as file version 5', saved?.version === 5 && saved.sheets[0].charts?.length === 1
         && saved.sheets[0].charts[0].title === 'Успішність' && json(saved.sheets[0].charts[0].series[0].values) === '[2,3,2,4]', json(saved?.sheets?.[0]?.charts));
       frames()[0].focus();
       frames()[0].dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
@@ -174,7 +174,7 @@
       check('file with a chart range outside the sheet is rejected', rejection(withChart({ series: [{ name: null, values: [1, 1, 1, 900] }] })) !== '');
       check('file with an unknown chart type is rejected', /тип/.test(rejection(withChart({ type: 'radar' }))), rejection(withChart({ type: 'radar' })));
       check('file with a two-dimensional value range is rejected', rejection(withChart({ series: [{ name: null, values: [1, 1, 2, 3] }] })) !== '');
-      check('file with an unknown future version is rejected', /версія/.test(rejection({ ...saved, version: 5 })));
+      check('file with an unknown future version is rejected', /версія/.test(rejection({ ...saved, version: 6 })));
 
       await win.TablesStorage.flushStateToStorage();
       const draft = await win.OfficeStorage.createDraftStore({ app: 'tables', key: 'tables' }).load();
