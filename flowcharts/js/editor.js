@@ -1188,7 +1188,10 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     if (active?.isContentEditable) return true;
     if (document.querySelector('.modal.active')) return true;
     const target = event.target instanceof Element ? event.target : null;
-    return !!target?.closest('input, textarea, select, [contenteditable="true"]');
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return true;
+    // Виділений мишею текст (панель перевірки, довідка) копіюється звичайним способом браузера.
+    const selection = window.getSelection?.();
+    return !!selection && !selection.isCollapsed && selection.toString().trim() !== '';
   }
 
   function writeClipboardText(event, data) {
