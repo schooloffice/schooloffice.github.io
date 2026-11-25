@@ -1,0 +1,20 @@
+# Файли, які Cloudflare Workers не публікує як статичні ресурси сайту.
+# Синтаксис як у .gitignore. Публікується весь репозиторій ("assets.directory": "."),
+# тому тут перелічено все, що потрібне лише для розробки.
+
+# Службові каталоги
+.git/
+.github/
+.claude/
+.wrangler/
+.gitignore
+wrangler.jsonc
+
+# Документація для розробників. THIRD_PARTY_NOTICES.md лишається публічним заради атрибуції.
+*.md
+!THIRD_PARTY_NOTICES.md
+
+# Тести. tests/offline-smoke.html потрібен: sw.js кешує його в ядрі офлайн-режиму,
+# і без нього жоден редактор не стане готовим до роботи офлайн.
+tests/*
+!tests/offline-smoke.html
