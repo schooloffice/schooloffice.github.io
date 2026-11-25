@@ -301,8 +301,8 @@
         addCheck(checks, 'context menu: right click on a block opens our menu, selects it and cancels the browser menu',
           !menu.hidden && event.defaultPrevented && first.classList.contains('selected'),
           `hidden=${menu.hidden} prevented=${event.defaultPrevented}`);
-        addCheck(checks, 'context menu: block menu offers text and delete but no align or canvas items',
-          visibleActions().join() === 'edit-text,delete', visibleActions().join());
+        addCheck(checks, 'context menu: block menu offers text, clipboard and delete but no align or canvas items',
+          visibleActions().join() === 'edit-text,cut,copy,duplicate,delete', visibleActions().join());
 
         doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
         addCheck(checks, 'context menu: Escape closes the menu', menu.hidden);
@@ -315,7 +315,7 @@
         const emptyEvent = rightClick(container, { clientX: 700, clientY: 560 });
         addCheck(checks, 'context menu: empty canvas clears selection and shows only canvas items',
           !menu.hidden && emptyEvent.defaultPrevented && !doc.querySelector('.shape.selected')
-            && visibleActions().join() === 'select-all,fit', visibleActions().join());
+            && visibleActions().join() === 'paste,select-all,fit', visibleActions().join());
         menu.querySelector('[data-context-action="select-all"]').click();
         addCheck(checks, 'context menu: Select all selects every block from the menu',
           menu.hidden && doc.querySelectorAll('.shape.selected').length === 2);
@@ -344,6 +344,163 @@
       return checks;
     }
 
+    // Копіювання, вирізання, вставка й дублювання блоків: внутрішній буфер, нові id, стрілки між копіями, один крок undo.
+    async function runClipboardChecks(win, doc) {
+      const checks = [];
+      const waitUntil = async (predicate, timeout = 3000) => {
+        const start = performance.now();
+        while (performance.now() - start < timeout) {
+          if (predicate()) return true;
+          await wait(50);
+        }
+        return predicate();
+      };
+      const menu = doc.getElementById('diagramContextMenu');
+      const messageModal = doc.getElementById('message-modal');
+      const originalRaf = win.requestAnimationFrame;
+      win.requestAnimationFrame = callback => win.setTimeout(() => callback(performance.now()), 16);
+      const shapeIds = () => [...doc.querySelectorAll('.shape')].map(el => el.id).sort();
+      const connIds = () => [...doc.querySelectorAll('.conn-hit')].map(el => el.dataset.connId).sort();
+      const selectedIds = () => [...doc.querySelectorAll('.shape.selected')].map(el => el.id).sort();
+      const keydown = init => doc.dispatchEvent(new win.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
+      const clipEvent = (type, data) => {
+        const transfer = new win.DataTransfer();
+        const event = new win.ClipboardEvent(type, { bubbles: true, cancelable: true, clipboardData: transfer });
+        doc.dispatchEvent(event);
+        return { event, transfer };
+      };
+      const mainMenu = action => doc.querySelector(`.menu-item[data-action="${action}"]`).click();
+      const rightClick = (el, init = {}) => {
+        const rect = el.getBoundingClientRect();
+        el.dispatchEvent(new win.MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true, button: 2,
+          clientX: rect.left + Math.min(rect.width / 2, 40), clientY: rect.top + Math.min(rect.height / 2, 40), ...init
+        }));
+      };
+      const visibleActions = () => [...menu.querySelectorAll('[data-context-action]')].filter(item => !item.hidden).map(item => item.dataset.contextAction);
+      const undo = async () => { mainMenu('undo'); await wait(200); };
+      try {
+        const project = {
+          version: 2, diagramTitle: 'Буфер', shapeCounter: 2, lastShapeType: 'process', snapEnabled: true,
+          shapes: [
+            { id: 'shape-1', type: 'process', textRaw: 'Перший', left: 100, top: 80 },
+            { id: 'shape-2', type: 'decision', textRaw: 'Другий?', left: 380, top: 240 }
+          ],
+          connections: [{ id: 'conn-shape-1-shape-2-yes', from: 'shape-1', to: 'shape-2', type: 'yes', routeMode: 'vertical', label: 'Мітка', isCustom: false, waypoints: [] }]
+        };
+        const transfer = new win.DataTransfer();
+        transfer.items.add(new win.File([JSON.stringify(project)], 'clip.json', { type: 'application/json' }));
+        const fileInput = doc.getElementById('project-file-input');
+        fileInput.files = transfer.files;
+        fileInput.dispatchEvent(new win.Event('change'));
+        const opened = await waitUntil(() => shapeIds().length === 2 && connIds().length === 1);
+        messageModal?.classList.remove('active');
+        addCheck(checks, 'clipboard: project with a connection opened', opened, `${shapeIds()} ${connIds()}`);
+        doc.activeElement?.blur?.();
+
+        // Порожній буфер: Ctrl+V (подія paste) нічого не робить.
+        const emptyPaste = clipEvent('paste');
+        addCheck(checks, 'clipboard: paste with an empty clipboard does nothing',
+          shapeIds().length === 2 && !emptyPaste.event.defaultPrevented);
+        rightClick(doc.getElementById('canvas-container'));
+        addCheck(checks, 'clipboard: empty canvas menu shows a disabled Paste',
+          visibleActions().includes('paste') && menu.querySelector('[data-context-action="paste"]').disabled, visibleActions().join());
+        doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+
+        // Копіювати два з'єднані блоки й вставити.
+        mainMenu('select-all-shapes');
+        const copied = clipEvent('copy');
+        addCheck(checks, 'clipboard: native copy puts block texts on the system clipboard',
+          copied.transfer.getData('text/plain') === 'Перший\nДругий?' && copied.event.defaultPrevented, copied.transfer.getData('text/plain'));
+        const pasted = clipEvent('paste');
+        const pastedOk = await waitUntil(() => shapeIds().length === 4);
+        addCheck(checks, 'clipboard: paste creates two new blocks with fresh ids', pastedOk && shapeIds().join() === 'shape-1,shape-2,shape-3,shape-4' && pasted.event.defaultPrevented, shapeIds().join());
+        addCheck(checks, 'clipboard: paste keeps the connection between the copies (type and fresh id)',
+          connIds().join() === 'conn-shape-1-shape-2-yes,conn-shape-3-shape-4-yes', connIds().join());
+        addCheck(checks, 'clipboard: pasted blocks are selected and offset by 24px',
+          selectedIds().join() === 'shape-3,shape-4' && doc.getElementById('shape-3').offsetLeft === doc.getElementById('shape-1').offsetLeft + 24
+            && doc.getElementById('shape-3').offsetTop === doc.getElementById('shape-1').offsetTop + 24,
+          `${doc.getElementById('shape-3').offsetLeft},${doc.getElementById('shape-3').offsetTop}`);
+        addCheck(checks, 'clipboard: pasted block keeps its type and text',
+          doc.getElementById('shape-4').classList.contains('decision') && /Другий/.test(doc.getElementById('shape-4').textContent));
+        const label = [...doc.querySelectorAll('.conn-label, text')].some(el => el.textContent.trim() === 'Мітка' && el.closest('svg'));
+        addCheck(checks, 'clipboard: connection label is copied', label || !!doc.getElementById('conn-shape-3-shape-4-yes'));
+
+        clipEvent('paste');
+        await waitUntil(() => shapeIds().length === 6);
+        addCheck(checks, 'clipboard: repeated paste keeps offsetting',
+          shapeIds().length === 6 && doc.getElementById('shape-5').offsetLeft === doc.getElementById('shape-1').offsetLeft + 48,
+          `${doc.getElementById('shape-5')?.offsetLeft}`);
+
+        await undo();
+        addCheck(checks, 'clipboard: one undo removes the whole paste',
+          await waitUntil(() => shapeIds().join() === 'shape-1,shape-2,shape-3,shape-4' && connIds().length === 2), `${shapeIds()} ${connIds()}`);
+        await undo();
+        addCheck(checks, 'clipboard: second undo removes the first paste with its connection',
+          await waitUntil(() => shapeIds().join() === 'shape-1,shape-2' && connIds().length === 1), `${shapeIds()} ${connIds()}`);
+
+        // Дублювати не чіпає буфер і виділяє копії.
+        mainMenu('select-all-shapes');
+        keydown({ key: 'd', ctrlKey: true });
+        const duplicated = await waitUntil(() => shapeIds().length === 4 && connIds().length === 2);
+        addCheck(checks, 'clipboard: Ctrl+D duplicates blocks and their connection and selects the copies',
+          duplicated && selectedIds().length === 2 && !selectedIds().includes('shape-1'), `${shapeIds()} ${connIds()} ${selectedIds()}`);
+        await undo();
+        addCheck(checks, 'clipboard: one undo removes the duplicate',
+          await waitUntil(() => shapeIds().length === 2 && connIds().length === 1));
+
+        // Вирізати: блоки зникають без підтвердження, вставка повертає їх на місце.
+        mainMenu('select-all-shapes');
+        const cut = clipEvent('cut');
+        const cutOk = await waitUntil(() => shapeIds().length === 0);
+        addCheck(checks, 'clipboard: cut removes the blocks and connections and fills the system clipboard',
+          cutOk && connIds().length === 0 && cut.transfer.getData('text/plain') === 'Перший\nДругий?');
+        clipEvent('paste');
+        const restored = await waitUntil(() => shapeIds().length === 2 && connIds().length === 1);
+        addCheck(checks, 'clipboard: paste after cut restores the blocks in place with their connection',
+          restored && shapeIds().join() === 'shape-3,shape-4' && doc.getElementById('shape-3').offsetLeft === 100
+            && doc.getElementById('shape-3').offsetTop === 80, `${shapeIds()} ${doc.getElementById('shape-3')?.offsetLeft}`);
+        await undo();
+        addCheck(checks, 'clipboard: undo of the paste leaves the canvas empty again', await waitUntil(() => shapeIds().length === 0));
+        await undo();
+        addCheck(checks, 'clipboard: undo of the cut brings the originals back',
+          await waitUntil(() => shapeIds().join() === 'shape-1,shape-2' && connIds().length === 1), `${shapeIds()} ${connIds()}`);
+
+        // Контекстне меню.
+        const first = doc.getElementById('shape-1');
+        rightClick(first);
+        addCheck(checks, 'clipboard: block context menu offers cut, copy and duplicate',
+          ['cut', 'copy', 'duplicate'].every(action => visibleActions().includes(action)) && !visibleActions().includes('paste'), visibleActions().join());
+        menu.querySelector('[data-context-action="copy"]').click();
+        rightClick(doc.getElementById('canvas-container'), { clientX: 700, clientY: 560 });
+        const pasteItem = menu.querySelector('[data-context-action="paste"]');
+        addCheck(checks, 'clipboard: Paste is enabled in the canvas menu once something is copied', !pasteItem.hidden && !pasteItem.disabled);
+        pasteItem.click();
+        addCheck(checks, 'clipboard: Paste from the context menu adds the copied block',
+          await waitUntil(() => shapeIds().length === 3), shapeIds().join());
+        rightClick(doc.getElementById('shape-1'));
+        menu.querySelector('[data-context-action="duplicate"]').click();
+        addCheck(checks, 'clipboard: Duplicate from the context menu adds a block', await waitUntil(() => shapeIds().length === 4), shapeIds().join());
+        rightClick(doc.getElementById('shape-1'));
+        menu.querySelector('[data-context-action="cut"]').click();
+        addCheck(checks, 'clipboard: Cut from the context menu removes the block', await waitUntil(() => !doc.getElementById('shape-1')));
+
+        // Не втручаємось у поля введення.
+        const tmp = doc.createElement('input');
+        doc.body.appendChild(tmp);
+        tmp.focus();
+        const before = shapeIds().length;
+        const inInput = new win.ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: new win.DataTransfer() });
+        tmp.dispatchEvent(inInput);
+        addCheck(checks, 'clipboard: paste inside a text input is left to the browser', shapeIds().length === before && !inInput.defaultPrevented);
+        tmp.remove();
+      } finally {
+        messageModal?.classList.remove('active');
+        win.requestAnimationFrame = originalRaf;
+      }
+      return checks;
+    }
+
     async function run() {
       const frame = await loadFrame();
       const win = frame.contentWindow;
@@ -351,6 +508,7 @@
       await wait(500);
       const checks = await runArrangeChecks(win, doc);
       checks.push(...await runContextMenuChecks(win, doc));
+      checks.push(...await runClipboardChecks(win, doc));
 
       const failures = checks.filter(check => !check.ok);
       result.className = failures.length ? 'fail' : 'pass';

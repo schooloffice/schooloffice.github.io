@@ -53,6 +53,10 @@
       selectAllShapes,
       arrangeSelected,
       openStarter,
+      copyBlocks,
+      cutBlocks,
+      pasteBlocks,
+      duplicateBlocks,
     } = options || {};
 
     function triggerShapeButton(type) {
@@ -93,6 +97,18 @@
           break;
         case 'redo':
           (runOfficeCommand && runOfficeCommand('redo')) || redo?.();
+          break;
+        case 'copy-blocks':
+          copyBlocks?.();
+          break;
+        case 'cut-blocks':
+          cutBlocks?.();
+          break;
+        case 'paste-blocks':
+          pasteBlocks?.();
+          break;
+        case 'duplicate-blocks':
+          duplicateBlocks?.();
           break;
         case 'delete-selected':
           deleteSelected?.();
