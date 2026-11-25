@@ -226,6 +226,7 @@
       svgLayer.insertBefore(hitPath, firstHandleGroup);
 
       hitPath.addEventListener('pointerdown', (event) => {
+        if (event.button === 2) return; // правий клік відкриває контекстне меню й сам вибирає стрілку
         if (isPanGesture?.(event)) return; // let middle-button / Space-drag pan
         if (state.connDrag) return;
         event.stopPropagation();

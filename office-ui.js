@@ -206,8 +206,167 @@
     return closeModal(getActiveModal(), { restoreFocus });
   }
 
+  // ---------- Власне контекстне меню ----------
+  // Один спільний механізм для всіх редакторів: позиціювання в межах вікна, клавіатура,
+  // закриття, aria та повернення фокуса. Кожен редактор лише описує пункти в HTML
+  // (.office-context-menu > .menu-item[data-context-action]) і вирішує, що показати.
+  const contextMenus = new Set();
+  let openContextMenu = null;
+
+  function visibleMenuItems(menu) {
+    return qsa('.menu-item', menu).filter(item => !item.hidden && !item.disabled && item.getAttribute('aria-disabled') !== 'true');
+  }
+
+  // Роздільник видно лише між двома видимими групами пунктів.
+  function syncContextSeparators(menu) {
+    let seenItem = false;
+    let pending = null;
+    Array.from(menu.children).forEach(child => {
+      if (child.classList.contains('menu-sep')) {
+        child.hidden = true;
+        if (seenItem) pending = child;
+        return;
+      }
+      if (child.hidden) return;
+      if (pending) pending.hidden = false;
+      pending = null;
+      seenItem = true;
+    });
+  }
+
+  function placeContextMenu(menu, x, y) {
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+    const width = menu.offsetWidth || 220;
+    const height = menu.offsetHeight || 240;
+    const left = Math.min(x, window.innerWidth - width - 8);
+    const top = Math.min(y, window.innerHeight - height - 8);
+    menu.style.left = `${Math.max(8, Math.round(left))}px`;
+    menu.style.top = `${Math.max(8, Math.round(top))}px`;
+  }
+
+  function closeContextMenus({ restoreFocus = false } = {}) {
+    const state = openContextMenu;
+    if (!state) return false;
+    openContextMenu = null;
+    state.menu.hidden = true;
+    if (restoreFocus && state.returnFocus?.isConnected) state.returnFocus.focus({ preventScroll: true });
+    dispatchOverlayClose('contextmenu', { menu: state.menu.id || '' });
+    state.options.onClose?.(state.context);
+    return true;
+  }
+
+  function showContextMenu(binding, context, x, y, { focusFirst = false } = {}) {
+    const { menu, options } = binding;
+    closeTopOverlay();
+    options.prepare?.(menu, context);
+    syncContextSeparators(menu);
+    if (!qsa('.menu-item', menu).some(item => !item.hidden)) return false;
+    menu.hidden = false;
+    placeContextMenu(menu, x, y);
+    openContextMenu = { menu, options, context, returnFocus: document.activeElement };
+    if (focusFirst) (visibleMenuItems(menu)[0] || menu).focus({ preventScroll: true });
+    return true;
+  }
+
+  // options:
+  //   surface   — елемент, у якому правий клік відкриває наше меню;
+  //   menu      — елемент меню з пунктами .menu-item[data-context-action];
+  //   resolve(event) → контекст або null (null — меню не відкривати, лишити поведінку браузера);
+  //   prepare(menu, context) — сховати/вимкнути пункти для цього контексту;
+  //   anchor(context) → {x, y} для відкриття з клавіатури (Shift+F10, клавіша меню);
+  //   onAction(action, context, item) — виконати вибраний пункт;
+  //   onClose(context) — необов'язково.
+  // Shift + правий клік мишею лишає меню браузера (потрібне, наприклад, для варіантів
+  // виправлення правопису). Довге натискання на сенсорному екрані теж лишається браузерним.
+  function bindContextMenu(options = {}) {
+    const surface = typeof options.surface === 'string' ? document.getElementById(options.surface) : options.surface;
+    const menu = typeof options.menu === 'string' ? document.getElementById(options.menu) : options.menu;
+    if (!surface || !menu) return null;
+    const binding = { surface, menu, options };
+    contextMenus.add(binding);
+
+    menu.classList.add('office-context-menu');
+    menu.setAttribute('role', 'menu');
+    menu.hidden = true;
+    ensureId(menu, 'office-context-menu');
+    if (!menu.hasAttribute('tabindex')) menu.tabIndex = -1;
+    qsa('.menu-item', menu).forEach(item => {
+      item.setAttribute('role', 'menuitem');
+      if (item.tagName === 'BUTTON' && !item.hasAttribute('type')) item.type = 'button';
+      item.tabIndex = -1;
+    });
+
+    surface.addEventListener('contextmenu', event => {
+      if (event.defaultPrevented) return;
+      const fromKeyboard = event.button !== 2 && event.pointerType !== 'touch' && event.pointerType !== 'pen';
+      if (!fromKeyboard && event.shiftKey) return;
+      if (event.pointerType === 'touch' || event.pointerType === 'pen') return;
+      const context = options.resolve ? options.resolve(event) : {};
+      if (context == null) return;
+      let x = event.clientX;
+      let y = event.clientY;
+      if (fromKeyboard || (!x && !y)) {
+        const point = options.anchor?.(context);
+        if (point) ({ x, y } = point);
+        else {
+          const rect = surface.getBoundingClientRect();
+          x = rect.left + Math.min(rect.width / 2, 160);
+          y = rect.top + Math.min(rect.height / 2, 120);
+        }
+      }
+      // Якщо для цього місця немає жодного доступного пункту, лишаємо меню браузера,
+      // а не порожнє місце без жодного меню.
+      if (showContextMenu(binding, context, x, y, { focusFirst: fromKeyboard })) event.preventDefault();
+    });
+
+    // Клік по пункту не забирає фокус і виділення з робочої області.
+    menu.addEventListener('pointerdown', event => event.preventDefault());
+
+    menu.addEventListener('click', event => {
+      const item = event.target.closest('.menu-item');
+      if (!item || !menu.contains(item) || item.disabled || item.hidden) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const state = openContextMenu;
+      const context = state?.menu === menu ? state.context : null;
+      const fromKeyboard = state?.returnFocus && document.activeElement === item;
+      closeContextMenus({ restoreFocus: !!fromKeyboard });
+      options.onAction?.(item.dataset.contextAction, context, item);
+    });
+
+    menu.addEventListener('keydown', event => {
+      const items = visibleMenuItems(menu);
+      if (!items.length) return;
+      const index = items.indexOf(document.activeElement);
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        items[(index + step + items.length) % items.length].focus();
+      } else if (event.key === 'Home' || event.key === 'End') {
+        event.preventDefault();
+        items[event.key === 'Home' ? 0 : items.length - 1].focus();
+      } else if (event.key === 'Tab') {
+        event.preventDefault();
+        closeContextMenus({ restoreFocus: true });
+      }
+    });
+
+    return {
+      open(context, x, y, openOptions) { return showContextMenu(binding, context, x, y, openOptions); },
+      openForKeyboard(context) {
+        const point = options.anchor?.(context);
+        if (!point) return false;
+        return showContextMenu(binding, context, point.x, point.y, { focusFirst: true });
+      },
+      close(closeOptions) { return openContextMenu?.menu === menu ? closeContextMenus(closeOptions) : false; },
+      isOpen() { return openContextMenu?.menu === menu; }
+    };
+  }
+
   function closeTopOverlay({ restoreFocus = false } = {}) {
-    return closeActiveModal({ restoreFocus }) ||
+    return closeContextMenus({ restoreFocus }) ||
+      closeActiveModal({ restoreFocus }) ||
       closeMenus({ restoreFocus }) ||
       closePickers({ restoreFocus }) ||
       closePalettes({ restoreFocus });
@@ -308,9 +467,21 @@
 
     document.addEventListener('pointerdown', event => {
       if (getActiveModal()?.contains(event.target)) return;
-      if (event.target.closest('.menu-item-wrap, .menu-title, .menu-dropdown, .picker-wrap, .tool-picker, .palette-wrap, .palette-popover')) return;
+      if (event.target.closest('.office-context-menu, .menu-item-wrap, .menu-title, .menu-dropdown, .picker-wrap, .tool-picker, .palette-wrap, .palette-popover')) return;
       closeTopOverlay();
     }, true);
+
+    // Відкрите контекстне меню прив'язане до точки на екрані: прокрутка колесом чи жестом,
+    // зміна розміру або перехід в інше вікно його закривають. Програмна прокрутка (розбиття
+    // на сторінки, автозбереження) меню не закриває, інакше воно зникало б саме по собі.
+    const closeContextOnViewportChange = event => {
+      if (event?.type !== 'resize' && event?.type !== 'blur' && openContextMenu?.menu.contains(event.target)) return;
+      closeContextMenus();
+    };
+    window.addEventListener('wheel', closeContextOnViewportChange, { capture: true, passive: true });
+    window.addEventListener('touchmove', closeContextOnViewportChange, { capture: true, passive: true });
+    window.addEventListener('resize', closeContextOnViewportChange);
+    window.addEventListener('blur', closeContextOnViewportChange);
   }
 
   function enhanceModal(modal) {
@@ -678,6 +849,8 @@
     init,
     closeTopOverlay,
     closeMenus,
+    bindContextMenu,
+    closeContextMenus,
     closePickers,
     closePalettes,
     openModal,

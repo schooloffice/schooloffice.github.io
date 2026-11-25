@@ -1047,6 +1047,78 @@ window.initFlowchartsEditor = function initFlowchartsEditor() {
     selectAllShapes,
   })?.bind?.();
 
+  // ================= CONTEXT MENU =================
+  // Ті самі дії, що в головному меню, на панелі вибору й гарячих клавішах: нової логіки редагування тут немає.
+  window.OfficeUI?.bindContextMenu?.({
+    surface: canvasContainer,
+    menu: 'diagramContextMenu',
+    resolve(event) {
+      const active = document.activeElement;
+      if (active && canvas.contains(active) && /^(input|textarea|select)$/i.test(active.tagName || '')) return null;
+      if (active?.isContentEditable) return null;
+      const target = event.target instanceof Element ? event.target : null;
+      const shapeEl = target?.closest('.shape');
+      if (shapeEl && canvas.contains(shapeEl)) {
+        if (!getSelectedShapes().includes(shapeEl)) selectShape(shapeEl);
+        else if (state.selectedConnId) clearConnectionSelection();
+        return { kind: 'shape' };
+      }
+      const connId = target?.closest('.conn-hit')?.dataset.connId;
+      if (connId) {
+        if (state.selectedConnId !== connId) selectConnection(connId);
+        return { kind: 'connection' };
+      }
+      if (event.button === 2 && !isOnBackground(target)) return null;
+      deselectAll(false);
+      clearConnectionSelection();
+      return { kind: 'canvas' };
+    },
+    anchor() {
+      const el = state.selectedShape;
+      const rect = (el || canvasContainer).getBoundingClientRect();
+      return { x: rect.left + Math.min(rect.width / 2, 160), y: rect.top + Math.min(rect.height / 2, 120) };
+    },
+    prepare(menu, context) {
+      const count = getSelectedShapes().length;
+      const visible = {
+        'edit-text': context.kind === 'shape' && count === 1,
+        'edit-label': context.kind === 'connection',
+        route: context.kind === 'connection',
+        delete: context.kind !== 'canvas',
+        'select-all': context.kind === 'canvas',
+        fit: context.kind === 'canvas',
+      };
+      menu.querySelectorAll('[data-context-action]').forEach((item) => {
+        const action = item.dataset.contextAction;
+        item.hidden = action in visible ? !visible[action] : !(context.kind === 'shape' && count >= 2);
+      });
+    },
+    onAction(action) {
+      switch (action) {
+        case 'edit-text':
+          if (state.selectedShape) openTextModal(state.selectedShape);
+          break;
+        case 'edit-label':
+          toolbarLabelBtn?.click();
+          break;
+        case 'route':
+          cycleSelectedConnectionRouteMode();
+          break;
+        case 'delete':
+          deleteSelected();
+          break;
+        case 'select-all':
+          selectAllShapes();
+          break;
+        case 'fit':
+          fitDiagram();
+          break;
+        default:
+          if (action?.startsWith('align-') || action?.startsWith('distribute-')) menuActions.dispatchMenuAction?.(action);
+      }
+    },
+  });
+
   // ================= REFRESH LAYOUT =================
   function refreshAll() {
     state._refreshRaf = 0;

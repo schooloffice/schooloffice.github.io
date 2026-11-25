@@ -335,6 +335,22 @@
     </span>
   </footer>
 
+  <div id="canvasContextMenu" class="office-context-menu" hidden aria-label="Контекстне меню полотна">
+    <button class="menu-item" data-context-action="cut"><span><i class="fa-solid fa-scissors fa-fw" aria-hidden="true"></i> Вирізати</span></button>
+    <button class="menu-item" data-context-action="copy"><span><i class="fa-regular fa-copy fa-fw" aria-hidden="true"></i> Копіювати</span><span class="shortcut">Ctrl+C</span></button>
+    <button class="menu-item" data-context-action="paste"><span><i class="fa-regular fa-paste fa-fw" aria-hidden="true"></i> Вставити</span><span class="shortcut">Ctrl+V</span></button>
+    <div class="menu-sep" role="separator"></div>
+    <button class="menu-item" data-context-action="duplicate"><span><i class="fa-regular fa-clone fa-fw" aria-hidden="true"></i> Дублювати</span><span class="shortcut">Ctrl+D</span></button>
+    <button class="menu-item" data-context-action="delete-selected"><span><i class="fa-solid fa-trash fa-fw" aria-hidden="true"></i> Видалити</span><span class="shortcut">Delete</span></button>
+    <div class="menu-sep" role="separator"></div>
+    <button class="menu-item" data-context-action="bring-front"><span><i class="fa-solid fa-arrow-up-wide-short fa-fw" aria-hidden="true"></i> На передній план</span></button>
+    <button class="menu-item" data-context-action="object-up"><span><i class="fa-solid fa-arrow-up fa-fw" aria-hidden="true"></i> Вище на один крок</span></button>
+    <button class="menu-item" data-context-action="object-down"><span><i class="fa-solid fa-arrow-down fa-fw" aria-hidden="true"></i> Нижче на один крок</span></button>
+    <button class="menu-item" data-context-action="send-back"><span><i class="fa-solid fa-arrow-down-short-wide fa-fw" aria-hidden="true"></i> На задній план</span></button>
+    <div class="menu-sep" role="separator"></div>
+    <button class="menu-item" data-context-action="edit-text"><span><i class="fa-solid fa-font fa-fw" aria-hidden="true"></i> Змінити текст</span></button>
+  </div>
+
   <script src="js/constants.js"></script>
   <script src="js/state.js"></script>
   <script src="js/utils.js"></script>

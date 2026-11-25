@@ -628,6 +628,43 @@
         && cutData.getData('text/plain') === 'Другий'
         && !(editor.textContent || '').includes('Другий рядок')
         && (editor.textContent || '').includes(' рядок');
+      // ── Власне контекстне меню документа поза таблицею ─────────────────
+      const textContextMenu = doc.getElementById('textContextMenu');
+      const editorScroll = doc.querySelector('.editor-scroll');
+      const rightClick = (target, extra = {}) => target.dispatchEvent(new win.MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, button: 2, clientX: 220, clientY: 260, ...extra
+      }));
+      const textParagraph = pageContents(doc)[0].querySelector('p') || pageContents(doc)[0];
+      setCaretAtStart(win, textParagraph);
+      const textMenuPrevented = !rightClick(textParagraph);
+      await wait(50);
+      const cutItem = textContextMenu.querySelector('[data-context-action="cut"]');
+      const textMenuOpensOnText = textMenuPrevented && !textContextMenu.hidden
+        && tableContextMenu.hidden
+        && cutItem.disabled
+        && !textContextMenu.querySelector('[data-context-action="paste"]').disabled;
+      doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      const textMenuEscapeCloses = textContextMenu.hidden;
+
+      const pageGapPrevented = !rightClick(editorScroll);
+      await wait(50);
+      const textMenuOpensBesidePage = pageGapPrevented && !textContextMenu.hidden;
+      win.OfficeUI.closeContextMenus();
+
+      const shiftKeepsBrowserMenu = rightClick(textParagraph, { shiftKey: true }) && textContextMenu.hidden;
+
+      rightClick(tableCells(doc)[0]);
+      await wait(50);
+      const tableCellKeepsTableMenu = !tableContextMenu.hidden && textContextMenu.hidden;
+      win.art.editor.hideTableMenu();
+
+      const textBeforeBreak = pageContents(doc).length;
+      setCaretAtStart(win, textParagraph);
+      rightClick(textParagraph);
+      await wait(50);
+      textContextMenu.querySelector('[data-context-action="insert-page-break"]').click();
+      await waitFor(() => pageContents(doc).length > textBeforeBreak, 'page break from context menu', 5000);
+      const textMenuActionRuns = textContextMenu.hidden && pageContents(doc).length > textBeforeBreak;
 
       // ── Велика таблиця ділиться між сторінками ──────────────────────────
       await resetDocument(win, doc);
@@ -1072,6 +1109,12 @@
         check('Ctrl+C and Ctrl+X are left to the browser copy/cut events', clipboardKeysPassThrough),
         check('copy puts the selected plain text on the clipboard', copyWritesSelection),
         check('cut puts the selection on the clipboard and removes it', cutMovesSelection),
+        check('right click on text opens our menu, cut/copy disabled without selection', textMenuOpensOnText),
+        check('Escape closes the text context menu', textMenuEscapeCloses),
+        check('right click beside the page opens our menu', textMenuOpensBesidePage),
+        check('Shift + right click keeps the browser menu', shiftKeepsBrowserMenu),
+        check('right click in a table cell still opens the table menu', tableCellKeepsTableMenu),
+        check('text context menu runs the chosen action', textMenuActionRuns),
         check('column action applies to every row', columnAddedEverywhere),
         check('row action removes a row', rowDeleted),
         check('deleting a table requires confirmation', tableDeletionNeedsConfirmation),

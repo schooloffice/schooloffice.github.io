@@ -22,6 +22,44 @@ function createShellCommands() {
   };
 }
 
+// Власне контекстне меню документа. Правий клік у клітинці таблиці відкриває окреме меню
+// таблиці (ui/editor.js), тому сюди доходять лише кліки поза таблицями.
+function bindTextContextMenu(editor) {
+  const surface = document.querySelector('.editor-scroll');
+  const hasSelection = () => {
+    const range = ArtSelection.getRange(editor);
+    return !!range && !range.collapsed;
+  };
+  const caretPoint = () => {
+    const range = ArtSelection.getRange(editor);
+    const rect = range?.getClientRects?.()[0] || range?.getBoundingClientRect?.();
+    if (rect && (rect.width || rect.height)) return { x: rect.left, y: rect.bottom + 4 };
+    const box = editor.getBoundingClientRect();
+    return { x: box.left + 48, y: Math.max(box.top, 0) + 48 };
+  };
+
+  window.TextApp.contextMenu = window.OfficeUI?.bindContextMenu?.({
+    surface,
+    menu: 'textContextMenu',
+    resolve: () => {
+      ArtSelection.remember(editor);
+      return { selection: hasSelection() };
+    },
+    prepare: (menu, context) => {
+      menu.querySelectorAll('[data-context-action="cut"], [data-context-action="copy"]').forEach(item => {
+        item.disabled = !context.selection;
+      });
+    },
+    anchor: caretPoint,
+    onAction: async action => {
+      if (!ArtSelection.getRange(editor)) ArtSelection.restoreLast(editor);
+      if (!ArtSelection.getRange(editor)) editor.focus({ preventScroll: true });
+      await ArtMenu.dispatch(action);
+      ArtToolbar.updateState();
+    }
+  }) || null;
+}
+
 window.TextApp.boot = async () => {
   const editor = document.getElementById('editor');
   const announcer = document.getElementById('ariaAnnouncer');
@@ -116,6 +154,7 @@ window.TextApp.boot = async () => {
   });
 
   ArtFind.init(editor);
+  bindTextContextMenu(editor);
 
   document.querySelectorAll('[data-set-zoom]').forEach(button => {
     button.addEventListener('click', () => {

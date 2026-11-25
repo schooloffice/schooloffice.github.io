@@ -577,6 +577,13 @@ window.VectorApp = window.VectorApp || {};
     state.clipboard = utils.deepClone(selected);
   }
 
+  // Вирізання — те саме копіювання з наступним видаленням (як у головному меню).
+  function cutSelected() {
+    if (!getEditableSelected()) return;
+    copySelected();
+    deleteSelected();
+  }
+
   function pasteSelected() {
     if (!state.clipboard) return;
     pushUndo();
@@ -905,6 +912,9 @@ window.VectorApp = window.VectorApp || {};
       case 'print': printProject(); break;
       case 'undo': runOfficeCommand('undo') || undo(); break;
       case 'redo': runOfficeCommand('redo') || redo(); break;
+      case 'cut': cutSelected(); break;
+      case 'copy': copySelected(); break;
+      case 'paste': pasteSelected(); break;
       case 'duplicate': duplicateSelected(); break;
       case 'delete-selected': deleteSelected(); break;
       case 'bring-front': bringFront(); break;
@@ -1094,6 +1104,50 @@ window.VectorApp = window.VectorApp || {};
     });
   }
 
+  // Власне контекстне меню полотна. Усі пункти викликають ті самі дії, що й головне меню.
+  function bindCanvasContextMenu() {
+    if (!window.OfficeUI?.bindContextMenu) return;
+    window.OfficeUI.bindContextMenu({
+      surface: ui.elements.drawingSvg,
+      menu: 'canvasContextMenu',
+      resolve(event) {
+        const hitNode = hitObjectNode(event.target);
+        const obj = hitNode ? editor.getObjectById(hitNode.dataset.id) : null;
+        if (obj) {
+          if (state.selectedObjectId !== obj.id) selectObject(obj.id);
+          return { kind: 'object' };
+        }
+        if (state.selectedObjectId) clearSelection();
+        return { kind: 'canvas' };
+      },
+      prepare(menu, context) {
+        const selected = getSelectedObject();
+        const onObject = context.kind === 'object' && !!selected;
+        const editable = !!getEditableSelected();
+        menu.querySelectorAll('[data-context-action]').forEach((item) => {
+          const action = item.dataset.contextAction;
+          if (action === 'paste') {
+            // Порожній буфер показуємо сірим пунктом: учень бачить, що вставляти поки нічого.
+            item.hidden = false;
+            item.disabled = !state.clipboard;
+            return;
+          }
+          item.hidden = !onObject || (action === 'edit-text' && selected.type !== 'text');
+          item.disabled = ['cut', 'duplicate', 'delete-selected', 'edit-text'].includes(action) && !editable;
+        });
+      },
+      anchor() {
+        const id = state.selectedObjectId;
+        const node = id ? ui.elements.drawingSvg.querySelector(`.vector-object[data-id="${CSS.escape(id)}"]`) : null;
+        const rect = (node || ui.elements.drawingSvg).getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + Math.min(rect.height / 2, 120) };
+      },
+      onAction(action) {
+        handleMenuAction(action);
+      }
+    });
+  }
+
   function bindKeyboard() {
     document.addEventListener('keydown', (event) => {
       const target = event.target;
@@ -1210,6 +1264,7 @@ window.VectorApp = window.VectorApp || {};
     editor.resizeArtboard(state.canvasWidth, state.canvasHeight);
     bindUi();
     bindCanvas();
+    bindCanvasContextMenu();
     bindKeyboard();
     ui.updateAll();
     // Асинхронне сховище не блокує показ редактора; відновлення саме оновить UI.
