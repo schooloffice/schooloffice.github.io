@@ -355,6 +355,7 @@ function dispatchUiAction(action) {
     case 'unmerge-cells': unmergeSelection(); break;
     case 'clear-fill': clearFillStyles(); break;
     case 'clear-text-color': clearTextColorStyles(); break;
+    case 'cell-format': openCellFormatDialog(); break;
     case 'cond-format': TablesConditionalFormatting.openCondFormatModal(); break;
     case 'filter': TablesFilter.openFilterModal(); break;
     case 'clear-filter': TablesFilter.clearRowFilter(); break;

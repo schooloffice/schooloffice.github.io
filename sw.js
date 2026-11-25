@@ -124,6 +124,7 @@ const ALL_LOCAL_ASSETS = [
   './tables/js/grid-viewport.js',
   './tables/js/grid.js',
   './tables/js/model.js',
+  './tables/js/number-format.js',
   './tables/js/named-ranges.js',
   './tables/js/runtime.js',
   './tables/js/selection-actions.js',
