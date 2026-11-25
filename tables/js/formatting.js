@@ -57,7 +57,12 @@ function autoFitColumns() {
     if (th) maxWidth = Math.max(maxWidth, ctx.measureText(th.innerText || '').width);
 
     for (let r = 1; r <= ROWS; r++) {
-      const text = String(getCalculatedCellValue(getCellId(cIdx, r)) || '');
+      const cellId = getCellId(cIdx, r);
+      const value = getCalculatedCellValue(cellId);
+      // Ширина за показаним текстом (з урахуванням формату числа), а не за збереженим значенням.
+      const nf = window.TablesNumberFormat;
+      const spec = nf?.specFromClasses(cellStyles[cellId]);
+      const text = String((spec ? nf.format(spec, value) : value) || '');
       if (!text) continue;
       maxWidth = Math.max(maxWidth, ctx.measureText(text).width);
     }

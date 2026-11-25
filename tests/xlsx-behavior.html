@@ -35,7 +35,9 @@
         check('multiple sheets round-trip', imported.payload.sheets.length === 2 && imported.payload.sheets[1].name === 'Підсумок');
         check('text and numbers round-trip', imported.payload.sheets[0].cellData.A1 === 'Назва' && imported.payload.sheets[0].cellData.B1 === '12.5');
         check('formulas round-trip', imported.payload.sheets[0].cellData.D1 === '=B1*2' && imported.payload.sheets[1].cellData.A1 === '=Дані!D1');
-        check('dates round-trip', imported.payload.sheets[0].cellData.C1 === '2026-09-09');
+        // Дата лишається числом-серіалом, формат дати змінює лише показ.
+        check('dates round-trip as serial numbers with a date format', imported.payload.sheets[0].cellData.C1 === String(frame.contentWindow.ymdToSerial(2026, 9, 9))
+          && imported.payload.sheets[0].cellStyles.C1 === 'style-nf-date-dmy', JSON.stringify([imported.payload.sheets[0].cellData.C1, imported.payload.sheets[0].cellStyles.C1]));
         check('column widths round-trip', Math.abs(imported.payload.sheets[0].colWidths[0] - 180) <= 2);
         check('basic formatting round-trip', imported.payload.sheets[0].cellStyles.A1.includes('style-text-bold') && imported.payload.sheets[0].cellStyles.A1.includes('style-bg-yellow'));
         check('generated workbook has no unsupported warnings', imported.warnings.length === 0);
@@ -72,6 +74,87 @@
         const pmtCache = cellXml('B10').match(/<f>PMT\(C1\/12,C2,C3\)<\/f><v>([^<]+)<\/v>/);
         check('PMT caches the Excel-compatible number', !!pmtCache && Math.abs(Number(pmtCache[1]) + 299.70897104665477) < 1e-9 && !/ t="/.test(cellXml('B10')), cellXml('B10'));
         check('PMT with too few arguments keeps no cached value', cellXml('B11').includes('<f>PMT(C1/12,C2)</f>') && !cellXml('B11').includes('<v>'), cellXml('B11'));
+
+        // Формати чисел: експорт → імпорт повертає ті самі формати й значення.
+        const formatCases = [
+          ['A1', '1234.5', 'style-nf-num-2-t'], ['A2', '0.256', 'style-nf-pct-1'], ['A3', '1234.5', 'style-nf-cur-2-uah'],
+          ['A4', '46351', 'style-nf-date-dmy'], ['A5', '46351', 'style-nf-date-dmmmy'], ['A6', '0.75', 'style-nf-time-hms'],
+          ['A7', '1.5', 'style-nf-frac-1'], ['A8', '12345', 'style-nf-sci-2'], ['A9', '007', 'style-nf-text'],
+          ['A10', '3.14159', 'style-nf-num-3'], ['A11', '46351.5', 'style-nf-date-dmyhm'], ['A12', '5', 'style-nf-cur-0-usd'],
+          ['A13', '7', 'style-nf-num-0'], ['A14', '1234', 'style-nf-num-0-t'], ['A15', '0.5', 'style-nf-pct-0'], ['A16', '2.5', 'style-nf-frac-2'],
+          ['A17', '0.5', 'style-nf-time-hm'], ['A18', '9', 'style-nf-cur-2-eur'], ['A19', '46351', 'style-nf-date-dmmmmy'], ['A20', '2', 'style-nf-sci-0']
+        ];
+        const formatPayload = {
+          type: 'art-tables-workbook', version: 5, name: 'Формати', activeSheet: 0,
+          sheets: [{ name: 'Формати', rows: 60, cols: 30, colWidths: {}, condRules: [], cellStyles: Object.fromEntries(formatCases.map(([ref, , token]) => [ref, token + (ref === 'A1' ? ' style-text-bold' : '')])),
+            cellData: Object.fromEntries(formatCases.map(([ref, value]) => [ref, value])) }]
+        };
+        const formatBuffer = api.exportArrayBuffer(formatPayload);
+        const formatXml = new TextDecoder().decode(new Uint8Array(formatBuffer));
+        const formatImported = await api.importArrayBuffer(formatBuffer, 'Формати.xlsx');
+        const formatSheet0 = formatImported.payload.sheets[0];
+        const mismatched = formatCases.filter(([ref, value, token]) => !formatSheet0.cellStyles[ref]?.includes(token) || formatSheet0.cellData[ref] !== value);
+        check('number formats of every family survive XLSX export and import', mismatched.length === 0, mismatched.map(item => `${item[0]}=${formatSheet0.cellStyles[item[0]]}/${formatSheet0.cellData[item[0]]}`).join(' '));
+        check('exported styles use built-in ids where Excel has them and custom numFmt otherwise', /<numFmts count="\d+">/.test(formatXml)
+          && formatXml.includes('numFmtId="4"') && formatXml.includes('numFmtId="12"') && formatXml.includes('numFmtId="49"')
+          && formatXml.includes('formatCode="#,##0.00&quot; ₴&quot;"') && formatXml.includes('formatCode="dd\\.mm\\.yyyy"') && formatXml.includes('formatCode="hh:mm:ss"')
+          && formatXml.indexOf('<numFmts') < formatXml.indexOf('<fonts'));
+        check('XLSX format round trip reports no warnings and keeps bold with the format', formatImported.warnings.length === 0 && formatSheet0.cellStyles.A1.includes('style-text-bold'), formatImported.warnings.join(', '));
+        check('text format cell is exported as a string', /<c r="A9"[^>]* t="inlineStr"/.test(formatXml));
+        // Старі класи форматів теж експортуються як numFmt і читаються як нові.
+        const legacyImported = await api.importArrayBuffer(api.exportArrayBuffer({
+          type: 'art-tables-workbook', version: 4, name: 'Старі', activeSheet: 0,
+          sheets: [{ name: 'Аркуш', rows: 60, cols: 30, colWidths: {}, condRules: [], cellData: { A1: '1', B1: '2', C1: '0.5', D1: '3', E1: '46351' },
+            cellStyles: { A1: 'style-num-int', B1: 'style-num-fixed2', C1: 'style-num-percent', D1: 'style-num-currency-uah', E1: 'style-num-datetime' } }]
+        }), 'Старі.xlsx');
+        const legacyStyles = legacyImported.payload.sheets[0].cellStyles;
+        check('legacy format classes export as matching Excel formats', legacyStyles.A1 === 'style-nf-num-0' && legacyStyles.B1 === 'style-nf-num-2-t' && legacyStyles.C1 === 'style-nf-pct-0'
+          && legacyStyles.D1 === 'style-nf-cur-2-uah' && legacyStyles.E1 === 'style-nf-date-dmyhm', JSON.stringify(legacyStyles));
+
+        // Імпорт вбудованих numFmtId і власних кодів із файлу, створеного не нами.
+        const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+        const crc32 = bytes => { let c = 0xffffffff; for (const b of bytes) c = crcTable[(c ^ b) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+        const makeZip = files => {
+          const enc = new TextEncoder(); const locals = []; const centrals = []; let offset = 0;
+          for (const [name, text] of Object.entries(files)) {
+            const n = enc.encode(name); const d = enc.encode(text); const crc = crc32(d);
+            const l = new Uint8Array(30 + n.length + d.length); const lv = new DataView(l.buffer);
+            lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true); lv.setUint16(6, 0x0800, true); lv.setUint32(14, crc, true);
+            lv.setUint32(18, d.length, true); lv.setUint32(22, d.length, true); lv.setUint16(26, n.length, true); l.set(n, 30); l.set(d, 30 + n.length);
+            const c = new Uint8Array(46 + n.length); const cv = new DataView(c.buffer);
+            cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true); cv.setUint16(8, 0x0800, true); cv.setUint32(16, crc, true);
+            cv.setUint32(20, d.length, true); cv.setUint32(24, d.length, true); cv.setUint16(28, n.length, true); cv.setUint32(42, offset, true); c.set(n, 46);
+            locals.push(l); centrals.push(c); offset += l.length;
+          }
+          const size = centrals.reduce((sum, item) => sum + item.length, 0); const end = new Uint8Array(22); const ev = new DataView(end.buffer);
+          ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, centrals.length, true); ev.setUint16(10, centrals.length, true); ev.setUint32(12, size, true); ev.setUint32(16, offset, true);
+          const all = [...locals, ...centrals, end]; const out = new Uint8Array(all.reduce((sum, item) => sum + item.length, 0)); let at = 0;
+          all.forEach(item => { out.set(item, at); at += item.length; });
+          return out.buffer;
+        };
+        const xlsxFormats = [
+          [0, ''], [1, ''], [2, ''], [3, ''], [4, ''], [9, ''], [10, ''], [11, ''], [12, ''], [13, ''], [14, ''], [15, ''], [20, ''], [21, ''], [22, ''], [37, ''], [49, ''],
+          [164, '0.0" кг"'], [165, '[$€-407] #,##0.00'], [166, 'yyyy\\-mm\\-dd'], [167, '#,##0.00\\ [$₴-422]'], [168, '0.00E+00'], [169, 'hh:mm'], [170, 'dddd'], [171, '0.0%'], [172, '@']
+        ];
+        const xfXml = xlsxFormats.map(([id]) => `<xf numFmtId="${id}" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/>`).join('');
+        const customXml = xlsxFormats.filter(([, code]) => code).map(([id, code]) => `<numFmt numFmtId="${id}" formatCode="${code.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"/>`).join('');
+        const cellsXml = xlsxFormats.map(([, ], i) => `<c r="A${i + 1}" s="${i}"><v>${1234.5 + i}</v></c>`).join('');
+        const foreign = await api.importArrayBuffer(makeZip({
+          '[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>',
+          'xl/workbook.xml': '<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Ф" sheetId="1" r:id="rId1"/></sheets></workbook>',
+          'xl/_rels/workbook.xml.rels': '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+          'xl/styles.xml': `<?xml version="1.0"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="9">${customXml}</numFmts><fonts count="1"><font/></fonts><fills count="1"><fill/></fills><borders count="1"><border/></borders><cellXfs count="${xlsxFormats.length}">${xfXml}</cellXfs></styleSheet>`,
+          'xl/worksheets/sheet1.xml': `<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${xlsxFormats.map((_, i) => `<row r="${i + 1}">${cellsXml.match(new RegExp(`<c r="A${i + 1}".*?</c>`))[0]}</row>`).join('')}</sheetData></worksheet>`
+        }), 'foreign.xlsx');
+        const foreignStyles = foreign.payload.sheets[0].cellStyles;
+        const expectedForeign = ['', 'style-nf-num-0', 'style-nf-num-2', 'style-nf-num-0-t', 'style-nf-num-2-t', 'style-nf-pct-0', 'style-nf-pct-2', 'style-nf-sci-2', 'style-nf-frac-1', 'style-nf-frac-2',
+          'style-nf-date-dmy', 'style-nf-date-dmmmy', 'style-nf-time-hm', 'style-nf-time-hms', 'style-nf-date-dmyhm', 'style-nf-num-0-t', 'style-nf-text',
+          '', 'style-nf-cur-2-eur', 'style-nf-date-dmy', 'style-nf-cur-2-uah', 'style-nf-sci-2', 'style-nf-time-hm', '', 'style-nf-pct-1', 'style-nf-text'];
+        const wrongForeign = expectedForeign.map((token, i) => [i, token, foreignStyles[`A${i + 1}`] || '']).filter(([, want, got]) => want !== got);
+        check('built-in numFmtId and custom codes map to the number format model', wrongForeign.length === 0, JSON.stringify(wrongForeign));
+        check('dates and numbers from XLSX keep their numeric serial values', foreign.payload.sheets[0].cellData.A11 === '1244.5' && foreign.payload.sheets[0].cellData.A1 === '1234.5');
+        check('unknown custom formats stay General and are listed in the import warnings', !foreignStyles.A18 && !foreignStyles.A24
+          && foreign.warnings.some(w => w.includes('0.0" кг"')) && foreign.warnings.some(w => w.includes('dddd')) && foreign.warnings.length === 2, foreign.warnings.join(' | '));
 
         // Корпус сумісності: файли, створені Microsoft Excel, а не нашим exporter.
         const excelTypes = await api.importArrayBuffer(fixtureBuffers['excel-formulas-types.xlsx'], 'excel-formulas-types.xlsx');
@@ -121,9 +204,9 @@
           ]
         };
         const losses = api.describeExportLosses?.(lossyPayload) || [];
-        check('export losses name conditional formatting and the UAH format', losses.length === 2
-          && losses.some(line => line.includes('умовне форматування') && line.includes('Бюджет'))
-          && losses.some(line => line.includes('₴')), losses.join(' | '));
+        // Грошовий формат ₴ тепер експортується як numFmt, тож утратою лишається тільки умовне форматування.
+        check('export losses name only conditional formatting (the UAH format is exported)', losses.length === 1
+          && losses[0].includes('умовне форматування') && losses[0].includes('Бюджет'), losses.join(' | '));
 
         const win = frame.contentWindow;
         const doc = frame.contentDocument;

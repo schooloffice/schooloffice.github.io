@@ -4,7 +4,8 @@ function applyCellType(td, value) {
   td.classList.remove('cell-type-number', 'cell-type-text');
   const s = String(value ?? '').trim();
   if (s === '') return;
-  const isNumber = Number.isFinite(Number(s.replace(',', '.')));
+  // Текстовий формат (@) вирівнює значення як текст, навіть якщо воно схоже на число.
+  const isNumber = !td.classList.contains('style-nf-text') && Number.isFinite(Number(s.replace(',', '.')));
   td.classList.add(isNumber ? 'cell-type-number' : 'cell-type-text');
 }
 

@@ -158,7 +158,6 @@
     const borders = childrenByName(firstChild(doc.documentElement, 'borders'), 'border');
     const customFormats = new Map(childrenByName(firstChild(doc.documentElement, 'numFmts'), 'numFmt')
       .map(el => [Number(el.getAttribute('numFmtId')), el.getAttribute('formatCode') || '']));
-    const dateIds = new Set([14, 15, 16, 17, 22, 27, 30, 36, 45, 46, 47, 50, 57]);
     return childrenByName(firstChild(doc.documentElement, 'cellXfs'), 'xf').map(xf => {
       const classes = [];
       const font = fonts[Number(xf.getAttribute('fontId') || 0)];
@@ -178,21 +177,11 @@
       if (['left', 'center', 'right'].includes(alignment)) classes.push(`style-align-${alignment}`);
       const fmtId = Number(xf.getAttribute('numFmtId') || 0);
       const fmt = customFormats.get(fmtId) || '';
-      const isDate = dateIds.has(fmtId) || /[dmy]/i.test(fmt.replace(/\[[^\]]*\]|"[^"]*"/g, ''));
-      if (isDate) classes.push(/[hHsS]/.test(fmt) || fmtId === 22 ? 'style-num-datetime' : 'style-num-date');
-      else if (fmtId === 9 || fmtId === 10 || /%/.test(fmt)) classes.push('style-num-percent');
-      else if (fmtId === 2 || /0\.00/.test(fmt)) classes.push('style-num-fixed2');
-      else if (fmtId === 1 || fmt === '0') classes.push('style-num-int');
-      return { classes: [...new Set(classes)].join(' '), isDate };
+      // Формат числа: відомі коди стають класом style-nf-…; решта лишається Загальним і потрапляє в попередження.
+      const numberFormat = window.TablesNumberFormat?.fromExcel(fmtId, fmt) || {};
+      if (numberFormat.token) classes.push(numberFormat.token);
+      return { classes: [...new Set(classes)].join(' '), unknownFormat: numberFormat.unknown || '' };
     });
-  }
-
-  function excelDateToIso(serial, includeTime) {
-    const value = Number(serial);
-    if (!Number.isFinite(value)) return String(serial ?? '');
-    const millis = Math.round((value - 25569) * 86400000);
-    const iso = new Date(millis).toISOString();
-    return includeTime ? iso.slice(0, 19).replace('T', ' ') : iso.slice(0, 10);
   }
 
   function cellCoords(ref) {
@@ -255,7 +244,7 @@
       maxCol = Math.max(maxCol, coords.col);
       const type = cell.getAttribute('t') || '';
       const styleIndex = Number(cell.getAttribute('s') || 0);
-      const style = styles[styleIndex] || { classes: '', isDate: false };
+      const style = styles[styleIndex] || { classes: '', unknownFormat: '' };
       const formula = firstChild(cell, 'f')?.textContent;
       const raw = firstChild(cell, 'v')?.textContent ?? '';
       let value = raw;
@@ -263,9 +252,10 @@
       else if (type === 's') value = shared[Number(raw)] ?? '';
       else if (type === 'inlineStr') value = Array.from(cell.getElementsByTagNameNS('*', 't')).map(t => t.textContent || '').join('');
       else if (type === 'b') value = raw === '1' ? 'TRUE' : 'FALSE';
-      else if (style.isDate && raw !== '') value = excelDateToIso(raw, style.classes.includes('datetime'));
+      // Дата й час лишаються числом-серіалом (як в Excel); формат змінює лише показ.
       if (String(value).length > 200) value = String(value).slice(0, 200);
       if (value !== '') data[coords.ref] = String(value);
+      if (value !== '' && style.unknownFormat) warnings.add(`числовий формат ${style.unknownFormat} (показано як Загальний)`);
       if (style.classes) cellStyles[coords.ref] = style.classes;
     });
     const colWidths = {};
@@ -365,7 +355,7 @@
     chartsApi?.reportImportLosses(chartStats, warnings);
     const names = parseDefinedNames(workbook, sheets, sourceNames, warnings);
     return {
-      payload: { type: 'art-tables-workbook', version: 4, name: filename.replace(/\.xlsx$/i, ''), activeSheet: Math.max(0, Math.min(sheets.length - 1, activeTab)), sheets, names },
+      payload: { type: 'art-tables-workbook', version: 5, name: filename.replace(/\.xlsx$/i, ''), activeSheet: Math.max(0, Math.min(sheets.length - 1, activeTab)), sheets, names },
       warnings: [...warnings]
     };
   }
@@ -438,17 +428,16 @@
     const color = Object.keys(fontColors).find(key => set.has(key));
     const fill = Object.keys(fills).find(key => set.has(key));
     const align = ['left', 'center', 'right'].find(value => set.has(`style-align-${value}`)) || '';
-    let numFmtId = 0;
-    if (set.has('style-num-int')) numFmtId = 1;
-    else if (set.has('style-num-fixed2')) numFmtId = 2;
-    else if (set.has('style-num-percent')) numFmtId = 10;
-    else if (set.has('style-num-date')) numFmtId = 14;
-    else if (set.has('style-num-datetime')) numFmtId = 22;
-    return { bold: set.has('style-text-bold'), italic: set.has('style-text-italic'), underline: set.has('style-text-underline'), strike: set.has('style-text-strike'), color: fontColors[color] || '', fill: fills[fill] || '', border: set.has('style-border-all'), align, numFmtId };
+    // Формат числа (новий клас style-nf-… або старий style-num-*) → вбудований numFmtId або власний formatCode.
+    const nf = window.TablesNumberFormat;
+    const excelFormat = nf ? nf.toExcel(nf.specFromClasses(String(classString || ''))) : { id: 0, code: 'General' };
+    const numFmtId = excelFormat.id ?? 0;
+    const formatCode = excelFormat.id == null ? excelFormat.code : '';
+    return { bold: set.has('style-text-bold'), italic: set.has('style-text-italic'), underline: set.has('style-text-underline'), strike: set.has('style-text-strike'), color: fontColors[color] || '', fill: fills[fill] || '', border: set.has('style-border-all'), align, numFmtId, formatCode };
   }
 
   function buildStyles(sheets) {
-    const descriptors = [{ bold: false, italic: false, underline: false, strike: false, color: '', fill: '', border: false, align: '', numFmtId: 0 }];
+    const descriptors = [{ bold: false, italic: false, underline: false, strike: false, color: '', fill: '', border: false, align: '', numFmtId: 0, formatCode: '' }];
     const map = new Map([['', 0]]);
     sheets.forEach(sheet => Object.values(sheet.cellStyles || {}).forEach(value => {
       const d = styleDescriptor(value);
@@ -459,10 +448,16 @@
     const fillList = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>'];
     const fillIds = descriptors.map(d => { if (!d.fill) return 0; fillList.push(`<fill><patternFill patternType="solid"><fgColor rgb="FF${d.fill}"/><bgColor indexed="64"/></patternFill></fill>`); return fillList.length - 1; });
     const borderList = ['<border><left/><right/><top/><bottom/><diagonal/></border>', '<border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border>'];
-    const xfs = descriptors.map((d, i) => `<xf numFmtId="${d.numFmtId}" fontId="${i}" fillId="${fillIds[i]}" borderId="${d.border ? 1 : 0}" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1"${d.align ? ' applyAlignment="1"' : ''}>${d.align ? `<alignment horizontal="${d.align}"/>` : ''}</xf>`);
+    // Власні формати чисел: numFmtId від 164, кожен код записано один раз.
+    const customCodes = [...new Set(descriptors.map(d => d.formatCode).filter(Boolean))];
+    const numFmtIdOf = d => (d.formatCode ? 164 + customCodes.indexOf(d.formatCode) : d.numFmtId);
+    const numFmtsXml = customCodes.length
+      ? `<numFmts count="${customCodes.length}">${customCodes.map((code, i) => `<numFmt numFmtId="${164 + i}" formatCode="${xmlEscape(code)}"/>`).join('')}</numFmts>`
+      : '';
+    const xfs = descriptors.map((d, i) => `<xf numFmtId="${numFmtIdOf(d)}" fontId="${i}" fillId="${fillIds[i]}" borderId="${d.border ? 1 : 0}" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1"${d.align ? ' applyAlignment="1"' : ''}>${d.align ? `<alignment horizontal="${d.align}"/>` : ''}</xf>`);
     return {
       indexFor(value) { const key = JSON.stringify(styleDescriptor(value)); return map.get(key) ?? 0; },
-      xml: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="${fonts.length}">${fonts.join('')}</fonts><fills count="${fillList.length}">${fillList.join('')}</fills><borders count="${borderList.length}">${borderList.join('')}</borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`
+      xml: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${numFmtsXml}<fonts count="${fonts.length}">${fonts.join('')}</fonts><fills count="${fillList.length}">${fillList.join('')}</fills><borders count="${borderList.length}">${borderList.join('')}</borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`
     };
   }
 
@@ -515,8 +510,10 @@
       if (raw.startsWith('=')) cell = formulaCellXml(ref, s, raw.slice(1), cacheFor(raw.slice(1)));
       else {
         const dateSerial = isoToSerial(raw);
-        const isDateStyle = /style-num-date(?:time)?/.test(styleMap[ref] || '');
+        const nfKind = window.TablesNumberFormat?.specFromClasses(styleMap[ref] || '')?.kind;
+        const isDateStyle = nfKind === 'date' || nfKind === 'time';
         if (dateSerial != null && isDateStyle) cell = `<c r="${ref}" s="${s}"><v>${dateSerial}</v></c>`;
+        else if (nfKind === 'text') cell = `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(raw)}</t></is></c>`;
         else if (raw !== '' && Number.isFinite(Number(raw))) cell = `<c r="${ref}" s="${s}"><v>${Number(raw)}</v></c>`;
         else cell = `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(raw)}</t></is></c>`;
       }
@@ -604,11 +601,8 @@
 
   function currentPayload() {
     if (typeof syncActiveSheetFromGlobals === 'function') syncActiveSheetFromGlobals();
-    return { type: 'art-tables-workbook', version: 4, name: workbookName, activeSheet, sheets, names: workbookNames };
+    return { type: 'art-tables-workbook', version: 5, name: workbookName, activeSheet, sheets, names: workbookNames };
   }
-
-  // Дозволені класи оформлення, яких XLSX v1 не переносить (решту мапить styleDescriptor).
-  const XLSX_LOST_STYLE_CLASSES = { 'style-num-currency-uah': 'грошовий формат ₴' };
 
   // Що саме з ПОТОЧНОЇ книги не потрапить у XLSX. Об'єкти, відкинуті ще під час
   // імпорту XLSX, у книзі вже відсутні, тож їх тут не згадуємо й не обіцяємо.
@@ -621,15 +615,6 @@
       const rules = condSheets.reduce((sum, sheet) => sum + sheet.condRules.length, 0);
       losses.push(`умовне форматування (правил: ${rules}; аркуші: ${condSheets.map(sheet => sheet.name).join(', ')})`);
     }
-    Object.entries(XLSX_LOST_STYLE_CLASSES).forEach(([className, label]) => {
-      let cells = 0;
-      const names = [];
-      sheets.forEach(sheet => {
-        const count = Object.values(sheet.cellStyles || {}).filter(value => String(value).split(/\s+/).includes(className)).length;
-        if (count) { cells += count; names.push(sheet.name); }
-      });
-      if (cells) losses.push(`${label} (клітинок: ${cells}; аркуші: ${names.join(', ')}) — значення лишаться звичайними числами`);
-    });
     const brokenNames = (payload.names || []).filter(entry => !entry.sheet || !Array.isArray(entry.range));
     if (brokenNames.length) {
       losses.push(`іменовані діапазони з помилкою #REF! (${brokenNames.map(entry => entry.name).join(', ')}) — формули з ними в Excel покажуть #NAME?`);
