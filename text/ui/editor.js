@@ -37,6 +37,8 @@ const ArtEditor = (() => {
     _editor.addEventListener('beforeinput', _handleBeforeInput);
     _editor.addEventListener('input', _handleInput);
     _editor.addEventListener('paste', _handlePaste);
+    _editor.addEventListener('copy', _handleCopy);
+    _editor.addEventListener('cut', _handleCut);
     _editor.addEventListener('keydown', _handleKeydown);
     _editor.addEventListener('click', _handleClick);
     _editor.addEventListener('contextmenu', _handleTableContextMenu);
@@ -854,6 +856,32 @@ const ArtEditor = (() => {
 
   function _handleBeforeInput() {
     ArtSelection.remember(_editor);
+  }
+
+  // Копіювання й вирізання з клавіатури (Ctrl+C, Ctrl+X, Ctrl+Insert, Shift+Delete) і з меню
+  // браузера. Події copy/cut пишуть у буфер без окремого дозволу сайту. У буфер іде
+  // простий текст виділення, як і раніше: без службової розмітки аркушів.
+  function _writeSelectionToClipboard(e) {
+    const data = e.clipboardData;
+    const range = ArtSelection.getRange(_editor);
+    if (!data || !range || range.collapsed) return false;
+    e.preventDefault();
+    data.setData('text/plain', range.toString());
+    return true;
+  }
+
+  function _handleCopy(e) {
+    _writeSelectionToClipboard(e);
+  }
+
+  function _handleCut(e) {
+    if (!_writeSelectionToClipboard(e)) return;
+    const range = ArtSelection.getRange(_editor);
+    range.deleteContents();
+    ArtSelection.normalizeEditor(_editor);
+    _editor.dispatchEvent(new Event('input', { bubbles: true }));
+    requestAnimationFrame(() => ArtHistory.pushNow());
+    ArtToolbar.updateState();
   }
 
   // Вставка з клавіатури (Ctrl+V, Shift+Insert) і з меню браузера. Подія paste дає

@@ -153,15 +153,10 @@ window.TextApp.boot = async () => {
       p: () => window.print(),
       f: () => ArtFind.open('find'),
       h: () => ArtFind.open('replace'),
-      a: () => ArtSelection.selectAll(editor),
-      c: () => ArtSelection.copy(editor),
-      x: async () => {
-        await ArtSelection.cut(editor);
-        editor.dispatchEvent(new Event('input', { bubbles: true }));
-        requestAnimationFrame(() => ArtHistory.pushNow());
-      }
-      // Ctrl+V тут не перехоплюється: браузер сам надсилає подію paste, і її обробляє
-      // ArtEditor. Читання буфера через navigator.clipboard потребувало б дозволу.
+      a: () => ArtSelection.selectAll(editor)
+      // Ctrl+C, Ctrl+X і Ctrl+V тут не перехоплюються: браузер сам надсилає події copy,
+      // cut і paste, і їх обробляє ArtEditor. Робота з буфером через navigator.clipboard
+      // потребувала б дозволу сайту.
     };
 
     if (!map[key]) return;
